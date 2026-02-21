@@ -5,7 +5,7 @@
 
 #include <map>
 
-#define LLAMA_MAX_EXPERTS 384  // Kimi-K2
+#define LLAMA_MAX_EXPERTS 1024  // Qwen3 Next: 512, keep some headroom
 
 static const std::map<llama_rope_scaling_type, const char *> LLAMA_ROPE_SCALING_TYPES = {
     { LLAMA_ROPE_SCALING_TYPE_NONE,   "none"   },
@@ -83,6 +83,7 @@ void llm_load_hparams(
     std::fill(hparams.n_head_arr.begin(),    hparams.n_head_arr.end(),    0);
     std::fill(hparams.n_head_kv_arr.begin(), hparams.n_head_kv_arr.end(), 0);
     std::fill(hparams.n_ff_arr.begin(),      hparams.n_ff_arr.end(),      0);
+    std::fill(hparams.recurrent_layer_arr.begin(), hparams.recurrent_layer_arr.end(), false);
 
     ml.get_key_or_arr(LLM_KV_FEED_FORWARD_LENGTH,  hparams.n_ff_arr,   hparams.n_layer);
     ml.get_key_or_arr(LLM_KV_ATTENTION_HEAD_COUNT, hparams.n_head_arr, hparams.n_layer);
@@ -467,6 +468,28 @@ void llm_load_hparams(
                 // since vision model stacks deepstack features along feature dim
                 // we also create a fake "n_embd" for text model to be the main embd + deepstack embds
                 hparams.n_embd *= hparams.n_deepstack_layers + 1;
+            } break;
+        case LLM_ARCH_QWEN3NEXT:
+            {
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp,   false);
+                ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
+
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+
+                ml.get_key(LLM_KV_SSM_CONV_KERNEL,    hparams.ssm_d_conv);
+                ml.get_key(LLM_KV_SSM_INNER_SIZE,     hparams.ssm_d_inner);
+                ml.get_key(LLM_KV_SSM_STATE_SIZE,     hparams.ssm_d_state);
+                ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
+                ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
+
+                // Mark recurrent layers (linear attention layers)
+                uint32_t full_attn_interval = 4;
+                ml.get_key(LLM_KV_FULL_ATTENTION_INTERVAL, full_attn_interval, false);
+                for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+                    hparams.recurrent_layer_arr[i] = ((i + 1) % full_attn_interval != 0);
+                }
+
+                model.type = e_model::MODEL_UNKNOWN;
             } break;
         case LLM_ARCH_PHI2:
             {

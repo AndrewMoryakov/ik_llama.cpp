@@ -156,6 +156,7 @@ struct llama_layer {
     struct ggml_tensor * wv = nullptr;
     struct ggml_tensor * wo = nullptr;
     struct ggml_tensor * wqkv = nullptr;
+    struct ggml_tensor * wqkv_gate = nullptr; // Qwen3-Next linear attn gate projection
     struct ggml_tensor * wqk  = nullptr;
     struct ggml_tensor * wkv  = nullptr;
     struct ggml_tensor * wq_a = nullptr;
@@ -285,6 +286,8 @@ struct llama_layer {
     struct ggml_tensor * ssm_in = nullptr;
     struct ggml_tensor * ssm_x = nullptr;
     struct ggml_tensor * ssm_dt = nullptr;
+    struct ggml_tensor * ssm_beta_alpha = nullptr; // Qwen3-Next beta+alpha projection
+    struct ggml_tensor * ssm_norm = nullptr;       // Qwen3-Next gated RMS norm weight
     struct ggml_tensor * ssm_out = nullptr;
 
     // mamba

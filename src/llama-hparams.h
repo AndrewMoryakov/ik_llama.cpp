@@ -85,6 +85,10 @@ struct llama_hparams {
     uint32_t ssm_d_inner = 0;
     uint32_t ssm_d_state = 0;
     uint32_t ssm_dt_rank = 0;
+    uint32_t ssm_n_group = 0;
+
+    // for hybrid state space models (e.g. Qwen3-Next)
+    std::array<bool, LLAMA_MAX_LAYERS> recurrent_layer_arr;
 
     float f_clamp_kqv      = 0.0f;
     float f_max_alibi_bias = 0.0f;
@@ -132,7 +136,7 @@ struct llama_hparams {
         if (this->n_layer       != other.n_layer)       return true;
         if (this->n_rot         != other.n_rot)         return true;
         if (this->n_swa         != other.n_swa)         return true;
-        if (this->n_swa_pattern != other.n_swa_pattern) return false;
+        if (this->n_swa_pattern != other.n_swa_pattern) return true;
         if (this->n_embd_head_k != other.n_embd_head_k) return true;
         if (this->n_embd_head_v != other.n_embd_head_v) return true;
         if (this->n_expert      != other.n_expert)      return true;
@@ -157,6 +161,8 @@ struct llama_hparams {
         if (this->ssm_d_inner != other.ssm_d_inner) return true;
         if (this->ssm_d_state != other.ssm_d_state) return true;
         if (this->ssm_dt_rank != other.ssm_dt_rank) return true;
+        if (this->ssm_n_group != other.ssm_n_group) return true;
+        if (this->recurrent_layer_arr != other.recurrent_layer_arr) return true;
 
         if (this->dec_start_token_id != other.dec_start_token_id) return true;
 
@@ -243,6 +249,38 @@ struct llama_hparams {
     uint32_t n_embd_v_s() const { // dimension of the recurrent state embeddings
         // corresponds to Mamba's ssm_states size
         return ssm_d_state * ssm_d_inner;
+    }
+
+    uint32_t n_embd_r() const { // dimension of the rolling state embeddings (hybrid SSM)
+        if (ssm_d_conv == 0) {
+            return 0;
+        }
+
+        // Qwen3-Next: conv_channels = d_inner + 2 * n_group * d_state
+        if (ssm_n_group > 0) {
+            return (ssm_d_conv - 1) * (ssm_d_inner + 2 * ssm_n_group * ssm_d_state);
+        }
+
+        // Mamba: conv_channels = d_inner
+        return n_embd_k_s();
+    }
+
+    uint32_t n_embd_s() const { // dimension of the recurrent state embeddings (hybrid SSM)
+        // Qwen3-Next: state is [d_state, d_state, n_v_heads]
+        if (ssm_n_group > 0) {
+            return ssm_d_state * ssm_d_state * ssm_dt_rank;
+        }
+
+        // Mamba: state is [d_state, d_inner]
+        return n_embd_v_s();
+    }
+
+    bool is_recurrent(uint32_t il) const {
+        if (il < n_layer) {
+            return recurrent_layer_arr[il];
+        }
+
+        GGML_ABORT("fatal error");
     }
 
     static bool is_float_close(float a, float b, float abs_tol) {

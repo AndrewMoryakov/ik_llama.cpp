@@ -29,6 +29,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_QWEN3MOE,        "qwen3moe"     },
     { LLM_ARCH_QWEN3VL,         "qwen3vl"      },
     { LLM_ARCH_QWEN3VLMOE,      "qwen3vlmoe"   },
+    { LLM_ARCH_QWEN3NEXT,       "qwen3next"    },
     { LLM_ARCH_PHI2,            "phi2"         },
     { LLM_ARCH_PHI3,            "phi3"         },
     { LLM_ARCH_PLAMO,           "plamo"        },
@@ -74,6 +75,11 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
 };
 
 llm_arch llm_arch_from_string(const std::string & name) {
+    // Accept common punctuation variants found in the wild.
+    if (name == "qwen3-next" || name == "qwen3_next") {
+        return LLM_ARCH_QWEN3NEXT;
+    }
+
     for (const auto & kv : LLM_ARCH_NAMES) { // NOLINT
         if (kv.second == name) {
             return kv.first;
@@ -127,6 +133,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_EMBEDDING_SCALE,                   "%s.embedding_scale"                   },
     { LLM_KV_TOKEN_SHIFT_COUNT,                 "%s.token_shift_count"                 },
     { LLM_KV_INTERLEAVE_MOE_LAYER_STEP,         "%s.interleave_moe_layer_step"         },
+    { LLM_KV_FULL_ATTENTION_INTERVAL,           "%s.full_attention_interval"           },
 
     { LLM_KV_ATTENTION_HEAD_COUNT,             "%s.attention.head_count"             },
     { LLM_KV_ATTENTION_HEAD_COUNT_KV,          "%s.attention.head_count_kv"          },
@@ -173,6 +180,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_SSM_INNER_SIZE,                "%s.ssm.inner_size"     },
     { LLM_KV_SSM_STATE_SIZE,                "%s.ssm.state_size"     },
     { LLM_KV_SSM_TIME_STEP_RANK,            "%s.ssm.time_step_rank" },
+    { LLM_KV_SSM_GROUP_COUNT,               "%s.ssm.group_count"    },
 
     { LLM_KV_TOKENIZER_MODEL,                "tokenizer.ggml.model"                    },
     { LLM_KV_TOKENIZER_PRE,                  "tokenizer.ggml.pre"                      },

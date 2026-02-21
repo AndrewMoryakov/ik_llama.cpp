@@ -125,6 +125,7 @@ struct llama_context {
     struct llama_cparams        cparams;
     struct llama_sampling       sampling;
     struct llama_kv_cache       kv_self;
+    struct llama_kv_cache       kv_state; // hybrid recurrent state cache (e.g. Qwen3-Next)
     struct llama_control_vector cvec;
 
     std::vector<float> scale_data;

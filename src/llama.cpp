@@ -544,6 +544,7 @@ struct llama_context::Prev {
     int all_seq_id;
     int n_outputs;
     int n_kv;
+    int kv_state_head;
     ggml_cgraph * graph;
 };
 
@@ -557,6 +558,10 @@ bool llama_context::can_reuse_graph(const llama_batch & u_batch) {
     if (u_batch.n_tokens > 1) return false;
     if (u_batch.embd) return false;
     if (!cparams.graph_reuse) return false;
+    if (model.arch == LLM_ARCH_QWEN3NEXT) {
+        if (!kv_state.recurrent) return false;
+        if ((int) kv_state.head != prev->kv_state_head) return false;
+    }
     return u_batch.all_seq_id == prev->all_seq_id &&
            kv_self.head > 0 &&
            kv_self.n == prev->n_kv &&
@@ -749,7 +754,7 @@ static bool llama_kv_cache_init(
 
     int n_mla = 0;
     for (int i = 0; i < (int) n_layer; i++) {
-        const uint32_t n_embd_v_gqa = hparams.n_embd_v_gqa(i) + hparams.n_embd_v_s();
+        const uint32_t n_embd_v_gqa = cache.recurrent ? hparams.n_embd_v_s() : hparams.n_embd_v_gqa(i);
         const uint32_t n_head_kv    = hparams.n_head_kv(i);
         const uint32_t n_embd_head_k= hparams.n_embd_head_k;
 
@@ -887,6 +892,99 @@ static bool llama_kv_cache_init(
         }
     }
 #endif
+
+    return true;
+}
+
+static bool llama_kv_cache_init_state(
+        struct llama_kv_cache & cache,
+          const llama_context * ctx,
+                      uint32_t kv_size) {
+    const llama_model & model = ctx->model;
+    const llama_hparams & hparams = model.hparams;
+
+    const int64_t n_layer = hparams.n_layer - hparams.nextn_predict_layers;
+
+    cache.has_shift = false;
+    cache.recurrent = true;
+    cache.v_trans   = false;
+
+    cache.head = 0;
+    cache.size = kv_size;
+    cache.used = 0;
+
+    cache.type_k = GGML_TYPE_F32;
+    cache.type_v = GGML_TYPE_F32;
+
+    cache.cells.clear();
+    cache.cells.resize(kv_size);
+
+    // init state copy sources
+    for (uint32_t i = 0; i < cache.size; ++i) {
+        cache.cells[i].src = i;
+    }
+
+    // allocate tensors only for recurrent layers
+    cache.k_l.assign(n_layer, nullptr);
+    cache.v_l.assign(n_layer, nullptr);
+
+    const uint32_t n_embd_r = hparams.n_embd_r();
+    const uint32_t n_embd_s = hparams.n_embd_s();
+
+    if (n_embd_r == 0 || n_embd_s == 0) {
+        LLAMA_LOG_ERROR("%s: invalid recurrent state dims (n_embd_r=%u, n_embd_s=%u)\n", __func__, n_embd_r, n_embd_s);
+        return false;
+    }
+
+    // single CPU buffer/context (state cache is always F32)
+    const size_t ctx_mem_size = 5u*n_layer*ggml_tensor_overhead();
+    const struct ggml_init_params params = {
+        /*.mem_size   =*/ ctx_mem_size,
+        /*.mem_buffer =*/ NULL,
+        /*.no_alloc   =*/ true,
+    };
+
+    ggml_context * ctx_state = ggml_init(params);
+    if (!ctx_state) {
+        LLAMA_LOG_ERROR("%s: failed to allocate context for state kv cache\n", __func__);
+        return false;
+    }
+    cache.ctxs.push_back(ctx_state);
+
+    for (int64_t il = 0; il < n_layer; ++il) {
+        if (!hparams.is_recurrent(il)) {
+            continue;
+        }
+
+        ggml_tensor * r = ggml_new_tensor_1d(ctx_state, cache.type_k, (int64_t) n_embd_r * kv_size);
+        ggml_tensor * s = ggml_new_tensor_1d(ctx_state, cache.type_v, (int64_t) n_embd_s * kv_size);
+
+        ggml_format_name(r, "state_r_l%" PRId64, il);
+        ggml_format_name(s, "state_s_l%" PRId64, il);
+
+        cache.k_l[il] = r;
+        cache.v_l[il] = s;
+    }
+
+    // allocate tensors and initialize the buffers to avoid NaNs
+    int ntensor = 0;
+    for (auto t = ggml_get_first_tensor(ctx_state); t != NULL; t = ggml_get_next_tensor(ctx_state, t)) {
+        ++ntensor;
+    }
+
+    if (ntensor > 0) {
+        ggml_backend_buffer_type_t buft = llama_default_buffer_type_cpu(true);
+        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx_state, buft);
+        if (!buf) {
+            LLAMA_LOG_ERROR("%s: failed to allocate buffer for state kv cache\n", __func__);
+            return false;
+        }
+        ggml_backend_buffer_clear(buf, 0);
+        LLAMA_LOG_INFO("%s: %10s state KV buffer size = %8.2f MiB\n", __func__,
+                ggml_backend_buffer_name(buf),
+                ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+        cache.bufs.push_back(buf);
+    }
 
     return true;
 }
@@ -2709,8 +2807,15 @@ static void llama_set_inputs(llama_context & lctx, const llama_batch & batch) {
         }
     }
 
-    if (kv_self.recurrent) {
-        const int64_t n_kv = kv_self.n;
+    struct llama_kv_cache * kv_recurrent = nullptr;
+    if (lctx.kv_self.recurrent) {
+        kv_recurrent = &lctx.kv_self;
+    } else if (lctx.kv_state.recurrent) {
+        kv_recurrent = &lctx.kv_state;
+    }
+
+    if (kv_recurrent) {
+        const int64_t n_kv = kv_recurrent->n;
 
         if (lctx.inp_s_mask) {
             GGML_ASSERT(ggml_backend_buffer_is_host(lctx.inp_s_mask->buffer));
@@ -2718,8 +2823,8 @@ static void llama_set_inputs(llama_context & lctx, const llama_batch & batch) {
 
             // states which are not affected by the current batch are left untouched
             for (int i = 0; i < n_kv; ++i) {
-                llama_seq_id    seq_id       = i + lctx.kv_self.head;
-                llama_kv_cell & kv_cell      = lctx.kv_self.cells[seq_id];
+                llama_seq_id    seq_id       = i + kv_recurrent->head;
+                llama_kv_cell & kv_cell      = kv_recurrent->cells[seq_id];
                 bool            has_self_seq = kv_cell.has_seq_id(seq_id);
 
                 data[i] = (float) has_self_seq;
@@ -2747,7 +2852,7 @@ static void llama_set_inputs(llama_context & lctx, const llama_batch & batch) {
                 for (int i = 0; i < n_kv; ++i) {
                     if (i < n_seq) {
                         // for this type of model, the head is the minimum seq_id of the batch
-                        data[j*n_kv + i] = batch.seq_id[j][i] - kv_self.head;
+                        data[j*n_kv + i] = batch.seq_id[j][i] - kv_recurrent->head;
                     } else {
                         data[j*n_kv + i] = -1;
                     }
@@ -2961,7 +3066,7 @@ static int llama_decode_internal(
     uint32_t n_outputs = 0;
     uint32_t n_outputs_prev = 0;
 
-    const auto n_ubatch = cparams.n_ubatch;
+    const uint32_t n_ubatch = model.arch == LLM_ARCH_QWEN3NEXT ? 1 : cparams.n_ubatch;
 
     // TODO: simplify or deprecate
     std::vector<llama_pos> pos;
@@ -3089,6 +3194,12 @@ static int llama_decode_internal(
                 return 1;
             }
 
+            if (model.arch == LLM_ARCH_QWEN3NEXT && lctx.kv_state.recurrent) {
+                if (!llama_kv_cache_find_slot(lctx.kv_state, u_batch)) {
+                    return 1;
+                }
+            }
+
             if (!kv_self.recurrent) {
                 // a heuristic, to avoid attending the full cache if it is not yet utilized
                 // after enough generations, the benefit from this heuristic disappears
@@ -3146,8 +3257,9 @@ static int llama_decode_internal(
             printf("sched_alloc_graph(...): %d us\n", int(tim2-tim1));
 #endif
             if (u_batch.n_tokens == 1 && u_batch.embd == nullptr && lctx.cparams.graph_reuse) {
+                const int kv_state_head = model.arch == LLM_ARCH_QWEN3NEXT && lctx.kv_state.recurrent ? (int) lctx.kv_state.head : -1;
                 lctx.prev = std::make_unique<llama_context::Prev>(llama_context::Prev{
-                        (int)u_batch.all_seq_id, (int)lctx.n_outputs, (int)lctx.kv_self.n, gf});
+                        (int)u_batch.all_seq_id, (int)lctx.n_outputs, (int)lctx.kv_self.n, kv_state_head, gf});
             }
         } else {
             //printf("Reusing graph\n");
@@ -3798,6 +3910,9 @@ static int32_t llama_kv_cache_update_internal(struct llama_context & lctx) {
         // TODO: extract to a function
         // build worst-case graph
         int n_tokens = (int)std::min(lctx.cparams.n_ctx, lctx.cparams.n_ubatch);
+        if (lctx.model.arch == LLM_ARCH_QWEN3NEXT) {
+            n_tokens = 1;
+        }
         int n_past = lctx.cparams.n_ctx - n_tokens;
         llama_token token = llama_token_bos(&lctx.model); // not actually used by llama_build_graph, but required to choose between token and embedding inputs graph
         ggml_cgraph * gf = llm_build_context::llama_build_graph(lctx, llama_batch_get_one(&token, n_tokens, n_past, 0), true);
@@ -4594,6 +4709,7 @@ struct llama_context * llama_new_context_with_model(
     ctx->is_encoding  = llama_model_has_encoder(model);
 
     uint32_t kv_size = cparams.n_ctx;
+    uint32_t kv_size_state = 0;
     ggml_type type_k = params.type_k;
     ggml_type type_v = params.type_v;
 
@@ -4604,6 +4720,11 @@ struct llama_context * llama_new_context_with_model(
         // it's probably best to keep as much precision as possible for the states
         type_k = GGML_TYPE_F32; // required by ggml_ssm_conv for Mamba's conv_states
         type_v = GGML_TYPE_F32; // required by ggml_ssm_scan for Mamba's ssm_states
+    }
+
+    // Qwen3-Next needs a second recurrent state cache (one cell per sequence)
+    if (model->arch == LLM_ARCH_QWEN3NEXT) {
+        kv_size_state = std::max((uint32_t) 1, params.n_seq_max);
     }
 
     GGML_ASSERT(hparams.n_embd_head_k % ggml_blck_size(type_k) == 0);
@@ -4784,6 +4905,32 @@ struct llama_context * llama_new_context_with_model(
             return nullptr;
         }
 
+        if (model->arch == LLM_ARCH_QWEN3NEXT) {
+            if (!llama_kv_cache_init_state(ctx->kv_state, ctx, kv_size_state)) {
+                LLAMA_LOG_ERROR("%s: llama_kv_cache_init_state() failed for recurrent state cache\n", __func__);
+                llama_free(ctx);
+                return nullptr;
+            }
+
+            size_t memory_size_r = 0;
+            size_t memory_size_s = 0;
+
+            for (auto * k : ctx->kv_state.k_l) {
+                if (k) memory_size_r += ggml_nbytes(k);
+            }
+
+            for (auto * v : ctx->kv_state.v_l) {
+                if (v) memory_size_s += ggml_nbytes(v);
+            }
+
+            if (memory_size_r + memory_size_s > 0) {
+                LLAMA_LOG_INFO("%s: KV state size = %7.2f MiB, R (f32): %7.2f MiB, S (f32): %7.2f MiB\n", __func__,
+                        (float)(memory_size_r + memory_size_s) / (1024.0f * 1024.0f),
+                        (float)memory_size_r / (1024.0f * 1024.0f),
+                        (float)memory_size_s / (1024.0f * 1024.0f));
+            }
+        }
+
         {
             size_t memory_size_k = 0;
             size_t memory_size_v = 0;
@@ -4868,6 +5015,9 @@ struct llama_context * llama_new_context_with_model(
 
             // build worst-case graph
             int n_tokens = (int)std::min(cparams.n_ctx, cparams.n_ubatch);
+            if (model->arch == LLM_ARCH_QWEN3NEXT) {
+                n_tokens = 1;
+            }
             int n_past = cparams.n_ctx - n_tokens;
             llama_token token = llama_token_bos(&ctx->model); // not actually used by llama_build_graph, but required to choose between token and embedding inputs graph
             ggml_cgraph * gf = llm_build_context::llama_build_graph(*ctx, llama_batch_get_one(&token, n_tokens, n_past, 0), true);
@@ -5411,10 +5561,17 @@ int32_t llama_get_kv_cache_used_cells(const struct llama_context * ctx) {
 
 void llama_kv_cache_clear(struct llama_context * ctx) {
     llama_kv_cache_clear(ctx->kv_self);
+    if (ctx->kv_state.recurrent) {
+        llama_kv_cache_clear(ctx->kv_state);
+    }
 }
 
 bool llama_kv_cache_seq_rm(struct llama_context * ctx, llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
-    return llama_kv_cache_seq_rm(ctx->kv_self, seq_id, p0, p1);
+    bool ok = llama_kv_cache_seq_rm(ctx->kv_self, seq_id, p0, p1);
+    if (ctx->kv_state.recurrent) {
+        ok = llama_kv_cache_seq_rm(ctx->kv_state, seq_id, p0, p1) && ok;
+    }
+    return ok;
 }
 
 void llama_kv_cache_seq_cp(struct llama_context * ctx, llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) {
