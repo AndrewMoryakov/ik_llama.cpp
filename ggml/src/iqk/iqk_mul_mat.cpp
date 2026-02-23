@@ -711,6 +711,17 @@ extern "C" IQK_API bool iqk_mul_mat_moe(long Nx, long Ny, long ne00, int ne11,
             this_info.s += ix;
             int this_nrc_x = ix + k_x_step <= nrc_x ? k_x_step : nrc_x - ix;
             if (f.size() < row_size_qx*this_nrc_x) f.resize(row_size_qx*this_nrc_x);
+#if defined(__x86_64__)
+            // Prefetch next chunk of weight data into L2 while dequantizing current chunk
+            if (ix + k_x_step < nrc_x) {
+                const char * next_src = (const char *)A + (first_x + ix + k_x_step)*strideA;
+                size_t pf_bytes = (size_t)k_x_step * strideA;
+                if (pf_bytes > 262144) pf_bytes = 262144;
+                for (size_t off = 0; off < pf_bytes; off += 1024) {
+                    _mm_prefetch(next_src + off, _MM_HINT_T1);
+                }
+            }
+#endif
             if (!iqk_convert_repack(typeA, ne00, (const char *)A + (first_x + ix)*strideA, strideA, f.data(), ne00, this_nrc_x)) {
                 GGML_ABORT("Fatal error");
             }
@@ -776,6 +787,19 @@ extern "C" IQK_API bool iqk_moe_fused_up_gate(long Nx, long Ny, long ne00, int n
                 this_info.s += ix;
                 int this_nrc_x = ix + k_x_step <= nrc_x ? k_x_step : nrc_x - ix;
                 if (f.size() < 2*row_size_qx*this_nrc_x) f.resize(2*row_size_qx*this_nrc_x);
+#if defined(__x86_64__)
+                // Prefetch next chunk of up and gate weight data into L2
+                if (ix + k_x_step < nrc_x) {
+                    const char * next_up   = (const char *)Aup   + (first_x + ix + k_x_step)*strideA;
+                    const char * next_gate = (const char *)Agate + (first_x + ix + k_x_step)*strideA;
+                    size_t pf_bytes = (size_t)k_x_step * strideA;
+                    if (pf_bytes > 262144) pf_bytes = 262144;
+                    for (size_t off = 0; off < pf_bytes; off += 1024) {
+                        _mm_prefetch(next_up   + off, _MM_HINT_T1);
+                        _mm_prefetch(next_gate + off, _MM_HINT_T1);
+                    }
+                }
+#endif
                 auto Xu = f.data();
                 auto Xg = f.data() + row_size_qx*this_nrc_x;
                 if (!iqk_convert_repack(typeA, ne00, (const char *)Aup   + (first_x + ix)*strideA, strideA, Xu, ne00, this_nrc_x)) {

@@ -2208,6 +2208,17 @@ static bool llm_load_tensors(
                 if (it.second->type != orig_type) ++n_repacked;
             }
         }
+        // Update view tensor types to match their repacked source tensors.
+        // When rtr repacks a parent tensor (e.g. ffn_up_gate_exps), the type changes
+        // (e.g. Q4_K -> Q4_K_R4) but view tensors (ffn_up_exps, ffn_gate_exps) are
+        // skipped and retain the old type. This causes GGML_ASSERT failures later in
+        // llama_repack_up_gate_exps() which checks type consistency.
+        // Row sizes are identical for repacked types, so nb[] remains valid.
+        for (auto& it : model.tensors_by_name) {
+            if (it.second->view_src && it.second->type != it.second->view_src->type) {
+                it.second->type = it.second->view_src->type;
+            }
+        }
         if (n_repacked > 0) printf("============ Repacked %d tensors\n", n_repacked);
     }
 

@@ -43,6 +43,31 @@
 
 #define IK_PRINT_TIMING 0
 
+// Expert prefetch: issue software prefetch hints for next expert's weights
+// while computing the current expert. Overlaps memory reads with compute
+// to reduce the memory-latency bottleneck in MoE token generation.
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#include <immintrin.h>
+#define GGML_PREFETCH(addr) _mm_prefetch((const char *)(addr), _MM_HINT_T1)
+#elif defined(__x86_64__) || defined(__i386__)
+#define GGML_PREFETCH(addr) __builtin_prefetch((const void *)(addr), 0, 2)
+#elif defined(__aarch64__)
+#define GGML_PREFETCH(addr) __builtin_prefetch((const void *)(addr), 0, 2)
+#else
+#define GGML_PREFETCH(addr) ((void)(addr))
+#endif
+
+// Prefetch up to `max_bytes` of memory starting at `base`, with `stride` bytes between hints.
+// For Zen4: stride=1024 covers 16 cache lines per hint, targeting L2 (1MB/core).
+static inline void ggml_prefetch_range(const void * base, size_t max_bytes) {
+    const size_t stride = 1024;  // 16 cache lines (64 bytes each)
+    const char * p = (const char *)base;
+    const char * end = p + (max_bytes < 262144 ? max_bytes : 262144);  // cap at 256 KB
+    for (; p < end; p += stride) {
+        GGML_PREFETCH(p);
+    }
+}
+
 #ifdef GGML_USE_OPENMP
 #include <omp.h>
 #endif
@@ -17118,6 +17143,17 @@ static void ggml_compute_forward_mul_mat_id(
             continue;
         }
 
+        // Prefetch next active expert's weights while computing current expert.
+        // This overlaps memory reads with compute, reducing bandwidth latency for MoE TG.
+        if (ith == 0) {
+            for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
+                if (matrix_row_counts[next_a] > 0) {
+                    ggml_prefetch_range((const char *)src0->data + next_a*nb02, (size_t)nb02);
+                    break;
+                }
+            }
+        }
+
         const char * src0_cur = (const char *) src0->data + cur_a*nb02;
 
         const void * wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
@@ -17390,6 +17426,19 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
 
         if (cne1 == 0) {
             continue;
+        }
+
+        // Prefetch next active expert's up and gate weights while computing current expert.
+        if (ith == 0) {
+            for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
+                if (matrix_row_counts[next_a] > 0) {
+                    ggml_prefetch_range((const char *)src0_1->data + next_a*nb02, (size_t)nb02);
+                    if (src0_2) {
+                        ggml_prefetch_range((const char *)src0_2->data + next_a*nb02, (size_t)nb02);
+                    }
+                    break;
+                }
+            }
         }
 
         const char * src0_1_cur = (const char *) src0_1->data + cur_a*nb02;
