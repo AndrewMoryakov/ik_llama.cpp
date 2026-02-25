@@ -1,0 +1,655 @@
+#!/usr/bin/env python3
+"""
+ik_llama.cpp Dashboard Server
+Lightweight local API server for the dashboard.
+No external dependencies — stdlib only.
+
+Endpoints:
+  GET  /                  — serves dashboard.html
+  GET  /api/system-info   — CPU cores, RAM, OS
+  POST /api/file-info     — file size for a given path
+  POST /api/scan-models   — find .gguf files in a directory
+  POST /api/browse        — native OS file picker dialog
+  POST /api/browse-dir    — native OS directory picker dialog
+  POST /api/launch        — launch llama-cli or llama-server
+  GET  /api/status        — running process status + recent output
+  POST /api/stop          — stop the running process
+  GET  /api/output        — full stdout/stderr buffer
+"""
+
+import http.server
+import json
+import os
+import pathlib
+import platform
+import signal
+import subprocess
+import sys
+import threading
+import time
+import ctypes
+from collections import deque
+from urllib.parse import urlparse, parse_qs
+
+# ── Config ──────────────────────────────────────────────────────
+HOST = "127.0.0.1"
+PORT = 7860
+DASHBOARD_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+BUILD_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build", "bin")
+
+# ── Process Manager ─────────────────────────────────────────────
+class ProcessManager:
+    def __init__(self):
+        self.proc = None
+        self.cmd = ""
+        self.started_at = None
+        self.output_buf = deque(maxlen=5000)  # last 5000 lines
+        self._reader_thread = None
+        self._lock = threading.Lock()
+
+    @property
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def launch(self, args, cwd=None):
+        with self._lock:
+            if self.running:
+                return False, "Process already running. Stop it first."
+            self.output_buf.clear()
+            self.cmd = " ".join(args)
+            try:
+                self.proc = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    cwd=cwd or BUILD_BIN,
+                    bufsize=1,
+                    universal_newlines=True,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+                )
+            except FileNotFoundError as e:
+                return False, f"Executable not found: {e}"
+            except Exception as e:
+                return False, str(e)
+            self.started_at = time.time()
+            self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+            self._reader_thread.start()
+            return True, f"Launched PID {self.proc.pid}"
+
+    def stop(self):
+        with self._lock:
+            if not self.running:
+                return False, "No process running."
+            try:
+                if os.name == "nt":
+                    self.proc.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=3)
+            except Exception:
+                self.proc.kill()
+            return True, "Process stopped."
+
+    def status(self):
+        return {
+            "running": self.running,
+            "pid": self.proc.pid if self.proc else None,
+            "cmd": self.cmd,
+            "uptime_s": round(time.time() - self.started_at, 1) if self.started_at and self.running else None,
+            "exit_code": self.proc.returncode if self.proc and not self.running else None,
+            "output_lines": len(self.output_buf),
+            "last_lines": list(self.output_buf)[-30:],
+        }
+
+    def get_output(self, offset=0):
+        buf = list(self.output_buf)
+        return buf[offset:]
+
+    def _read_output(self):
+        try:
+            for line in self.proc.stdout:
+                self.output_buf.append(line.rstrip("\n\r"))
+        except Exception:
+            pass
+
+
+pm = ProcessManager()
+
+
+# ── System Info ─────────────────────────────────────────────────
+def get_system_info():
+    info = {
+        "os": platform.system(),
+        "os_version": platform.version(),
+        "arch": platform.machine(),
+        "cpu_name": platform.processor() or "unknown",
+        "logical_cores": os.cpu_count() or 0,
+        "physical_cores": None,
+        "total_ram_gb": None,
+    }
+
+    # Try to get physical cores and RAM
+    if platform.system() == "Windows":
+        try:
+            # Physical cores via WMI
+            import subprocess as sp
+            out = sp.check_output(
+                ["wmic", "cpu", "get", "NumberOfCores", "/value"],
+                text=True, timeout=5
+            )
+            for line in out.strip().split("\n"):
+                if "NumberOfCores=" in line:
+                    info["physical_cores"] = int(line.split("=")[1].strip())
+                    break
+        except Exception:
+            info["physical_cores"] = info["logical_cores"] // 2
+
+        try:
+            # RAM via ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            mem = MEMORYSTATUSEX()
+            mem.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+            info["total_ram_gb"] = round(mem.ullTotalPhys / (1024**3), 1)
+            info["available_ram_gb"] = round(mem.ullAvailPhys / (1024**3), 1)
+        except Exception:
+            pass
+    else:
+        # Linux/Mac
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        kb = int(line.split()[1])
+                        info["total_ram_gb"] = round(kb / (1024**2), 1)
+                        break
+        except Exception:
+            pass
+        try:
+            info["physical_cores"] = len(set(
+                line.split(":")[1].strip()
+                for line in open("/proc/cpuinfo")
+                if "core id" in line
+            )) or info["logical_cores"] // 2
+        except Exception:
+            info["physical_cores"] = info["logical_cores"] // 2
+
+    # Check available executables
+    info["executables"] = {}
+    for name in ["llama-cli", "llama-server", "llama-bench"]:
+        ext = ".exe" if platform.system() == "Windows" else ""
+        path = os.path.join(BUILD_BIN, name + ext)
+        info["executables"][name] = os.path.isfile(path)
+
+    info["build_bin_path"] = BUILD_BIN
+    return info
+
+
+import re
+import struct
+
+_SPLIT_RE = re.compile(r'^(.+)-(\d{5})-of-(\d{5})(\.gguf)$', re.IGNORECASE)
+
+
+# ── GGUF Metadata Parser ───────────────────────────────────────
+def read_gguf_metadata(filepath, max_keys=80):
+    """Read metadata KV pairs from a GGUF file header. Lightweight — no tensor data."""
+    meta = {}
+    try:
+        with open(filepath, "rb") as f:
+            magic = f.read(4)
+            if magic != b"GGUF":
+                return {"error": "Not a GGUF file"}
+            version = struct.unpack("<I", f.read(4))[0]
+            _n_tensors = struct.unpack("<Q", f.read(8))[0]
+            n_kv = struct.unpack("<Q", f.read(8))[0]
+
+            meta["_gguf_version"] = version
+            meta["_n_tensors"] = _n_tensors
+            meta["_n_kv"] = n_kv
+
+            for _ in range(min(n_kv, max_keys)):
+                try:
+                    key = _gguf_read_string(f)
+                    val = _gguf_read_value(f)
+                    # Skip huge values (tokenizer arrays etc.)
+                    if isinstance(val, (str, int, float, bool)):
+                        meta[key] = val
+                    elif isinstance(val, list) and len(val) <= 20:
+                        meta[key] = val
+                except Exception:
+                    break  # Stop at first parse error (usually tokenizer binary data)
+    except Exception as e:
+        return {"error": str(e)}
+    return meta
+
+
+def _gguf_read_string(f):
+    length = struct.unpack("<Q", f.read(8))[0]
+    raw = f.read(length)
+    return raw.decode("utf-8", errors="replace")
+
+
+def _gguf_read_value(f, vtype=None):
+    if vtype is None:
+        vtype = struct.unpack("<I", f.read(4))[0]
+    if vtype == 0:  return struct.unpack("<B", f.read(1))[0]
+    if vtype == 1:  return struct.unpack("<b", f.read(1))[0]
+    if vtype == 2:  return struct.unpack("<H", f.read(2))[0]
+    if vtype == 3:  return struct.unpack("<h", f.read(2))[0]
+    if vtype == 4:  return struct.unpack("<I", f.read(4))[0]
+    if vtype == 5:  return struct.unpack("<i", f.read(4))[0]
+    if vtype == 6:  return struct.unpack("<f", f.read(4))[0]
+    if vtype == 7:  return bool(struct.unpack("<B", f.read(1))[0])
+    if vtype == 8:  return _gguf_read_string(f)
+    if vtype == 9:  # ARRAY
+        atype = struct.unpack("<I", f.read(4))[0]
+        alen = struct.unpack("<Q", f.read(8))[0]
+        if alen > 100:
+            # Skip large arrays (tokenizer) — seek past them
+            _gguf_skip_array(f, atype, alen)
+            return f"[array: {alen} items]"
+        return [_gguf_read_value(f, atype) for _ in range(alen)]
+    if vtype == 10: return struct.unpack("<Q", f.read(8))[0]
+    if vtype == 11: return struct.unpack("<q", f.read(8))[0]
+    if vtype == 12: return struct.unpack("<d", f.read(8))[0]
+    raise ValueError(f"Unknown GGUF type {vtype}")
+
+
+_GGUF_TYPE_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+
+def _gguf_skip_array(f, atype, alen):
+    if atype in _GGUF_TYPE_SIZES:
+        f.seek(_GGUF_TYPE_SIZES[atype] * alen, 1)
+    elif atype == 8:  # STRING array
+        for _ in range(alen):
+            slen = struct.unpack("<Q", f.read(8))[0]
+            f.seek(slen, 1)
+    elif atype == 9:  # nested ARRAY — just bail
+        raise ValueError("Nested arrays not supported")
+    else:
+        raise ValueError(f"Cannot skip array of type {atype}")
+
+
+def extract_model_info(meta):
+    """Extract structured model info from raw GGUF metadata."""
+    arch = meta.get("general.architecture", "unknown")
+    info = {
+        "architecture": arch,
+        "name": meta.get("general.name", ""),
+        "basename": meta.get("general.basename", ""),
+        "size_label": meta.get("general.size_label", ""),
+        "quantized_by": meta.get("general.quantized_by", ""),
+        "block_count": meta.get(f"{arch}.block_count", 0),
+        "context_length": meta.get(f"{arch}.context_length", 0),
+        "embedding_length": meta.get(f"{arch}.embedding_length", 0),
+        "feed_forward_length": meta.get(f"{arch}.feed_forward_length", 0),
+        "head_count": meta.get(f"{arch}.attention.head_count", 0),
+        "head_count_kv": meta.get(f"{arch}.attention.head_count_kv", 0),
+        "expert_count": meta.get(f"{arch}.expert_count", 0),
+        "expert_used_count": meta.get(f"{arch}.expert_used_count", 0),
+        "is_moe": meta.get(f"{arch}.expert_count", 0) > 1,
+        "key_length": meta.get(f"{arch}.attention.key_length", 0),
+        "value_length": meta.get(f"{arch}.attention.value_length", 0),
+        "rope_freq_base": meta.get(f"{arch}.rope.freq_base", 0),
+    }
+    return info
+
+
+def get_file_info(path):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return {"error": f"File not found: {path}"}
+    if not p.is_file():
+        return {"error": f"Not a file: {path}"}
+    size_bytes = p.stat().st_size
+    result = {
+        "path": str(p.resolve()),
+        "name": p.name,
+        "size_bytes": size_bytes,
+        "size_gb": round(size_bytes / (1024**3), 2),
+        "extension": p.suffix,
+    }
+
+    # Detect split GGUF: *-00001-of-00005.gguf
+    m = _SPLIT_RE.match(p.name)
+    if m:
+        prefix, _part_num, total_str, ext = m.groups()
+        total_parts = int(total_str)
+        parent = p.parent
+        parts = []
+        total_size = 0
+        all_found = True
+        for i in range(1, total_parts + 1):
+            part_name = f"{prefix}-{i:05d}-of-{total_str}{ext}"
+            part_path = parent / part_name
+            if part_path.is_file():
+                sz = part_path.stat().st_size
+                parts.append({
+                    "part": i,
+                    "name": part_name,
+                    "size_bytes": sz,
+                    "size_gb": round(sz / (1024**3), 2),
+                })
+                total_size += sz
+            else:
+                all_found = False
+                parts.append({
+                    "part": i,
+                    "name": part_name,
+                    "missing": True,
+                })
+        result["split"] = {
+            "is_split": True,
+            "total_parts": total_parts,
+            "found_parts": sum(1 for pp in parts if not pp.get("missing")),
+            "all_found": all_found,
+            "total_size_bytes": total_size,
+            "total_size_gb": round(total_size / (1024**3), 2),
+            "parts": parts,
+        }
+        # Override top-level size with total
+        result["size_bytes"] = total_size
+        result["size_gb"] = round(total_size / (1024**3), 2)
+
+    return result
+
+
+def scan_models(directory, max_depth=3):
+    results = []
+    base = pathlib.Path(directory)
+    if not base.is_dir():
+        return {"error": f"Not a directory: {directory}"}
+
+    def _scan(d, depth):
+        if depth > max_depth:
+            return
+        try:
+            for entry in sorted(d.iterdir()):
+                if entry.is_file() and entry.suffix.lower() == ".gguf":
+                    size = entry.stat().st_size
+                    results.append({
+                        "path": str(entry),
+                        "name": entry.name,
+                        "size_gb": round(size / (1024**3), 2),
+                    })
+                elif entry.is_dir() and not entry.name.startswith("."):
+                    _scan(entry, depth + 1)
+        except PermissionError:
+            pass
+
+    _scan(base, 0)
+    results.sort(key=lambda x: x["name"].lower())
+    return {"directory": str(base), "models": results}
+
+
+def open_file_dialog(initial_dir="", title="Select model file"):
+    """Open native OS file picker. Runs tkinter in a temporary thread."""
+    result = {"path": None}
+
+    def _run():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askopenfilename(
+                title=title,
+                initialdir=initial_dir or None,
+                filetypes=[
+                    ("GGUF models", "*.gguf"),
+                    ("All files", "*.*"),
+                ],
+            )
+            root.destroy()
+            if path:
+                result["path"] = path
+        except Exception as e:
+            result["error"] = str(e)
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=120)  # 2 min max wait
+    return result
+
+
+def open_dir_dialog(initial_dir="", title="Select directory"):
+    """Open native OS directory picker."""
+    result = {"path": None}
+
+    def _run():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askdirectory(
+                title=title,
+                initialdir=initial_dir or None,
+            )
+            root.destroy()
+            if path:
+                result["path"] = path
+        except Exception as e:
+            result["error"] = str(e)
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=120)
+    return result
+
+
+# ── HTTP Handler ────────────────────────────────────────────────
+class DashboardHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        # Cleaner logging
+        sys.stderr.write(f"[dashboard] {args[0]} {args[1]}\n")
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _json_response(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self._cors()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length == 0:
+            return {}
+        raw = self.rfile.read(length)
+        return json.loads(raw.decode("utf-8"))
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+
+        if path == "/" or path == "/dashboard.html":
+            self._serve_file(DASHBOARD_HTML, "text/html; charset=utf-8")
+            return
+
+        if path == "/api/system-info":
+            self._json_response(get_system_info())
+            return
+
+        if path == "/api/status":
+            self._json_response(pm.status())
+            return
+
+        if path == "/api/output":
+            qs = parse_qs(urlparse(self.path).query)
+            offset = int(qs.get("offset", [0])[0])
+            lines = pm.get_output(offset)
+            self._json_response({"offset": offset, "lines": lines, "total": len(pm.output_buf)})
+            return
+
+        self.send_error(404)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+
+        if path == "/api/file-info":
+            body = self._read_body()
+            fpath = body.get("path", "")
+            if not fpath:
+                self._json_response({"error": "No path provided"}, 400)
+                return
+            self._json_response(get_file_info(fpath))
+            return
+
+        if path == "/api/scan-models":
+            body = self._read_body()
+            directory = body.get("directory", "")
+            max_depth = body.get("max_depth", 3)
+            if not directory:
+                self._json_response({"error": "No directory provided"}, 400)
+                return
+            self._json_response(scan_models(directory, max_depth))
+            return
+
+        if path == "/api/model-meta":
+            body = self._read_body()
+            fpath = body.get("path", "")
+            if not fpath:
+                self._json_response({"error": "No path provided"}, 400)
+                return
+            p = pathlib.Path(fpath)
+            if not p.exists() or not p.is_file():
+                self._json_response({"error": f"File not found: {fpath}"}, 404)
+                return
+            raw_meta = read_gguf_metadata(str(p))
+            if "error" in raw_meta:
+                self._json_response(raw_meta, 500)
+                return
+            model_info = extract_model_info(raw_meta)
+            self._json_response({"raw": raw_meta, "info": model_info})
+            return
+
+        if path == "/api/browse":
+            body = self._read_body()
+            initial_dir = body.get("initial_dir", "")
+            result = open_file_dialog(initial_dir=initial_dir)
+            if result.get("path"):
+                info = get_file_info(result["path"])
+                self._json_response(info)
+            elif result.get("error"):
+                self._json_response({"error": result["error"]}, 500)
+            else:
+                self._json_response({"cancelled": True})
+            return
+
+        if path == "/api/browse-dir":
+            body = self._read_body()
+            initial_dir = body.get("initial_dir", "")
+            result = open_dir_dialog(initial_dir=initial_dir)
+            if result.get("path"):
+                self._json_response({"path": result["path"]})
+            elif result.get("error"):
+                self._json_response({"error": result["error"]}, 500)
+            else:
+                self._json_response({"cancelled": True})
+            return
+
+        if path == "/api/launch":
+            body = self._read_body()
+            args = body.get("args", [])
+            if not args:
+                self._json_response({"error": "No args provided"}, 400)
+                return
+            # Resolve executable path
+            exe_name = args[0]
+            ext = ".exe" if platform.system() == "Windows" else ""
+            exe_path = os.path.join(BUILD_BIN, exe_name + ext)
+            if not os.path.isfile(exe_path):
+                self._json_response({"error": f"Executable not found: {exe_path}"}, 404)
+                return
+            full_args = [exe_path] + args[1:]
+            ok, msg = pm.launch(full_args)
+            self._json_response({"ok": ok, "message": msg}, 200 if ok else 409)
+            return
+
+        if path == "/api/stop":
+            ok, msg = pm.stop()
+            self._json_response({"ok": ok, "message": msg})
+            return
+
+        self.send_error(404)
+
+    def _serve_file(self, filepath, content_type):
+        try:
+            with open(filepath, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(data)
+        except FileNotFoundError:
+            self.send_error(404, f"File not found: {filepath}")
+
+
+# ── Main ────────────────────────────────────────────────────────
+def main():
+    port = PORT
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            print(f"Usage: {sys.argv[0]} [port]")
+            sys.exit(1)
+
+    server = http.server.HTTPServer((HOST, port), DashboardHandler)
+    print(f"")
+    print(f"  ik_llama.cpp Dashboard Server")
+    print(f"  http://{HOST}:{port}/")
+    print(f"")
+    print(f"  Build dir:  {BUILD_BIN}")
+    print(f"  Dashboard:  {DASHBOARD_HTML}")
+    print(f"  Press Ctrl+C to stop")
+    print(f"")
+
+    try:
+        import webbrowser
+        webbrowser.open(f"http://{HOST}:{port}/")
+    except Exception:
+        pass
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        if pm.running:
+            pm.stop()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
