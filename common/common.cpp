@@ -1507,7 +1507,11 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         params.merge_qkv = true;
         return true;
     }
-    if (arg == "-muge" || arg == "--merge-up-gate-expsrts") {
+    // Keep backwards-compatible aliases: there have been multiple spellings in the wild.
+    if (arg == "-muge" ||
+        arg == "--merge-up-gate-exps" ||
+        arg == "--merge-up-gate-experts" ||
+        arg == "--merge-up-gate-expsrts") {
         params.merge_up_gate_exps = true;
         return true;
     }

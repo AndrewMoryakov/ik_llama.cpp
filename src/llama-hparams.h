@@ -148,7 +148,7 @@ struct llama_hparams {
         if (this->n_layer       != other.n_layer)       return true;
         if (this->n_rot         != other.n_rot)         return true;
         if (this->n_swa         != other.n_swa)         return true;
-        if (this->n_swa_pattern != other.n_swa_pattern) return false;
+        if (this->n_swa_pattern != other.n_swa_pattern) return true;
         if (this->n_embd_head_k != other.n_embd_head_k) return true;
         if (this->n_embd_head_v != other.n_embd_head_v) return true;
         if (this->n_expert      != other.n_expert)      return true;

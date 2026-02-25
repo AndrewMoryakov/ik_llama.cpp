@@ -1470,6 +1470,34 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
     } else {
         LLAMA_LOG_INFO("%s: model size       = %.3f GiB (%.3f BPW) \n", __func__, ml.n_bytes/1024.0/1024.0/1024.0, ml.n_bytes*8.0/ml.n_elements);
     }
+
+    // Enable VM prefetch for swap-bound MoE models (model larger than ~90% of physical RAM).
+    // This uses PrefetchVirtualMemory/madvise to bring swapped expert pages into RAM asynchronously.
+    {
+#if defined(_WIN32)
+        MEMORYSTATUSEX mem_info;
+        mem_info.dwLength = sizeof(mem_info);
+        if (GlobalMemoryStatusEx(&mem_info)) {
+            uint64_t phys_ram = mem_info.ullTotalPhys;
+            if (ml.n_bytes > phys_ram * 9 / 10) {
+                ggml_set_moe_vm_prefetch(1);
+                LLAMA_LOG_INFO("%s: model (%.1f GiB) > 90%% RAM (%.1f GiB) — enabling VM prefetch for swap-bound experts\n",
+                        __func__, ml.n_bytes / 1073741824.0, phys_ram / 1073741824.0);
+            }
+        }
+#elif defined(__linux__)
+        long pages = sysconf(_SC_PHYS_PAGES);
+        long page_size = sysconf(_SC_PAGE_SIZE);
+        if (pages > 0 && page_size > 0) {
+            uint64_t phys_ram = (uint64_t)pages * (uint64_t)page_size;
+            if (ml.n_bytes > phys_ram * 9 / 10) {
+                ggml_set_moe_vm_prefetch(1);
+                LLAMA_LOG_INFO("%s: model (%.1f GiB) > 90%% RAM (%.1f GiB) — enabling VM prefetch for swap-bound experts\n",
+                        __func__, ml.n_bytes / 1073741824.0, phys_ram / 1073741824.0);
+            }
+        }
+#endif
+    }
     {
         auto n_bytes = ml.n_bytes;
         auto n_elements = ml.n_elements;
@@ -2246,6 +2274,89 @@ static bool llm_load_tensors(
             set_scale(l.wv, l.wv_scale);
             set_scale(l.wo, l.wo_scale);
         }
+    }
+
+    // For swap-bound MoE models: lock shared (non-expert) tensors in RAM with VirtualLock/mlock.
+    // This prevents the OS from evicting critical weights (attention, embedding, router) to swap,
+    // ensuring only expert FFN weights (the bulk of model size) get swapped.
+    if (ggml_get_moe_vm_prefetch()) {
+        uint64_t locked_bytes = 0;
+        int locked_count = 0;
+        int lock_fails = 0;
+
+        auto lock_tensor = [&](struct ggml_tensor * t) {
+            if (!t || !t->data) return;
+            size_t nbytes = ggml_nbytes(t);
+            if (nbytes == 0) return;
+#if defined(_WIN32)
+            if (VirtualLock(t->data, nbytes)) {
+                locked_bytes += nbytes;
+                locked_count++;
+            } else {
+                lock_fails++;
+            }
+#elif defined(__linux__)
+            if (mlock(t->data, nbytes) == 0) {
+                locked_bytes += nbytes;
+                locked_count++;
+            } else {
+                lock_fails++;
+            }
+#endif
+        };
+
+#if defined(_WIN32)
+        // Increase working set size to allow locking shared layers
+        // Estimate: need at least ~30% of model for shared layers
+        SIZE_T min_ws = (SIZE_T)(ml.n_bytes * 3 / 10);
+        SIZE_T max_ws = (SIZE_T)(ml.n_bytes * 4 / 10);
+        SetProcessWorkingSetSize(GetCurrentProcess(), min_ws, max_ws);
+#endif
+
+        // Global tensors
+        lock_tensor(model.tok_embd);
+        lock_tensor(model.output_norm);
+        lock_tensor(model.output_norm_b);
+        lock_tensor(model.output);
+        lock_tensor(model.output_b);
+
+        // Per-layer shared tensors (attention + norms + router + shared experts)
+        for (auto & layer : model.layers) {
+            // Attention norm
+            lock_tensor(layer.attn_norm);
+            lock_tensor(layer.attn_norm_b);
+
+            // Attention weights (always used, every token)
+            lock_tensor(layer.wq);
+            lock_tensor(layer.wk);
+            lock_tensor(layer.wv);
+            lock_tensor(layer.wo);
+            lock_tensor(layer.wqkv);
+
+            // FFN norm
+            lock_tensor(layer.ffn_norm);
+            lock_tensor(layer.ffn_norm_b);
+
+            // Router/gate (selects experts — small but critical)
+            lock_tensor(layer.ffn_gate_inp);
+            lock_tensor(layer.ffn_gate_inp_b);
+
+            // Shared FFN (non-expert dense path, always used)
+            lock_tensor(layer.ffn_gate);
+            lock_tensor(layer.ffn_down);
+            lock_tensor(layer.ffn_up);
+
+            // Shared expert (always activated if present)
+            lock_tensor(layer.ffn_gate_shexp);
+            lock_tensor(layer.ffn_down_shexp);
+            lock_tensor(layer.ffn_up_shexp);
+
+            // NOTE: ffn_*_exps tensors deliberately NOT locked — they are the swap-bound expert weights
+        }
+
+        LLAMA_LOG_INFO("%s: locked %d shared tensors (%.2f GiB) in RAM%s\n",
+                __func__, locked_count, locked_bytes / 1073741824.0,
+                lock_fails > 0 ? " (some locks failed — increase working set or run as admin)" : "");
     }
 
     // loading time will be recalculate after the first eval, so

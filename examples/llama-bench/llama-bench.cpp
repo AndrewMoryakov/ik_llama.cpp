@@ -798,7 +798,10 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
                 break;
             }
             params.mqkv = std::stoi(argv[i]);
-        } else if (arg == "-muge" || arg == "--merge-up-gate-exps") {
+        } else if (arg == "-muge" ||
+                   arg == "--merge-up-gate-exps" ||
+                   arg == "--merge-up-gate-experts" ||
+                   arg == "--merge-up-gate-expsrts") {
             if (++i >= argc) {
                 invalid_param = true;
                 break;

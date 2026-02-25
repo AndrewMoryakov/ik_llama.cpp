@@ -40,8 +40,27 @@
 #if defined(__gnu_linux__)
 #include <syscall.h>
 #endif
+#if defined(__linux__)
+#include <sys/mman.h>  // madvise(MADV_WILLNEED) for virtual memory prefetch
+#endif
 
 #define IK_PRINT_TIMING 0
+
+// Global flag: enable OS-level virtual memory prefetch for MoE experts.
+// Only useful for swap-bound models (model_size > physical_RAM).
+// Set by llama.cpp at model load time when appropriate.
+static int ggml_moe_vm_prefetch = 0;
+
+GGML_API void ggml_set_moe_vm_prefetch(int enable) {
+    ggml_moe_vm_prefetch = enable;
+    if (enable) {
+        fprintf(stderr, "%s: MoE virtual memory prefetch enabled\n", __func__);
+    }
+}
+
+GGML_API int ggml_get_moe_vm_prefetch(void) {
+    return ggml_moe_vm_prefetch;
+}
 
 // Expert prefetch: issue software prefetch hints for next expert's weights
 // while computing the current expert. Overlaps memory reads with compute
@@ -17135,6 +17154,35 @@ static void ggml_compute_forward_mul_mat_id(
 
     ggml_barrier(params->shared);
 
+    // Batch virtual memory prefetch: one OS call to prefetch ALL active experts' pages from swap.
+    // Only enabled for swap-bound models (ggml_moe_vm_prefetch == 1).
+    // For in-RAM models this is skipped — zero overhead.
+    if (ith == 0 && ggml_moe_vm_prefetch) {
+#if defined(_WIN32)
+        WIN32_MEMORY_RANGE_ENTRY vm_ranges[256]; // n_as is typically <= 256
+        int n_ranges = 0;
+        for (int a = 0; a < n_as && n_ranges < 256; ++a) {
+            if (matrix_row_counts[a] > 0) {
+                vm_ranges[n_ranges].VirtualAddress = (PVOID)((const char *)src0->data + a*nb02);
+                vm_ranges[n_ranges].NumberOfBytes  = (SIZE_T)nb02;
+                n_ranges++;
+            }
+        }
+        if (n_ranges > 0) {
+            PrefetchVirtualMemory(GetCurrentProcess(), n_ranges, vm_ranges, 0);
+        }
+#elif defined(__linux__)
+        for (int a = 0; a < n_as; ++a) {
+            if (matrix_row_counts[a] > 0) {
+                const char * ptr = (const char *)src0->data + a*nb02;
+                uintptr_t addr = (uintptr_t)ptr;
+                uintptr_t aligned = addr & ~((uintptr_t)4095);
+                madvise((void *)aligned, (size_t)nb02 + (addr - aligned), MADV_WILLNEED);
+            }
+        }
+#endif
+    }
+
     // compute each matrix multiplication in sequence
     for (int cur_a = 0; cur_a < n_as; ++cur_a) {
         const int64_t cne1 = matrix_row_counts[cur_a];
@@ -17143,8 +17191,7 @@ static void ggml_compute_forward_mul_mat_id(
             continue;
         }
 
-        // Prefetch next active expert's weights while computing current expert.
-        // This overlaps memory reads with compute, reducing bandwidth latency for MoE TG.
+        // Cache prefetch: load first 256KB of next active expert into L2 (RAM→L2).
         if (ith == 0) {
             for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
                 if (matrix_row_counts[next_a] > 0) {
@@ -17416,6 +17463,45 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
 
     ggml_barrier(params->shared);
 
+    // Batch virtual memory prefetch for up/gate expert weights.
+    // Only enabled for swap-bound models (ggml_moe_vm_prefetch == 1).
+    if (ith == 0 && ggml_moe_vm_prefetch) {
+#if defined(_WIN32)
+        WIN32_MEMORY_RANGE_ENTRY vm_ranges[512]; // up to 256 experts × 2 tensors (up + gate)
+        int n_ranges = 0;
+        for (int a = 0; a < n_as && n_ranges < 510; ++a) {
+            if (matrix_row_counts[a] > 0) {
+                vm_ranges[n_ranges].VirtualAddress = (PVOID)((const char *)src0_1->data + a*nb02);
+                vm_ranges[n_ranges].NumberOfBytes  = (SIZE_T)nb02;
+                n_ranges++;
+                if (src0_2) {
+                    vm_ranges[n_ranges].VirtualAddress = (PVOID)((const char *)src0_2->data + a*nb02);
+                    vm_ranges[n_ranges].NumberOfBytes  = (SIZE_T)nb02;
+                    n_ranges++;
+                }
+            }
+        }
+        if (n_ranges > 0) {
+            PrefetchVirtualMemory(GetCurrentProcess(), n_ranges, vm_ranges, 0);
+        }
+#elif defined(__linux__)
+        for (int a = 0; a < n_as; ++a) {
+            if (matrix_row_counts[a] > 0) {
+                const char * ptr1 = (const char *)src0_1->data + a*nb02;
+                uintptr_t addr1 = (uintptr_t)ptr1;
+                uintptr_t aligned1 = addr1 & ~((uintptr_t)4095);
+                madvise((void *)aligned1, (size_t)nb02 + (addr1 - aligned1), MADV_WILLNEED);
+                if (src0_2) {
+                    const char * ptr2 = (const char *)src0_2->data + a*nb02;
+                    uintptr_t addr2 = (uintptr_t)ptr2;
+                    uintptr_t aligned2 = addr2 & ~((uintptr_t)4095);
+                    madvise((void *)aligned2, (size_t)nb02 + (addr2 - aligned2), MADV_WILLNEED);
+                }
+            }
+        }
+#endif
+    }
+
     const float limit = *(const float *)(dst->op_params + 1);
 
     // so GGML_TENSOR_BINARY_OP_LOCALS works
@@ -17428,7 +17514,7 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
             continue;
         }
 
-        // Prefetch next active expert's up and gate weights while computing current expert.
+        // Cache prefetch: load first 256KB of next active expert into L2 (RAM→L2).
         if (ith == 0) {
             for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
                 if (matrix_row_counts[next_a] > 0) {

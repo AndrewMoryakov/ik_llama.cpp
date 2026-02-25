@@ -365,6 +365,12 @@ extern "C" {
     // get ggml_status name string
     GGML_API GGML_CALL const char * ggml_status_to_string(enum ggml_status status);
 
+    // Enable virtual memory prefetch for MoE expert weights (PrefetchVirtualMemory / madvise).
+    // Set to 1 when model is larger than physical RAM (swap-bound).
+    // Default 0 = no VM prefetch overhead for in-RAM models.
+    GGML_API void ggml_set_moe_vm_prefetch(int enable);
+    GGML_API int  ggml_get_moe_vm_prefetch(void);
+
     // ieee 754-2008 half-precision float16
     // todo: make this not an integral type
     typedef uint16_t ggml_fp16_t;

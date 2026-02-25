@@ -20,6 +20,13 @@
 #include <omp.h>
 #endif
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #define IK_PRINT_TIMING 0
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -688,6 +695,60 @@ static struct ggml_backend_buffer_i cpu_backend_buffer_i = {
     /* .reset           = */ NULL,
 };
 
+#ifdef _WIN32
+// Large Pages support: 2 MB pages instead of 4 KB reduce TLB misses for large model buffers.
+// Requires SeLockMemoryPrivilege to be enabled in Local Security Policy for the current user.
+
+static bool ggml_large_pages_available(void) {
+    static int status = -1; // -1=untried, 0=failed, 1=success
+    if (status >= 0) return status == 1;
+
+    // Try to enable SeLockMemoryPrivilege at runtime
+    HANDLE token;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+        fprintf(stderr, "%s: large pages: failed to open process token\n", __func__);
+        status = 0;
+        return false;
+    }
+    TOKEN_PRIVILEGES tp;
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    if (!LookupPrivilegeValue(NULL, SE_LOCK_MEMORY_NAME, &tp.Privileges[0].Luid)) {
+        CloseHandle(token);
+        fprintf(stderr, "%s: large pages: SeLockMemoryPrivilege not found\n", __func__);
+        status = 0;
+        return false;
+    }
+    AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), NULL, NULL);
+    status = (GetLastError() == ERROR_SUCCESS) ? 1 : 0;
+    CloseHandle(token);
+
+    if (status == 1) {
+        fprintf(stderr, "%s: large pages enabled (page size: %zu KB)\n", __func__, GetLargePageMinimum() / 1024);
+    } else {
+        fprintf(stderr, "%s: large pages: SeLockMemoryPrivilege not held - add it in secpol.msc > Local Policies > User Rights Assignment\n", __func__);
+    }
+    return status == 1;
+}
+
+GGML_CALL static void ggml_backend_cpu_buffer_free_buffer_virtualalloc(ggml_backend_buffer_t buffer) {
+    VirtualFree(buffer->context, 0, MEM_RELEASE);
+}
+
+static struct ggml_backend_buffer_i cpu_backend_buffer_i_virtualalloc = {
+    /* .get_name        = */ ggml_backend_cpu_buffer_name,
+    /* .free_buffer     = */ ggml_backend_cpu_buffer_free_buffer_virtualalloc,
+    /* .get_base        = */ ggml_backend_cpu_buffer_get_base,
+    /* .init_tensor     = */ NULL,
+    /* .memset_tensor   = */ ggml_backend_cpu_buffer_memset_tensor,
+    /* .set_tensor      = */ ggml_backend_cpu_buffer_set_tensor,
+    /* .get_tensor      = */ ggml_backend_cpu_buffer_get_tensor,
+    /* .cpy_tensor      = */ ggml_backend_cpu_buffer_cpy_tensor,
+    /* .clear           = */ ggml_backend_cpu_buffer_clear,
+    /* .reset           = */ NULL,
+};
+#endif // _WIN32
+
 // for buffers from ptr, free is not called
 static struct ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
     /* .get_name        = */ ggml_backend_cpu_buffer_name,
@@ -709,6 +770,25 @@ GGML_CALL static const char * ggml_backend_cpu_buffer_type_get_name(ggml_backend
 }
 
 GGML_CALL static ggml_backend_buffer_t ggml_backend_cpu_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+#ifdef _WIN32
+    // For large allocations, try Windows Large Pages (2 MB pages instead of 4 KB).
+    // This reduces TLB misses significantly for models >32 GB.
+    // VirtualAlloc returns page-aligned memory, so no extra alignment padding needed.
+    if (size >= (size_t)(1 << 21) && ggml_large_pages_available()) {
+        SIZE_T lp_min = GetLargePageMinimum();
+        if (lp_min > 0) {
+            SIZE_T alloc_size = (size + lp_min - 1) & ~(lp_min - 1);
+            void * data = VirtualAlloc(NULL, alloc_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+            if (data) {
+                fprintf(stderr, "%s: %.2f GiB with large pages\n",
+                        __func__, (double)alloc_size / (1024.0 * 1024.0 * 1024.0));
+                return ggml_backend_buffer_init(buft, cpu_backend_buffer_i_virtualalloc, data, alloc_size);
+            }
+            fprintf(stderr, "%s: large page alloc failed for %.2f GiB, falling back to malloc\n",
+                    __func__, (double)size / (1024.0 * 1024.0 * 1024.0));
+        }
+    }
+#endif
     size += TENSOR_ALIGNMENT;   // malloc may return an address that is not aligned
     void * data = malloc(size); // TODO: use GGML_ALIGNED_MALLOC (move to ggml-impl.h)
     if (data == NULL) {
