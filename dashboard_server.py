@@ -6,6 +6,8 @@ No external dependencies — stdlib only.
 
 Endpoints:
   GET  /                  — serves dashboard.html
+  GET  /dashboard.css     — stylesheet
+  GET  /dashboard.js      — client-side logic
   GET  /api/system-info   — CPU cores, RAM, OS
   POST /api/file-info     — file size for a given path
   POST /api/scan-models   — find .gguf files in a directory
@@ -34,8 +36,15 @@ from urllib.parse import urlparse, parse_qs
 # ── Config ──────────────────────────────────────────────────────
 HOST = "127.0.0.1"
 PORT = 7860
-DASHBOARD_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
-BUILD_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build", "bin")
+DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
+DASHBOARD_HTML = os.path.join(DASHBOARD_DIR, "dashboard.html")
+BUILD_BIN = os.path.join(DASHBOARD_DIR, "build", "bin")
+
+# Static files allowed to be served (whitelist for security)
+STATIC_FILES = {
+    "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
+    "/dashboard.js":  ("dashboard.js",  "application/javascript; charset=utf-8"),
+}
 
 # ── Process Manager ─────────────────────────────────────────────
 class ProcessManager:
@@ -492,6 +501,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/" or path == "/dashboard.html":
             self._serve_file(DASHBOARD_HTML, "text/html; charset=utf-8")
+            return
+
+        if path in STATIC_FILES:
+            filename, ctype = STATIC_FILES[path]
+            self._serve_file(os.path.join(DASHBOARD_DIR, filename), ctype)
             return
 
         if path == "/api/system-info":
