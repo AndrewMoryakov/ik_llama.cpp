@@ -1909,6 +1909,124 @@ static bool is_model_split_supported(const llama_model & model) {
     return it != k_supported.end();
 }
 
+// Hot expert tracking state (PR04)
+// Tracks which MoE experts are called most frequently and locks them in RAM.
+static bool s_hot_locked[GGML_MOE_MAX_EXPERTS];  // which experts are currently VirtualLocked
+static int  s_hot_max_locked;     // budget: how many experts we can lock (2 * n_expert_used)
+static int  s_hot_eval_interval = 512;  // re-evaluate every N dispatches
+static int  s_hot_n_expert;       // total experts in model
+static int  s_hot_last_dispatch;  // dispatch count at last evaluation
+
+// Lock or unlock a slice of a tensor corresponding to one expert.
+// tensor->nb[2] = bytes per expert, expert_id selects the slice.
+// Returns true if lock/unlock succeeded, false otherwise.
+static bool lock_expert_slice(struct ggml_tensor * t, int expert_id, bool do_lock) {
+    if (!t || !t->data) return false;
+    if (ggml_n_dims(t) < 3) return false;  // not a stacked expert tensor
+    if (expert_id < 0 || (int64_t)expert_id >= t->ne[2]) return false;  // bounds check
+    size_t slice_size = (size_t)t->nb[2];
+    if (slice_size == 0) return false;
+    char * addr = (char *)t->data + (size_t)expert_id * slice_size;
+    bool ok = true;
+#if defined(_WIN32)
+    if (do_lock) {
+        ok = VirtualLock(addr, slice_size) != 0;
+    } else {
+        ok = VirtualUnlock(addr, slice_size) != 0;
+    }
+#elif defined(__linux__)
+    if (do_lock) {
+        ok = mlock(addr, slice_size) == 0;
+    } else {
+        ok = munlock(addr, slice_size) == 0;
+    }
+#else
+    (void)addr; (void)slice_size; (void)do_lock;
+#endif
+    return ok;
+}
+
+// Lock/unlock all FFN expert tensors for a given expert across all layers.
+static void lock_expert_all_layers(const llama_model & model, int expert_id, bool do_lock) {
+    for (const auto & layer : model.layers) {
+        // For muge (fused up+gate), ffn_up_exps/ffn_gate_exps are views into ffn_up_gate_exps.
+        // Lock the sub-ranges via the view tensors — this is safe.
+        lock_expert_slice(layer.ffn_down_exps, expert_id, do_lock);
+        lock_expert_slice(layer.ffn_up_exps,   expert_id, do_lock);
+        lock_expert_slice(layer.ffn_gate_exps, expert_id, do_lock);
+        // If no separate up/gate views but fused tensor exists, lock that
+        if (!layer.ffn_up_exps && !layer.ffn_gate_exps && layer.ffn_up_gate_exps) {
+            lock_expert_slice(layer.ffn_up_gate_exps, expert_id, do_lock);
+        }
+    }
+}
+
+// Called from llama_decode_internal after each decode.
+// Periodically re-evaluates expert hotness and adjusts VirtualLock.
+static void llama_hot_expert_update(const llama_model & model) {
+    if (!ggml_get_moe_vm_prefetch()) return;
+    if (s_hot_n_expert == 0) return;
+
+    int dispatch_now = ggml_moe_get_dispatch_count();
+    if (dispatch_now - s_hot_last_dispatch < s_hot_eval_interval) return;
+    s_hot_last_dispatch = dispatch_now;
+
+    // Read current hit counts
+    int hits[GGML_MOE_MAX_EXPERTS] = {0};
+    ggml_moe_get_expert_hits(hits, s_hot_n_expert);
+
+    // Build sorted index by hits (descending)
+    int idx[GGML_MOE_MAX_EXPERTS];
+    for (int i = 0; i < s_hot_n_expert; ++i) idx[i] = i;
+    // Simple insertion sort — n_expert is small (<=256)
+    for (int i = 1; i < s_hot_n_expert; ++i) {
+        int key = idx[i];
+        int j = i - 1;
+        while (j >= 0 && hits[idx[j]] < hits[key]) {
+            idx[j + 1] = idx[j];
+            j--;
+        }
+        idx[j + 1] = key;
+    }
+
+    // Top s_hot_max_locked = hot, rest = cold
+    bool new_hot[GGML_MOE_MAX_EXPERTS] = {false};
+    for (int i = 0; i < s_hot_max_locked && i < s_hot_n_expert; ++i) {
+        if (hits[idx[i]] > 0) {  // only lock experts that were actually used
+            new_hot[idx[i]] = true;
+        }
+    }
+
+    // Apply changes
+    int locked = 0, unlocked = 0, lock_fails = 0;
+    for (int i = 0; i < s_hot_n_expert; ++i) {
+        if (new_hot[i] && !s_hot_locked[i]) {
+            lock_expert_all_layers(model, i, true);
+            s_hot_locked[i] = true;
+            locked++;
+        } else if (!new_hot[i] && s_hot_locked[i]) {
+            lock_expert_all_layers(model, i, false);
+            s_hot_locked[i] = false;
+            unlocked++;
+        }
+    }
+
+    if (locked > 0 || unlocked > 0) {
+        int total_locked = 0;
+        for (int i = 0; i < s_hot_n_expert; ++i) {
+            if (s_hot_locked[i]) total_locked++;
+        }
+        LLAMA_LOG_INFO("hot experts: +%d locked, -%d unlocked (%d/%d total) | top-6:",
+                locked, unlocked, total_locked, s_hot_n_expert);
+        for (int i = 0; i < 6 && i < s_hot_n_expert; ++i) {
+            LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
+        }
+        LLAMA_LOG_INFO("\n");
+    }
+
+    ggml_moe_reset_expert_hits();
+}
+
 // Returns false if cancelled by progress_callback
 static bool llm_load_tensors(
         llama_model_loader & ml,
@@ -2306,11 +2424,26 @@ static bool llm_load_tensors(
         };
 
 #if defined(_WIN32)
-        // Increase working set size to allow locking shared layers
-        // Estimate: need at least ~30% of model for shared layers
-        SIZE_T min_ws = (SIZE_T)(ml.n_bytes * 3 / 10);
-        SIZE_T max_ws = (SIZE_T)(ml.n_bytes * 4 / 10);
-        SetProcessWorkingSetSize(GetCurrentProcess(), min_ws, max_ws);
+        // Increase working set size to allow locking shared layers.
+        // Cap to 90% of physical RAM to avoid impossible requests on swap-bound models.
+        {
+            MEMORYSTATUSEX mem_ws = {0};
+            mem_ws.dwLength = sizeof(mem_ws);
+            SIZE_T phys_limit = 0;
+            if (GlobalMemoryStatusEx(&mem_ws)) {
+                phys_limit = (SIZE_T)(mem_ws.ullTotalPhys * 9 / 10);
+            }
+            SIZE_T min_ws = (SIZE_T)(ml.n_bytes * 3 / 10);
+            SIZE_T max_ws = (SIZE_T)(ml.n_bytes * 4 / 10);
+            if (phys_limit > 0) {
+                if (min_ws > phys_limit) min_ws = phys_limit;
+                if (max_ws > phys_limit) max_ws = phys_limit;
+            }
+            if (!SetProcessWorkingSetSize(GetCurrentProcess(), min_ws, max_ws)) {
+                LLAMA_LOG_WARN("%s: SetProcessWorkingSetSize failed (min=%.2f GiB, max=%.2f GiB)\n",
+                        __func__, min_ws / 1073741824.0, max_ws / 1073741824.0);
+            }
+        }
 #endif
 
         // Global tensors
@@ -2357,6 +2490,49 @@ static bool llm_load_tensors(
         LLAMA_LOG_INFO("%s: locked %d shared tensors (%.2f GiB) in RAM%s\n",
                 __func__, locked_count, locked_bytes / 1073741824.0,
                 lock_fails > 0 ? " (some locks failed — increase working set or run as admin)" : "");
+
+        // Hot expert tracking initialization (PR04)
+        {
+            const uint32_t n_expert      = model.hparams.n_expert;
+            const uint32_t n_expert_used = model.hparams.n_expert_used;
+            s_hot_n_expert = (int)(n_expert < GGML_MOE_MAX_EXPERTS ? n_expert : GGML_MOE_MAX_EXPERTS);
+            s_hot_max_locked = (int)(n_expert_used * 2 < n_expert ? n_expert_used * 2 : n_expert);
+            s_hot_last_dispatch = 0;
+            memset(s_hot_locked, 0, sizeof(s_hot_locked));
+            ggml_moe_reset_expert_hits();
+
+#if defined(_WIN32)
+            // Expand working set to accommodate hot expert locks.
+            // Cap to 90% of physical RAM.
+            if (s_hot_max_locked > 0 && !model.layers.empty()) {
+                const auto & l0 = model.layers[0];
+                size_t per_expert = 0;
+                if (l0.ffn_down_exps) per_expert += (size_t)l0.ffn_down_exps->nb[2];
+                if (l0.ffn_up_exps)   per_expert += (size_t)l0.ffn_up_exps->nb[2];
+                if (l0.ffn_gate_exps) per_expert += (size_t)l0.ffn_gate_exps->nb[2];
+                if (!l0.ffn_up_exps && !l0.ffn_gate_exps && l0.ffn_up_gate_exps)
+                    per_expert += (size_t)l0.ffn_up_gate_exps->nb[2];
+                size_t hot_budget = per_expert * (size_t)s_hot_max_locked * model.layers.size();
+                SIZE_T cur_min = 0, cur_max = 0;
+                GetProcessWorkingSetSize(GetCurrentProcess(), &cur_min, &cur_max);
+                SIZE_T new_min = cur_min + (SIZE_T)hot_budget;
+                SIZE_T new_max = cur_max + (SIZE_T)hot_budget;
+                MEMORYSTATUSEX mem_hot = {0};
+                mem_hot.dwLength = sizeof(mem_hot);
+                if (GlobalMemoryStatusEx(&mem_hot)) {
+                    SIZE_T phys_cap = (SIZE_T)(mem_hot.ullTotalPhys * 9 / 10);
+                    if (new_min > phys_cap) new_min = phys_cap;
+                    if (new_max > phys_cap) new_max = phys_cap;
+                }
+                if (!SetProcessWorkingSetSize(GetCurrentProcess(), new_min, new_max)) {
+                    LLAMA_LOG_WARN("%s: hot expert SetProcessWorkingSetSize failed (budget=%.2f GiB)\n",
+                            __func__, hot_budget / 1073741824.0);
+                }
+            }
+#endif
+            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable, eval every %d dispatches\n",
+                    __func__, s_hot_max_locked, s_hot_n_expert, s_hot_eval_interval);
+        }
     }
 
     // loading time will be recalculate after the first eval, so
@@ -3615,6 +3791,9 @@ static int llama_decode_internal(
         auto tim2 = ggml_time_us();
         printf("sched_reset(...): %d us\n", int(tim2-tim1));
 #endif
+
+    // Hot expert tracking: periodically re-evaluate and lock/unlock experts (PR04)
+    llama_hot_expert_update(model);
 
     return 0;
 }

@@ -185,6 +185,29 @@ typedef void * thread_ret_t;
 
 typedef pthread_t ggml_thread_t;
 
+// Hot expert tracking (PR04): per-expert dispatch hit counters.
+// Only accumulated when ggml_moe_vm_prefetch is enabled.
+static atomic_int ggml_moe_expert_hits[GGML_MOE_MAX_EXPERTS];
+static atomic_int ggml_moe_dispatch_count_val;
+
+GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts) {
+    int n = max_experts < GGML_MOE_MAX_EXPERTS ? max_experts : GGML_MOE_MAX_EXPERTS;
+    for (int i = 0; i < n; ++i) {
+        out[i] = (int)atomic_load(&ggml_moe_expert_hits[i]);
+    }
+}
+
+GGML_API void ggml_moe_reset_expert_hits(void) {
+    for (int i = 0; i < GGML_MOE_MAX_EXPERTS; ++i) {
+        atomic_store(&ggml_moe_expert_hits[i], 0);
+    }
+    atomic_store(&ggml_moe_dispatch_count_val, 0);
+}
+
+GGML_API int ggml_moe_get_dispatch_count(void) {
+    return (int)atomic_load(&ggml_moe_dispatch_count_val);
+}
+
 #ifdef GGML_USE_CPU_HBM
 #include <hbwmalloc.h>
 #endif
@@ -17150,6 +17173,16 @@ static void ggml_compute_forward_mul_mat_id(
                 matrix_row_counts[i02] += 1;
             }
         }
+
+        // Hot expert tracking (PR04)
+        if (ggml_moe_vm_prefetch) {
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0) {
+                    atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                }
+            }
+            atomic_fetch_add(&ggml_moe_dispatch_count_val, 1);
+        }
     }
 
     ggml_barrier(params->shared);
@@ -17459,6 +17492,16 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
                 matrix_row_counts[i02] += 1;
             }
         }
+
+        // Hot expert tracking (PR04)
+        if (ggml_moe_vm_prefetch) {
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0) {
+                    atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                }
+            }
+            atomic_fetch_add(&ggml_moe_dispatch_count_val, 1);
+        }
     }
 
     ggml_barrier(params->shared);
@@ -17469,7 +17512,7 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
 #if defined(_WIN32)
         WIN32_MEMORY_RANGE_ENTRY vm_ranges[512]; // up to 256 experts × 2 tensors (up + gate)
         int n_ranges = 0;
-        for (int a = 0; a < n_as && n_ranges < 510; ++a) {
+        for (int a = 0; a < n_as && n_ranges + 1 < 512; ++a) {
             if (matrix_row_counts[a] > 0) {
                 vm_ranges[n_ranges].VirtualAddress = (PVOID)((const char *)src0_1->data + a*nb02);
                 vm_ranges[n_ranges].NumberOfBytes  = (SIZE_T)nb02;

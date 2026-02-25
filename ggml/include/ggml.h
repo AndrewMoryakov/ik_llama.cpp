@@ -371,6 +371,12 @@ extern "C" {
     GGML_API void ggml_set_moe_vm_prefetch(int enable);
     GGML_API int  ggml_get_moe_vm_prefetch(void);
 
+    // Hot expert tracking: per-expert dispatch hit counters (PR04)
+    #define GGML_MOE_MAX_EXPERTS 256
+    GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts);
+    GGML_API void ggml_moe_reset_expert_hits(void);
+    GGML_API int  ggml_moe_get_dispatch_count(void);
+
     // ieee 754-2008 half-precision float16
     // todo: make this not an integral type
     typedef uint16_t ggml_fp16_t;
