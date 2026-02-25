@@ -1954,6 +1954,8 @@ static int lock_expert_all_layers(const llama_model & model, int expert_id) {
 // Called once from llama_decode_internal after the first batch (prompt processing).
 // Reads accumulated expert hit statistics, locks the top-N hottest experts in RAM,
 // and never touches them again.  Zero ongoing overhead.
+// NOTE: Locking based on PP stats (not TG) because VirtualLock during TG is blocking
+// I/O from swap, adding ~3s per token.  PP lock is "free" (hidden in PP time).
 static void llama_hot_expert_commit(const llama_model & model) {
     if (s_hot_committed) return;
     if (!ggml_get_moe_vm_prefetch()) return;
@@ -3769,6 +3771,8 @@ static int llama_decode_internal(
 
     // Hot expert tracking (PR04): after the first prompt eval, lock the hottest
     // experts in RAM based on accumulated dispatch statistics.  One-time only.
+    // NOTE: Locking during PP (not TG) is critical — VirtualLock is blocking I/O
+    // that pages in from swap.  Doing it during TG adds ~2.6 GB of page-in latency.
     if (n_tokens_all > 1 && !s_hot_committed) {
         llama_hot_expert_commit(model);
     }

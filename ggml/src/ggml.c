@@ -17214,6 +17214,7 @@ static void ggml_compute_forward_mul_mat_id(
             }
         }
 #endif
+
     }
 
     // compute each matrix multiplication in sequence
