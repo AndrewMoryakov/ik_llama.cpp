@@ -1910,75 +1910,67 @@ static bool is_model_split_supported(const llama_model & model) {
 }
 
 // Hot expert tracking state (PR04)
-// Tracks which MoE experts are called most frequently and locks them in RAM.
+// Collects dispatch statistics during prompt processing, then locks the most
+// frequently used experts in RAM once.  No periodic re-evaluation — avoids
+// the VirtualLock/Unlock syscall storm that caused -63% TG regression.
 static bool s_hot_locked[GGML_MOE_MAX_EXPERTS];  // which experts are currently VirtualLocked
 static int  s_hot_max_locked;     // budget: how many experts we can lock (2 * n_expert_used)
-static int  s_hot_eval_interval = 512;  // re-evaluate every N dispatches
 static int  s_hot_n_expert;       // total experts in model
-static int  s_hot_last_dispatch;  // dispatch count at last evaluation
+static bool s_hot_committed;      // true after one-time lock has been applied
 
-// Lock or unlock a slice of a tensor corresponding to one expert.
+// Lock a slice of a tensor corresponding to one expert.
 // tensor->nb[2] = bytes per expert, expert_id selects the slice.
-// Returns true if lock/unlock succeeded, false otherwise.
-static bool lock_expert_slice(struct ggml_tensor * t, int expert_id, bool do_lock) {
+static bool lock_expert_slice(struct ggml_tensor * t, int expert_id) {
     if (!t || !t->data) return false;
-    if (ggml_n_dims(t) < 3) return false;  // not a stacked expert tensor
-    if (expert_id < 0 || (int64_t)expert_id >= t->ne[2]) return false;  // bounds check
+    if (ggml_n_dims(t) < 3) return false;
+    if (expert_id < 0 || (int64_t)expert_id >= t->ne[2]) return false;
     size_t slice_size = (size_t)t->nb[2];
     if (slice_size == 0) return false;
     char * addr = (char *)t->data + (size_t)expert_id * slice_size;
-    bool ok = true;
 #if defined(_WIN32)
-    if (do_lock) {
-        ok = VirtualLock(addr, slice_size) != 0;
-    } else {
-        ok = VirtualUnlock(addr, slice_size) != 0;
-    }
+    return VirtualLock(addr, slice_size) != 0;
 #elif defined(__linux__)
-    if (do_lock) {
-        ok = mlock(addr, slice_size) == 0;
-    } else {
-        ok = munlock(addr, slice_size) == 0;
-    }
+    return mlock(addr, slice_size) == 0;
 #else
-    (void)addr; (void)slice_size; (void)do_lock;
+    (void)addr; (void)slice_size;
+    return false;
 #endif
+}
+
+// Lock all FFN expert tensors for a given expert across all layers.
+static int lock_expert_all_layers(const llama_model & model, int expert_id) {
+    int ok = 0;
+    for (const auto & layer : model.layers) {
+        if (lock_expert_slice(layer.ffn_down_exps, expert_id)) ok++;
+        if (lock_expert_slice(layer.ffn_up_exps,   expert_id)) ok++;
+        if (lock_expert_slice(layer.ffn_gate_exps, expert_id)) ok++;
+        if (!layer.ffn_up_exps && !layer.ffn_gate_exps && layer.ffn_up_gate_exps) {
+            if (lock_expert_slice(layer.ffn_up_gate_exps, expert_id)) ok++;
+        }
+    }
     return ok;
 }
 
-// Lock/unlock all FFN expert tensors for a given expert across all layers.
-static void lock_expert_all_layers(const llama_model & model, int expert_id, bool do_lock) {
-    for (const auto & layer : model.layers) {
-        // For muge (fused up+gate), ffn_up_exps/ffn_gate_exps are views into ffn_up_gate_exps.
-        // Lock the sub-ranges via the view tensors — this is safe.
-        lock_expert_slice(layer.ffn_down_exps, expert_id, do_lock);
-        lock_expert_slice(layer.ffn_up_exps,   expert_id, do_lock);
-        lock_expert_slice(layer.ffn_gate_exps, expert_id, do_lock);
-        // If no separate up/gate views but fused tensor exists, lock that
-        if (!layer.ffn_up_exps && !layer.ffn_gate_exps && layer.ffn_up_gate_exps) {
-            lock_expert_slice(layer.ffn_up_gate_exps, expert_id, do_lock);
-        }
-    }
-}
-
-// Called from llama_decode_internal after each decode.
-// Periodically re-evaluates expert hotness and adjusts VirtualLock.
-static void llama_hot_expert_update(const llama_model & model) {
+// Called once from llama_decode_internal after the first batch (prompt processing).
+// Reads accumulated expert hit statistics, locks the top-N hottest experts in RAM,
+// and never touches them again.  Zero ongoing overhead.
+static void llama_hot_expert_commit(const llama_model & model) {
+    if (s_hot_committed) return;
     if (!ggml_get_moe_vm_prefetch()) return;
     if (s_hot_n_expert == 0) return;
+    s_hot_committed = true;
 
-    int dispatch_now = ggml_moe_get_dispatch_count();
-    if (dispatch_now - s_hot_last_dispatch < s_hot_eval_interval) return;
-    s_hot_last_dispatch = dispatch_now;
+    // Need enough dispatches to have meaningful statistics.
+    // Minimum: at least 1 full pass through all layers (n_layer dispatches).
+    int dispatch_count = ggml_moe_get_dispatch_count();
+    if (dispatch_count < 32) return;  // too few data points, skip locking
 
-    // Read current hit counts
     int hits[GGML_MOE_MAX_EXPERTS] = {0};
     ggml_moe_get_expert_hits(hits, s_hot_n_expert);
 
-    // Build sorted index by hits (descending)
+    // Sort experts by hits (descending) — insertion sort, n_expert <= 256
     int idx[GGML_MOE_MAX_EXPERTS];
     for (int i = 0; i < s_hot_n_expert; ++i) idx[i] = i;
-    // Simple insertion sort — n_expert is small (<=256)
     for (int i = 1; i < s_hot_n_expert; ++i) {
         int key = idx[i];
         int j = i - 1;
@@ -1989,42 +1981,25 @@ static void llama_hot_expert_update(const llama_model & model) {
         idx[j + 1] = key;
     }
 
-    // Top s_hot_max_locked = hot, rest = cold
-    bool new_hot[GGML_MOE_MAX_EXPERTS] = {false};
+    // Lock top-N experts (one-time, no unlock ever)
+    int locked = 0, lock_fails = 0;
     for (int i = 0; i < s_hot_max_locked && i < s_hot_n_expert; ++i) {
-        if (hits[idx[i]] > 0) {  // only lock experts that were actually used
-            new_hot[idx[i]] = true;
-        }
-    }
-
-    // Apply changes
-    int locked = 0, unlocked = 0, lock_fails = 0;
-    for (int i = 0; i < s_hot_n_expert; ++i) {
-        if (new_hot[i] && !s_hot_locked[i]) {
-            lock_expert_all_layers(model, i, true);
-            s_hot_locked[i] = true;
+        if (hits[idx[i]] <= 0) break;  // no more used experts
+        int ok = lock_expert_all_layers(model, idx[i]);
+        if (ok > 0) {
+            s_hot_locked[idx[i]] = true;
             locked++;
-        } else if (!new_hot[i] && s_hot_locked[i]) {
-            lock_expert_all_layers(model, i, false);
-            s_hot_locked[i] = false;
-            unlocked++;
+        } else {
+            lock_fails++;
         }
     }
 
-    if (locked > 0 || unlocked > 0) {
-        int total_locked = 0;
-        for (int i = 0; i < s_hot_n_expert; ++i) {
-            if (s_hot_locked[i]) total_locked++;
-        }
-        LLAMA_LOG_INFO("hot experts: +%d locked, -%d unlocked (%d/%d total) | top-6:",
-                locked, unlocked, total_locked, s_hot_n_expert);
-        for (int i = 0; i < 6 && i < s_hot_n_expert; ++i) {
-            LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
-        }
-        LLAMA_LOG_INFO("\n");
+    LLAMA_LOG_INFO("hot experts: locked %d/%d (budget %d, fails %d, dispatches %d) | top-8:",
+            locked, s_hot_n_expert, s_hot_max_locked, lock_fails, dispatch_count);
+    for (int i = 0; i < 8 && i < s_hot_n_expert; ++i) {
+        LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
     }
-
-    ggml_moe_reset_expert_hits();
+    LLAMA_LOG_INFO("\n");
 }
 
 // Returns false if cancelled by progress_callback
@@ -2497,7 +2472,7 @@ static bool llm_load_tensors(
             const uint32_t n_expert_used = model.hparams.n_expert_used;
             s_hot_n_expert = (int)(n_expert < GGML_MOE_MAX_EXPERTS ? n_expert : GGML_MOE_MAX_EXPERTS);
             s_hot_max_locked = (int)(n_expert_used * 2 < n_expert ? n_expert_used * 2 : n_expert);
-            s_hot_last_dispatch = 0;
+            s_hot_committed = false;
             memset(s_hot_locked, 0, sizeof(s_hot_locked));
             ggml_moe_reset_expert_hits();
 
@@ -2530,8 +2505,8 @@ static bool llm_load_tensors(
                 }
             }
 #endif
-            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable, eval every %d dispatches\n",
-                    __func__, s_hot_max_locked, s_hot_n_expert, s_hot_eval_interval);
+            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable (after first prompt)\n",
+                    __func__, s_hot_max_locked, s_hot_n_expert);
         }
     }
 
@@ -3792,8 +3767,11 @@ static int llama_decode_internal(
         printf("sched_reset(...): %d us\n", int(tim2-tim1));
 #endif
 
-    // Hot expert tracking: periodically re-evaluate and lock/unlock experts (PR04)
-    llama_hot_expert_update(model);
+    // Hot expert tracking (PR04): after the first prompt eval, lock the hottest
+    // experts in RAM based on accumulated dispatch statistics.  One-time only.
+    if (n_tokens_all > 1 && !s_hot_committed) {
+        llama_hot_expert_commit(model);
+    }
 
     return 0;
 }
