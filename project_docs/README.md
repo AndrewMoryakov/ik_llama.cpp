@@ -7,6 +7,8 @@ This directory is the canonical location for project-specific documentation.
 - `llm/` - machine-oriented bootstrap and source-of-truth navigation for future LLM agents
 - `release/` - current publishable status, validated scope, release checklist
 - `benchmarks/` - benchmark index, current baseline, historical reports, plans
+- `tutorial/` - human learning track: start here, mini tutorial, parameter guide, recipes
+- `dashboard/` - dashboard-specific docs and roadmap
 - `runbooks/` - practical execution guides for this host
 - `development/` - engineering plans for next code changes
 - `models/` - model compatibility and recommendations
@@ -32,6 +34,14 @@ This directory is the canonical location for project-specific documentation.
 - `release/STABLE_VS_EXPERIMENTAL_2026-02-28.md`
 - `strategy/TASK.md`
 - `strategy/EXECUTION_PLAN_ZEN4_MOE_2026-02-27.md`
+- `tutorial/README.md`
+- `tutorial/START_HERE.md`
+- `tutorial/MINI_TUTORIAL.md`
+- `tutorial/PARAMETER_REFERENCE.md`
+- `tutorial/RECIPES_AND_ANTI_PATTERNS.md`
+- `dashboard/README.md`
+- `dashboard/PRODUCT_GUIDE.md`
+- `dashboard/ROADMAP_2026-02-28.md`
 - `runbooks/MOE_RUNTIME_PROFILES.md`
 - `benchmarks/RTR_POLICY.md`
 - `benchmarks/current/SUMMARY_CURRENT_2026-02-27.md`
@@ -51,7 +61,6 @@ This directory is the canonical location for project-specific documentation.
 - Narrative docs live in `project_docs/`.
 - Raw benchmark outputs stay in `ik_llama.cpp/bench_results/` (JSON/log artifacts).
 - Old document paths were removed in clean mode.
-- Dashboard UI files and beginner tutorial docs are intentionally excluded from this repo snapshot.
 
 ## Recommended Entry Points
 - Humans: `START_HERE_BY_GOAL.md`

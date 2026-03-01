@@ -149,7 +149,6 @@ Source of truth:
    - repo: `ik_llama.cpp`
    - branch: `milestone/2026-03-01-logical-snapshot`
    - commit: `05b28d1a1`
-8. dashboard UI and tutorial docs intentionally excluded from this repo snapshot
 
 ## Где смотреть в первую очередь
 
@@ -171,6 +170,13 @@ Source of truth:
 - `ik_llama.cpp/bench_results/2026-02-28_minimax_quick_verify`
 - `ik_llama.cpp/bench_results/2026-02-28_minimax_hot_budget_matrix`
 - `ik_llama.cpp/bench_results/2026-02-28_225841_minimax_hot_budget_long`
+
+### Human tutorial + dashboard
+
+- `project_docs/tutorial/README.md`
+- `project_docs/dashboard/ROADMAP_2026-02-28.md`
+- `ik_llama.cpp/dashboard.js`
+- `ik_llama.cpp/dashboard.html`
 
 ## Коротко: с чего продолжать в новой сессии
 
