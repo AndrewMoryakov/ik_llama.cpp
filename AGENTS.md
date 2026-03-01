@@ -22,7 +22,11 @@ Then branch only as needed:
 - `project_docs/benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `project_docs/benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `project_docs/models/MINIMAX_M2_5_RUNTIME.md`
-- `project_docs/dashboard/ROADMAP_2026-02-28.md`
+
+Snapshot scope note:
+
+- this repo snapshot intentionally excludes the dashboard UI layer
+- this repo snapshot intentionally excludes the beginner tutorial track
 
 ## Current Strategic Truth
 
@@ -107,18 +111,6 @@ If a run directory contains an old broken summary, prefer:
 
 1. raw `.log`
 2. corrected current-status / long-run note in `project_docs/benchmarks/current/`
-
-## Dashboard Rule
-
-Dashboard knowledge layer must follow benchmark-backed current truth.
-
-Do not let dashboard guidance drift ahead of evidence.
-
-Main files:
-
-- `ik_llama.cpp/dashboard.js`
-- `ik_llama.cpp/dashboard.html`
-- `project_docs/dashboard/`
 
 ## Canonical LLM Docs
 

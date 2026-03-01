@@ -32,16 +32,9 @@ Use this map to jump to the right document without reopening the whole tree.
 
 Prefer run-specific narrative notes in `../benchmarks/current/` before quoting raw logs.
 
-## If You Need Dashboard Knowledge Layer
-
-- `../../ik_llama.cpp/dashboard.js`
-- `../../ik_llama.cpp/dashboard.html`
-- `../dashboard/ROADMAP_2026-02-28.md`
-
 ## If You Need Future Family Preset Backlog
 
 - `../strategy/ROADMAP_2026-02-28.md`
-- `../dashboard/ROADMAP_2026-02-28.md`
 
 Current family-preset backlog includes:
 
@@ -53,3 +46,8 @@ Current family-preset backlog includes:
 6. `Granite MoE`
 7. `Kimi / Kimi 2.5 / Kimi-K2 family`
 8. dense baselines: `Llama`, `Gemma`, `Phi`, `Mistral`
+
+## Snapshot Scope Note
+
+- dashboard UI files are intentionally excluded from this repo snapshot
+- beginner tutorial docs are intentionally excluded from this repo snapshot
