@@ -1,0 +1,24 @@
+﻿{
+    "timeout_min":  30,
+    "test_count":  48,
+    "models":  [
+                   "gpt-oss-20b",
+                   "Qwen3-30B-A3B",
+                   "Llama-3.1-8B"
+               ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "scenarios":  [
+                      "ccd-affinity",
+                      "prompt-length",
+                      "smt"
+                  ],
+    "commit":  "bd387a279",
+    "timestamp":  "2026-02-23T13:04:20.3937157+03:00",
+    "reps":  2,
+    "topology":  {
+                     "ccd0_physical_mask":  "0x5555",
+                     "ccd1_mask":  "0xFFFFFFFFFFFF0000",
+                     "ccd0_mask":  "0xFFFF"
+                 },
+    "ram_gb":  95.1
+}

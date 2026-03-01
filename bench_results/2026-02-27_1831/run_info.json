@@ -1,0 +1,44 @@
+{
+  "threads": [
+    8,
+    16,
+    24,
+    32
+  ],
+  "out_dir": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\bench_results\\2026-02-27_1831",
+  "ram_gb": 95.1,
+  "scenarios": [
+    "pp:512",
+    "tg:128",
+    "pg:512:128"
+  ],
+  "fa": [
+    1
+  ],
+  "models": [
+    {
+      "path": "Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf",
+      "class": "in_ram"
+    },
+    {
+      "path": "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+      "class": "in_ram"
+    }
+  ],
+  "timestamp": "2026-02-27T18:31:54.8757835+03:00",
+  "cpu": "AMD Ryzen 9 7950X 16-Core Processor",
+  "llama_bench": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\build\\bin\\llama-bench.exe",
+  "os": "Microsoft Windows NT 10.0.22631.0",
+  "timeout_minutes": 30,
+  "commit": "1ee50255a",
+  "reps": 3,
+  "muge": [
+    0
+  ],
+  "run_load_probe": true,
+  "rtr_modes": [
+    "off",
+    "on",
+    "auto"
+  ]
+}

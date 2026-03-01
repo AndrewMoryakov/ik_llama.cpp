@@ -1,0 +1,15 @@
+﻿{
+    "reps":  2,
+    "test_count":  54,
+    "timestamp":  "2026-02-23T12:23:56.6539224+03:00",
+    "ram_gb":  95.1,
+    "scenarios":  [
+                      "kv-cache",
+                      "long-context",
+                      "t32",
+                      "mixed-pg"
+                  ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "timeout_min":  30,
+    "commit":  "bd387a279"
+}

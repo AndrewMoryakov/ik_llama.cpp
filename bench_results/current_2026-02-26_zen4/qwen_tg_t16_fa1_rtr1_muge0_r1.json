@@ -1,0 +1,66 @@
+ggml_large_pages_available: large pages enabled (page size: 2048 KB)
+ggml_backend_cpu_buffer_type_alloc_buffer: 17.35 GiB with large pages
+ggml_backend_cpu_buffer_type_alloc_buffer: 0.02 GiB with large pages
+ggml_backend_cpu_buffer_type_alloc_buffer: 0.15 GiB with large pages
+[
+============ Repacked 337 tensors
+===================================== llama_init_from_model: f16
+======================================= HAVE_FANCY_SIMD is defined
+  {
+    "build_commit": "1ee50255a",
+    "build_number": 62,
+    "cuda": false,
+    "vulkan": false,
+    "kompute": false,
+    "metal": false,
+    "sycl": false,
+    "rpc": "0",
+    "gpu_blas": false,
+    "blas": false,
+    "cpu_info": "AMD Ryzen 9 7950X 16-Core Processor            \u0000",
+    "gpu_info": "",
+    "model_filename": "Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf",
+    "model_type": "qwen3moe 30B.A3B Q4_K - Medium",
+    "model_size": 18626213888,
+    "model_n_params": 30532122624,
+    "n_batch": 2048,
+    "n_ubatch": 512,
+    "n_threads": 16,
+    "type_k": "f16",
+    "type_v": "f16",
+    "n_gpu_layers": 999,
+    "split_mode": "layer",
+    "main_gpu": 0,
+    "no_kv_offload": false,
+    "flash_attn": true,
+    "mla_attn": 3,
+    "attn_max_batch": 0,
+    "ser": "-1,0",
+    "reuse": true,
+    "tensor_split": "0.00",
+    "use_mmap": true,
+    "embeddings": false,
+    "repack": true,
+    "mqkv": false,
+    "muge": false,
+    "fused_moe": true,
+    "grouped_er": false,
+    "no_fused_up_gate": false,
+    "use_thp": false,
+    "no_ooae": false,
+    "rcache": false,
+    "sas": false,
+    "cuda_params": "",
+    "override_tensor": "",
+    "n_prompt": 0,
+    "n_gen": 128,
+    "test_time": "2026-02-26T09:26:24Z",
+    "avg_ns": 4259002500,
+    "stddev_ns": 0,
+    "avg_ts": 30.053986,
+    "stddev_ts": 0.000000,
+    "test": "tg128",
+    "samples_ns": [ 4259002500 ],
+    "samples_ts": [ 30.054 ]
+  }
+]

@@ -1,0 +1,33 @@
+﻿{
+    "muge":  [
+                 0,
+                 1
+             ],
+    "ram_gb":  95.1,
+    "models":  [
+                   "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+                   "Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf",
+                   "Z:\\files\\gguf\\lmstudio-community\\Meta-Llama-3.1-8B-Instruct-GGUF\\Meta-Llama-3.1-8B-Instruct-Q8_0.gguf"
+               ],
+    "timestamp":  "2026-02-22T23:35:00.3514351+03:00",
+    "threads":  [
+                    8,
+                    16
+                ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "rtr":  [
+                0,
+                1
+            ],
+    "fa":  [
+               0,
+               1
+           ],
+    "os":  "Microsoft Windows NT 10.0.22631.0",
+    "timeout_min":  30,
+    "reps":  3,
+    "llama_bench":  "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\build\\bin\\llama-bench.exe",
+    "commit":  "bd387a279",
+    "pp":  512,
+    "tg":  128
+}
