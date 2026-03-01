@@ -34,8 +34,8 @@ Prefer run-specific narrative notes in `../benchmarks/current/` before quoting r
 
 ## If You Need Dashboard Knowledge Layer
 
-- `../../ik_llama.cpp/dashboard.js`
-- `../../ik_llama.cpp/dashboard.html`
+- `../../dashboard/dashboard.js`
+- `../../dashboard/dashboard.html`
 - `../dashboard/ROADMAP_2026-02-28.md`
 
 ## If You Need Future Family Preset Backlog

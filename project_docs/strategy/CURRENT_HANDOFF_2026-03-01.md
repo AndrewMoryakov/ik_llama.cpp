@@ -175,8 +175,8 @@ Source of truth:
 
 - `project_docs/tutorial/README.md`
 - `project_docs/dashboard/ROADMAP_2026-02-28.md`
-- `ik_llama.cpp/dashboard.js`
-- `ik_llama.cpp/dashboard.html`
+- `dashboard/dashboard.js`
+- `dashboard/dashboard.html`
 
 ## Коротко: с чего продолжать в новой сессии
 

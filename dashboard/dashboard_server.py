@@ -38,8 +38,9 @@ from urllib.parse import urlparse, parse_qs
 HOST = "127.0.0.1"
 PORT = 7860
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(DASHBOARD_DIR)
 DASHBOARD_HTML = os.path.join(DASHBOARD_DIR, "dashboard.html")
-BUILD_BIN = os.path.join(DASHBOARD_DIR, "build", "bin")
+BUILD_BIN = os.path.join(REPO_ROOT, "build", "bin")
 
 # Static files allowed to be served (whitelist for security)
 STATIC_FILES = {

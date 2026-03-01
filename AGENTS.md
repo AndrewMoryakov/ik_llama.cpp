@@ -116,8 +116,8 @@ Do not let dashboard guidance drift ahead of evidence.
 
 Main files:
 
-- `ik_llama.cpp/dashboard.js`
-- `ik_llama.cpp/dashboard.html`
+- `dashboard/dashboard.js`
+- `dashboard/dashboard.html`
 - `project_docs/dashboard/`
 
 ## Canonical LLM Docs

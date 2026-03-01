@@ -41,7 +41,7 @@
 
 ## Из каких частей он состоит
 
-### 1. `ik_llama.cpp/dashboard.html`
+### 1. `dashboard/dashboard.html`
 
 Содержит:
 
@@ -56,7 +56,7 @@
 - новые controls;
 - текстовые блоки, если они относятся именно к UI-структуре.
 
-### 2. `ik_llama.cpp/dashboard.css`
+### 2. `dashboard/dashboard.css`
 
 Содержит:
 
@@ -69,7 +69,7 @@
 - визуальное состояние validated / experimental / warnings;
 - layout и читаемость интерфейса.
 
-### 3. `ik_llama.cpp/dashboard.js`
+### 3. `dashboard/dashboard.js`
 
 Это главная knowledge-layer часть продукта.
 
@@ -87,7 +87,7 @@
 
 Если нужно поменять смысл dashboard, почти всегда правки начинаются здесь.
 
-### 4. `ik_llama.cpp/dashboard_server.py`
+### 4. `dashboard/dashboard_server.py`
 
 Это локальный stdlib-only сервер для UI.
 
@@ -168,7 +168,7 @@ Dashboard не должен жить своей жизнью.
 
 Менять:
 
-- `ik_llama.cpp/dashboard.js`
+- `dashboard/dashboard.js`
 
 Проверять против:
 
@@ -178,43 +178,43 @@ Dashboard не должен жить своей жизнью.
 
 Менять:
 
-- `ik_llama.cpp/dashboard.html`
-- `ik_llama.cpp/dashboard.js`
+- `dashboard/dashboard.html`
+- `dashboard/dashboard.js`
 
 Если control влияет на запуск процесса:
 
-- `ik_llama.cpp/dashboard_server.py`
+- `dashboard/dashboard_server.py`
 
 ### Нужно добавить новый env override
 
 Менять:
 
-- `ik_llama.cpp/dashboard.js`
-- `ik_llama.cpp/dashboard_server.py`
+- `dashboard/dashboard.js`
+- `dashboard/dashboard_server.py`
 
 ### Нужно обновить help/popover/glossary
 
 Менять:
 
-- `ik_llama.cpp/dashboard.js`
-- при необходимости `ik_llama.cpp/dashboard.html`
+- `dashboard/dashboard.js`
+- при необходимости `dashboard/dashboard.html`
 
 ### Нужно поменять внешний вид badges/warnings
 
 Менять:
 
-- `ik_llama.cpp/dashboard.css`
+- `dashboard/dashboard.css`
 
 ## Как безопасно обновлять dashboard
 
 Рекомендуемый порядок:
 
 1. сначала обновить benchmark truth или current-status docs;
-2. потом обновить `dashboard.js`;
+2. потом обновить `dashboard/dashboard.js`;
 3. потом синхронизировать `tutorial/` и `dashboard/` docs;
 4. потом проверить синтаксис:
-   - `node --check ik_llama.cpp/dashboard.js`
-5. потом проверить реальный launch path через `dashboard_server.py`.
+   - `node --check dashboard/dashboard.js`
+5. потом проверить реальный launch path через `dashboard/dashboard_server.py`.
 
 Если сначала менять UI-claims, а benchmark truth отстает, knowledge layer начнет врать пользователю.
 
