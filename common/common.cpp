@@ -1491,8 +1491,40 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         return true;
     }
     if (arg == "-rtr" || arg == "--run-time-repack") {
+        // Backward compatible:
+        //   -rtr / --run-time-repack        -> on
+        //   -rtr 0|1|2|off|on|auto          -> explicit mode
         params.repack_tensors = true;
-        params.use_mmap = false;
+        params.repack_tensors_auto = false;
+
+        if (i + 1 < argc) {
+            std::string next = argv[i + 1];
+            std::string next_l = next;
+            std::transform(next_l.begin(), next_l.end(), next_l.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+
+            const bool maybe_mode =
+                    next_l == "0" || next_l == "1" || next_l == "2" ||
+                    next_l == "off" || next_l == "on" || next_l == "auto";
+
+            if (maybe_mode) {
+                ++i;
+                if (next_l == "0" || next_l == "off") {
+                    params.repack_tensors = false;
+                    params.repack_tensors_auto = false;
+                } else if (next_l == "1" || next_l == "on") {
+                    params.repack_tensors = true;
+                    params.repack_tensors_auto = false;
+                } else {
+                    params.repack_tensors = true;
+                    params.repack_tensors_auto = true;
+                }
+            }
+        }
+        return true;
+    }
+    if (arg == "-rtra" || arg == "--run-time-repack-auto") {
+        params.repack_tensors = true;
+        params.repack_tensors_auto = true;
         return true;
     }
     if (arg == "-thp" || arg == "--transparent-huge-pages") {
@@ -2425,7 +2457,9 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     if (llama_supports_mmap()) {
         options.push_back({ "*",           "       --no-mmap",              "do not memory-map model (slower load but may reduce pageouts if not using mlock)" });
     }
-    options.push_back({ "*",           "       --run-time-repack",      "repack tensors if interleaved variant is available"});
+    options.push_back({ "*",           "       --run-time-repack [on|off|auto]",
+                                                                        "repack tensors if interleaved variant is available (auto: disable for swap-bound MoE)"});
+    options.push_back({ "*",           "       --run-time-repack-auto", "alias for --run-time-repack auto"});
     options.push_back({ "*",           "       --cpu-moe",              "keep all MoE weights in CPU memory"});
     options.push_back({ "*",           "       --n-cpu-moe N",          "keep MoE weights of the first N layers in CPU memory"});
     options.push_back({ "*",           "       --numa TYPE",            "attempt optimizations that help on some NUMA systems\n"
@@ -3207,6 +3241,7 @@ struct llama_model_params common_model_params_to_llama(const gpt_params & params
     mparams.use_mlock       = params.use_mlock;
     mparams.check_tensors   = params.check_tensors;
     mparams.repack_tensors  = params.repack_tensors;
+    mparams.repack_tensors_auto = params.repack_tensors_auto;
     mparams.use_thp         = params.use_thp;
     mparams.validate_quants = params.validate_quants;
     mparams.merge_qkv       = params.merge_qkv;
@@ -4291,6 +4326,7 @@ void yaml_dump_non_result_info(FILE * stream, const gpt_params & params, const l
     fprintf(stream, "n_probs: %d # only used by server binary, default: 0\n", sparams.n_probs);
     fprintf(stream, "no_mmap: %s # default: false\n", !params.use_mmap ? "true" : "false");
     fprintf(stream, "repack: %s # default: false\n", params.repack_tensors ? "true" : "false");
+    fprintf(stream, "repack_auto: %s # default: false\n", params.repack_tensors_auto ? "true" : "false");
     fprintf(stream, "use_thp: %s # default: false\n", params.use_thp ? "true" : "false");
     fprintf(stream, "validate_quants: %s # default: false\n", params.validate_quants ? "true" : "false");
     fprintf(stream, "merge_qkv: %s # default: false\n", params.merge_qkv ? "true" : "false");

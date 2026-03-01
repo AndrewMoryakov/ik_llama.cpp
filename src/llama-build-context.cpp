@@ -9,6 +9,115 @@
 
 #include <unordered_set>
 #include <algorithm>
+#include <cstdlib>
+
+static bool llm_pg_trace_enabled_build() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_PG_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static bool llm_layer_score_trace_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_LAYER_SCORE_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+struct llm_trace_graph_delta {
+    int nodes = 0;
+    int mul_mat = 0;
+    int flash_attn = 0;
+    int get_rows = 0;
+    int cpy = 0;
+    int norm = 0;
+};
+
+static llm_trace_graph_delta llm_trace_graph_delta_collect(const ggml_cgraph * gf, int start_idx) {
+    llm_trace_graph_delta out;
+    if (!gf) {
+        return out;
+    }
+
+    start_idx = std::max(0, std::min(start_idx, gf->n_nodes));
+    out.nodes = gf->n_nodes - start_idx;
+
+    for (int i = start_idx; i < gf->n_nodes; ++i) {
+        const ggml_tensor * node = gf->nodes[i];
+        if (!node) {
+            continue;
+        }
+
+        switch (node->op) {
+            case GGML_OP_MUL_MAT:           out.mul_mat++;    break;
+            case GGML_OP_FLASH_ATTN_EXT:    out.flash_attn++; break;
+            case GGML_OP_GET_ROWS:          out.get_rows++;   break;
+            case GGML_OP_CPY:               out.cpy++;        break;
+            case GGML_OP_RMS_NORM:
+            case GGML_OP_NORM:              out.norm++;       break;
+            default: break;
+        }
+    }
+
+    return out;
+}
+
+static void llm_trace_layer_score_log(
+        int il,
+        int n_tokens,
+        bool packed_prompt_qkv,
+        const ggml_tensor * q_weight,
+        const ggml_tensor * k_weight,
+        const ggml_tensor * v_weight,
+        const ggml_tensor * packed_weight,
+        const llm_trace_graph_delta & qkv_delta,
+        const llm_trace_graph_delta & attn_delta) {
+    const int64_t q_rows = q_weight ? q_weight->ne[1] : 0;
+    const int64_t k_rows = k_weight ? k_weight->ne[1] : 0;
+    const int64_t v_rows = v_weight ? v_weight->ne[1] : 0;
+    const int64_t model_dim = q_weight ? q_weight->ne[0] : (packed_weight ? packed_weight->ne[0] : 0);
+    const size_t packed_bytes = packed_weight ? ggml_nbytes(packed_weight) : 0;
+    const size_t split_bytes =
+            (q_weight ? ggml_nbytes(q_weight) : 0) +
+            (k_weight ? ggml_nbytes(k_weight) : 0) +
+            (v_weight ? ggml_nbytes(v_weight) : 0);
+
+    const double proj_macc = (double) n_tokens * (double) model_dim * (double) (q_rows + k_rows + v_rows);
+
+    LLAMA_LOG_INFO(
+            "%s: layer-score il=%d tokens=%d mode=%s dim=%lld q_rows=%lld k_rows=%lld v_rows=%lld "
+            "proj_macc=%.0f split_mib=%.2f packed_mib=%.2f "
+            "qkv_nodes=%d qkv_mul_mat=%d qkv_flash=%d qkv_get_rows=%d qkv_cpy=%d qkv_norm=%d "
+            "attn_nodes=%d attn_mul_mat=%d attn_flash=%d attn_get_rows=%d attn_cpy=%d attn_norm=%d\n",
+            __func__,
+            il,
+            n_tokens,
+            packed_prompt_qkv ? "packed" : "split",
+            (long long) model_dim,
+            (long long) q_rows,
+            (long long) k_rows,
+            (long long) v_rows,
+            proj_macc,
+            split_bytes / 1048576.0,
+            packed_bytes / 1048576.0,
+            qkv_delta.nodes,
+            qkv_delta.mul_mat,
+            qkv_delta.flash_attn,
+            qkv_delta.get_rows,
+            qkv_delta.cpy,
+            qkv_delta.norm,
+            attn_delta.nodes,
+            attn_delta.mul_mat,
+            attn_delta.flash_attn,
+            attn_delta.get_rows,
+            attn_delta.cpy,
+            attn_delta.norm);
+}
 
 uint32_t llm_build_context::llama_kv_qnext_state_slots(const llama_kv_cache & kv_self) {
     uint32_t n_slots = 0;
@@ -1050,9 +1159,8 @@ llm_expert_gating_func_type   gating_op,
         auto& hparams = lctx.model.hparams;
         selected_experts = ggml_grouped_topk(ctx, selection_probs, hparams.n_expert_groups, hparams.n_group_used, 2, n_expert_used);
     } else {
-        //selected_experts = ggml_top_k_thresh(ctx, selection_probs, n_expert_used,
-        //        lctx.cparams.min_experts, lctx.cparams.thresh_experts); // [n_expert_used, n_tokens]
-        selected_experts = ggml_top_k(ctx, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
+        selected_experts = ggml_top_k_thresh(ctx, selection_probs, n_expert_used,
+                lctx.cparams.min_experts, lctx.cparams.thresh_experts); // [n_expert_used, n_tokens]
     }
     cb(selected_experts, "ffn_moe_topk", il);
     ggml_tensor * weights = ggml_get_rows(ctx,
@@ -4275,11 +4383,34 @@ ggml_cgraph * llm_build_context::build_qwen3moe() {
     struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
 
     ggml_tensor * inp_out_ids = nullptr; //build_inp_out_ids();
+    const bool pg_trace_prompt = llm_pg_trace_enabled_build() && n_tokens > 1;
+    int trace_attn_layers = 0;
+    int trace_flash_layers = 0;
+    int trace_split_fast_layers = 0;
+    int trace_out_ids_layers = 0;
+    int trace_fused_qkv_layers = 0;
+    int trace_fused_qk_layers = 0;
+    int trace_split_qkv_layers = 0;
 
     for (int il = 0; il < n_layer; ++il) {
 
         if (il == n_layer - 1 && n_tokens > 1) {
             inp_out_ids = build_inp_out_ids();
+        }
+
+        if (pg_trace_prompt) {
+            trace_attn_layers++;
+            trace_flash_layers += cparams.flash_attn ? 1 : 0;
+            trace_out_ids_layers += inp_out_ids ? 1 : 0;
+            trace_fused_qkv_layers += model.layers[il].wqkv ? 1 : 0;
+            trace_fused_qk_layers += (!model.layers[il].wqkv && model.layers[il].wqk) ? 1 : 0;
+            trace_split_qkv_layers += (!model.layers[il].wqkv && !model.layers[il].wqk) ? 1 : 0;
+
+            const bool split_fast = !model.layers[il].wqkv && !model.layers[il].wqk && cparams.flash_attn &&
+                    model.layers[il].wq->extra && model.layers[il].wk->extra &&
+                    model.layers[il].wv->extra && model.layers[il].wo->extra &&
+                    kv_self.k_l[il]->extra && kv_self.v_l[il]->extra;
+            trace_split_fast_layers += split_fast ? 1 : 0;
         }
 
         cur = build_std_attention(gf, model.layers[il].attn_norm, inpL, inp_pos, inp_out_ids, nullptr,
@@ -4307,6 +4438,20 @@ ggml_cgraph * llm_build_context::build_qwen3moe() {
 
         // input for next layer
         inpL = cur;
+    }
+
+    if (pg_trace_prompt) {
+        LLAMA_LOG_INFO("%s: pg-branch-summary arch=%s tokens=%d layers=%d flash_layers=%d split_fast_layers=%d out_ids_layers=%d fused_qkv_layers=%d fused_qk_layers=%d split_qkv_layers=%d\n",
+                __func__,
+                llama_model_arch_name(model.arch),
+                n_tokens,
+                trace_attn_layers,
+                trace_flash_layers,
+                trace_split_fast_layers,
+                trace_out_ids_layers,
+                trace_fused_qkv_layers,
+                trace_fused_qk_layers,
+                trace_split_qkv_layers);
     }
 
     cur = inpL;
@@ -6859,6 +7004,12 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
     // whether to use n_tokens as the matrix dimension during multiplication or n_head
     // n_tokens is higher during prompt processing, this allows to optimize for this case
     bool pp_opt = n_tokens >= 128; // Is it a fixed constant or is it somehow relared to n_head? original: n_tokens > n_head;
+    const bool pg_trace_prompt = llm_pg_trace_enabled_build() && n_tokens > 1;
+    int trace_pp_opt_layers = 0;
+    int trace_mla_flash_pp_layers = 0;
+    int trace_mla_flash_regular_layers = 0;
+    int trace_mla_fallback_layers = 0;
+    int trace_mla_no_flash_layers = 0;
 
     auto rope_cache = cparams.rope_cache && (rope_type == LLAMA_ROPE_TYPE_NEOX || rope_type == LLAMA_ROPE_TYPE_NORM) ?
         ggml_rope_cache(ctx0, inp_pos, nullptr, n_rot, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
@@ -6976,10 +7127,16 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
             cb(kv_compressed, "kv_compressed", il);
 
             if (lctx.cparams.mla_attn) {
+                if (pg_trace_prompt && pp_opt) {
+                    trace_pp_opt_layers++;
+                }
 
                 ggml_tensor * kv_cache_trans = nullptr;
 
                 if (lctx.cparams.mla_attn == 1 && !lctx.cparams.flash_attn) {
+                    if (pg_trace_prompt) {
+                        trace_mla_no_flash_layers++;
+                    }
                     ggml_tensor * kv_cache_trans_view = ggml_view_2d(ctx0, kv_self.v_l[il], n_tokens, kv_lora_rank,
                             ggml_row_size(kv_self.v_l[il]->type, kv_self.size), ggml_row_size(kv_self.v_l[il]->type, kv_head));
                     cb(kv_cache_trans_view, "kv_cache_trans_view", il);
@@ -7012,6 +7169,9 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
                 ggml_tensor * kqv;
 
                 if (lctx.cparams.mla_attn > 1 && lctx.cparams.flash_attn && pp_opt) { // PP for mla=2,3
+                    if (pg_trace_prompt) {
+                        trace_mla_flash_pp_layers++;
+                    }
 
                     auto kv_cache_nope = ggml_view_2d(ctx0, kv_self.k_l[il], kv_lora_rank, n_kv, kv_self.k_l[il]->nb[1],
                             ggml_row_size(kv_self.k_l[il]->type, n_embd_head_qk_rope));
@@ -7131,6 +7291,9 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
                     cb(q, "q", il);
 
                     if (lctx.cparams.flash_attn && (lctx.cparams.mla_attn == 1 || lctx.cparams.mla_attn == 3)) {
+                        if (pg_trace_prompt) {
+                            trace_mla_flash_regular_layers++;
+                        }
                         ggml_tensor * kv_cache_lora = ggml_view_2d(ctx0, kv_self.k_l[il],
                                 kv_lora_rank, n_kv,
                                 ggml_row_size(kv_self.k_l[il]->type, kv_lora_rank + n_embd_head_qk_rope),
@@ -7148,6 +7311,9 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
                         cb(kqv_compressed, "kqv_compressed_perm", il);
                     }
                     else {
+                        if (pg_trace_prompt) {
+                            trace_mla_fallback_layers++;
+                        }
                         if (lctx.cparams.mla_attn > 1) {
                             ggml_tensor * kv_cache_lora = ggml_view_2d(ctx0, kv_self.k_l[il],
                                     kv_lora_rank, n_kv,
@@ -7349,6 +7515,19 @@ ggml_cgraph * llm_build_context::build_deepseek2() {
 
         // input for next layer
         inpL = cur;
+    }
+
+    if (pg_trace_prompt) {
+        LLAMA_LOG_INFO("%s: pg-branch-summary arch=%s tokens=%d pp_opt=%d layers=%d mla_flash_pp=%d mla_flash_regular=%d mla_fallback=%d mla_no_flash=%d\n",
+                __func__,
+                llama_model_arch_name(model.arch),
+                n_tokens,
+                trace_pp_opt_layers,
+                n_active_layers,
+                trace_mla_flash_pp_layers,
+                trace_mla_flash_regular_layers,
+                trace_mla_fallback_layers,
+                trace_mla_no_flash_layers);
     }
 
     cur = inpL;
@@ -8937,11 +9116,36 @@ ggml_cgraph * llm_build_context::build_openai_moe() {
     const float kq_scale = 1.0f / sqrtf(float(n_rot));
 
     const int sliding_window_pattern = 2;
+    const bool pg_trace_prompt = llm_pg_trace_enabled_build() && n_tokens > 1;
+    int trace_attn_layers = 0;
+    int trace_flash_layers = 0;
+    int trace_swa_layers = 0;
+    int trace_out_ids_layers = 0;
+    int trace_split_fast_layers = 0;
+    int trace_fused_qkv_layers = 0;
+    int trace_fused_qk_layers = 0;
+    int trace_split_qkv_layers = 0;
 
     for (int il = 0; il < n_layer; ++il) {
         const bool is_sliding = il % sliding_window_pattern < (sliding_window_pattern - 1);
 
         struct ggml_tensor * KQ_mask_l = is_sliding ? KQ_mask_swa : KQ_mask;
+
+        if (pg_trace_prompt) {
+            trace_attn_layers++;
+            trace_flash_layers += cparams.flash_attn ? 1 : 0;
+            trace_swa_layers += is_sliding ? 1 : 0;
+            trace_out_ids_layers += (il == n_layer - 1 && inp_out_ids != nullptr) ? 1 : 0;
+            trace_fused_qkv_layers += model.layers[il].wqkv ? 1 : 0;
+            trace_fused_qk_layers += (!model.layers[il].wqkv && model.layers[il].wqk) ? 1 : 0;
+            trace_split_qkv_layers += (!model.layers[il].wqkv && !model.layers[il].wqk) ? 1 : 0;
+
+            const bool split_fast = !model.layers[il].wqkv && !model.layers[il].wqk && cparams.flash_attn &&
+                    model.layers[il].wq->extra && model.layers[il].wk->extra &&
+                    model.layers[il].wv->extra && model.layers[il].wo->extra &&
+                    kv_self.k_l[il]->extra && kv_self.v_l[il]->extra;
+            trace_split_fast_layers += split_fast ? 1 : 0;
+        }
 
         cur = build_std_attention(gf, model.layers[il].attn_norm, inpL,
                 inp_pos, il == n_layer - 1 ? inp_out_ids : nullptr, nullptr, KQ_mask_l,
@@ -8969,6 +9173,21 @@ ggml_cgraph * llm_build_context::build_openai_moe() {
 
         // input for next layer
         inpL = cur;
+    }
+
+    if (pg_trace_prompt) {
+        LLAMA_LOG_INFO("%s: pg-branch-summary arch=%s tokens=%d layers=%d flash_layers=%d swa_layers=%d split_fast_layers=%d out_ids_layers=%d fused_qkv_layers=%d fused_qk_layers=%d split_qkv_layers=%d\n",
+                __func__,
+                llama_model_arch_name(model.arch),
+                n_tokens,
+                trace_attn_layers,
+                trace_flash_layers,
+                trace_swa_layers,
+                trace_split_fast_layers,
+                trace_out_ids_layers,
+                trace_fused_qkv_layers,
+                trace_fused_qk_layers,
+                trace_split_qkv_layers);
     }
 
     cur = build_output(lctx, ctx0, inpL, model.output, model.output_norm, cb);
@@ -10106,11 +10325,32 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
     }
     auto input_normed = cur;
 
+    const bool use_prompt_packed_qkv =
+            n_tokens > 1 &&
+            lctx.lora_adapters.empty() &&
+            model.layers[il].computed_prompt_wqkv &&
+            !model.layers[il].wqkv &&
+            !model.layers[il].wqk;
+
+    const bool layer_score_trace = llm_layer_score_trace_enabled() && n_tokens > 1;
+    const int trace_qkv_start_nodes = layer_score_trace ? gf->n_nodes : 0;
+
+    ggml_tensor * packed_wqkv = use_prompt_packed_qkv ? model.layers[il].computed_prompt_wqkv.get() : model.layers[il].wqkv;
+    ggml_tensor * packed_bqkv = use_prompt_packed_qkv ? model.layers[il].computed_prompt_bqkv.get() : model.layers[il].bqkv;
+    ggml_tensor * split_wq    = use_prompt_packed_qkv ? nullptr : model.layers[il].wq;
+    ggml_tensor * split_bq    = use_prompt_packed_qkv ? nullptr : model.layers[il].bq;
+    ggml_tensor * split_wk    = use_prompt_packed_qkv ? nullptr : model.layers[il].wk;
+    ggml_tensor * split_bk    = use_prompt_packed_qkv ? nullptr : model.layers[il].bk;
+    ggml_tensor * split_wv    = use_prompt_packed_qkv ? nullptr : model.layers[il].wv;
+    ggml_tensor * split_bv    = use_prompt_packed_qkv ? nullptr : model.layers[il].bv;
+
     auto [Qcur, Kcur, Vcur] = llm_build_mul_mat_qkv(gf, cur,
-            model.layers[il].wqkv, model.layers[il].bqkv,
+            packed_wqkv, packed_bqkv,
             model.layers[il].wqk,  model.layers[il].bqk,
-            model.layers[il].wq,   model.layers[il].bq, model.layers[il].wk, model.layers[il].bk, model.layers[il].wv, model.layers[il].bv,
+            split_wq, split_bq, split_wk, split_bk, split_wv, split_bv,
             model.layers[il].attn_q_norm, model.layers[il].attn_k_norm, f_attn_scale, il);
+
+    const int trace_after_qkv_nodes = layer_score_trace ? gf->n_nodes : 0;
 
     if (do_rope) {
         if (is_multi) {
@@ -10160,6 +10400,19 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
         cur = llm_build_kv(ctx0, lctx, kv_self, gf,
                 model.layers[il].wo, model.layers[il].bo,
                 Kcur, Vcur, Qcur, KQ_mask, n_tokens, kv_head, n_kv, KQ_scale, cb, il, sinks, n_swa);
+    }
+
+    if (layer_score_trace) {
+        llm_trace_layer_score_log(
+                il,
+                n_tokens,
+                use_prompt_packed_qkv,
+                model.layers[il].wq,
+                model.layers[il].wk,
+                model.layers[il].wv,
+                model.layers[il].computed_prompt_wqkv.get(),
+                llm_trace_graph_delta_collect(gf, trace_qkv_start_nodes),
+                llm_trace_graph_delta_collect(gf, trace_after_qkv_nodes));
     }
 
     if (inp_out_ids) {

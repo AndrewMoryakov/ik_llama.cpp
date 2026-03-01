@@ -24,6 +24,10 @@
     </div>
     <nav class="topbar-nav">
       <div class="nav-group">
+        <button class="theme-toggle" id="btn-theme" onclick="toggleTheme()" title="Toggle light/dark theme">
+          <svg class="theme-icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg class="theme-icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
         <div class="lang-switch">
           <button class="lang-btn active" id="btn-lang-ru" onclick="setLang('ru')">RU</button>
           <button class="lang-btn" id="btn-lang-en" onclick="setLang('en')">EN</button>
@@ -110,6 +114,7 @@
               <span data-i18n="d_model">Path to the GGUF model file</span>
               <span class="auto-size" id="auto-size-label"></span>
             </div>
+            <div class="model-badges" id="model-badges"></div>
             <div class="model-browser" id="model-browser"></div>
           </div>
           <div class="param-row">
@@ -158,6 +163,20 @@
         <div class="param-grid">
           <div class="param-row">
             <div class="param-label">
+              <span class="dot" id="dot-workload_profile"></span>
+              <span data-i18n="p_workload">Workload</span>
+            </div>
+            <div class="param-control">
+              <select id="p-workload_profile" onchange="S.workload_profile=this.value">
+                <option value="mixed">Mixed (PG)</option>
+                <option value="tg">TG-only</option>
+                <option value="pp">Prompt / PP</option>
+              </select>
+            </div>
+            <div class="param-desc" data-i18n="d_workload">What matters most to you: real prompt+generation flow, decode-only throughput, or prompt processing. Recommendations differ.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
               <span class="cli-flag">-t</span>
               <span class="dot" id="dot-threads"></span>
               <span data-i18n="p_threads">Threads</span>
@@ -165,7 +184,7 @@
             <div class="param-control">
               <input type="number" id="p-threads" min="1" max="256" value="16" onchange="S.threads=+this.value">
             </div>
-            <div class="param-desc" data-i18n="d_threads">Inference threads. Zen4 dual-CCD: 16 optimal (both CCDs + SMT)</div>
+            <div class="param-desc" data-i18n="d_threads">Inference threads. Zen4 dual-CCD: 16 is a good baseline; for in-RAM models also A/B test 24/32</div>
           </div>
           <div class="param-row">
             <div class="param-label">
@@ -243,12 +262,13 @@
               <span data-i18n="p_rtr">Runtime Repack</span>
             </div>
             <div class="param-control">
-              <div class="toggle-btn" onclick="toggleParam('repack_tensors')">
-                <div class="toggle-track" id="tog-repack_tensors"></div>
-                <span id="tog-label-repack_tensors">OFF</span>
-              </div>
+              <select id="p-repack_tensors" onchange="S.repack_tensors=this.value">
+                <option value="off">OFF</option>
+                <option value="on">ON</option>
+                <option value="auto" selected>AUTO</option>
+              </select>
             </div>
-            <div class="param-desc" data-i18n="d_rtr">Repack tensors for L1D cache. Great for in-RAM models. Disables mmap. BAD for swap-bound (-46-60% TG)</div>
+            <div class="param-desc" data-i18n="d_rtr">Three modes: off, on, auto. AUTO is throughput-first for Qwen3MoE/gpt-oss, while MiniMax still uses OFF as the safer baseline.</div>
           </div>
           <!-- Merge Up+Gate -->
           <div class="param-row">
@@ -263,7 +283,7 @@
                 <span id="tog-label-merge_up_gate_exps">OFF</span>
               </div>
             </div>
-            <div class="param-desc" data-i18n="d_muge">Merge ffn_up + ffn_gate into one tensor. MoE only. BAD for swap-bound (-46% TG)</div>
+            <div class="param-desc" data-i18n="d_muge">Merge ffn_up + ffn_gate into one tensor. MoE only. No stable win is confirmed; swap-bound regression risk is high.</div>
           </div>
           <!-- KV Cache K Type -->
           <div class="param-row">
@@ -287,7 +307,7 @@
                 <option value="q8_KV">q8_KV</option>
               </select>
             </div>
-            <div class="param-desc" data-i18n="d_ctk">Quantization for K-cache. q8_0 saves 50% memory with 0% quality loss</div>
+            <div class="param-desc" data-i18n="d_ctk">Quantization for K-cache. q8_0 is the current safe baseline and saves a lot of memory</div>
           </div>
           <!-- KV Cache V Type -->
           <div class="param-row">
@@ -349,6 +369,18 @@
           </div>
           <div class="param-desc" data-i18n="d_ser">Drop low-weight experts below threshold, keep at least min. Reduces swap I/O for MoE. May affect quality</div>
         </div>
+        <div class="param-row">
+          <div class="param-label">
+            <span class="cli-flag">env</span>
+            <span class="dot" id="dot-hot_expert_budget"></span>
+            <span data-i18n="p_hot_budget">Hot Expert Budget</span>
+          </div>
+          <div class="param-control">
+            <input type="number" id="p-hot_expert_budget" min="0" max="256" value="0" onchange="S.hot_expert_budget=+this.value">
+          </div>
+          <div class="param-desc" data-i18n="d_hot_budget">Experimental env knob for huge MoE. 0 = leave runtime default. On current MiniMax, the first longer controlled run did not justify promoting a larger default, so start with 0.</div>
+        </div>
+        <div class="advanced-inline-note" id="advanced-hints"></div>
 
         <div class="divider"></div>
 
@@ -593,6 +625,7 @@
         </div>
       </div>
       <div class="command-output" id="command-output"></div>
+      <!-- Chat handles interaction — see chat panel below -->
       <div class="command-actions">
         <button class="btn-accent" onclick="copyCommand()" data-i18n="btn_copy">Copy</button>
         <button class="btn-success launch" id="btn-launch" onclick="launchProcess()" data-i18n="btn_launch">Launch</button>
@@ -602,6 +635,47 @@
         <button class="btn-ghost" onclick="document.getElementById('import-file').click()" data-i18n="btn_import">Import JSON</button>
         <input type="file" id="import-file" accept=".json" style="display:none" onchange="importConfig(event)">
         <button class="btn-ghost btn-muted" onclick="resetAll()" data-i18n="btn_reset">Reset</button>
+      </div>
+    </div>
+
+    <!-- ═══ CLI TERMINAL (llama-cli mode) ═══ -->
+    <div class="cli-terminal terminal-card" id="cli-terminal">
+      <div class="terminal-chrome">
+        <div class="terminal-dots">
+          <span class="tdot red"></span>
+          <span class="tdot yellow"></span>
+          <span class="tdot green"></span>
+        </div>
+        <span class="terminal-label">llama-cli &mdash; interactive</span>
+        <div style="flex:1"></div>
+        <button class="btn-ghost btn-muted" onclick="clearCliTerminal()" data-i18n="btn_clear">Clear</button>
+      </div>
+      <div class="cli-output" id="cli-output">
+        <span class="cli-line system" id="cli-welcome" data-i18n="cli_welcome">Launch a model to start the terminal session</span>
+      </div>
+      <div class="cli-input-line">
+        <span class="cli-prompt">&gt;</span>
+        <input type="text" id="cli-input" autocomplete="off" spellcheck="false"
+               onkeydown="cliKeyDown(event)" disabled>
+      </div>
+    </div>
+
+    <!-- ═══ CHAT PANEL (llama-server mode) ═══ -->
+    <div class="chat-panel card" id="chat-panel">
+      <div class="chat-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span data-i18n="chat_title">Chat</span>
+        <div style="flex:1"></div>
+        <button class="btn-ghost btn-muted" onclick="clearChat()" data-i18n="btn_clear">Clear</button>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-empty" id="chat-empty" data-i18n="chat_empty">Launch a model to start chatting</div>
+      </div>
+      <div class="chat-input-area">
+        <textarea id="chat-input" rows="2" placeholder="Type a message..." onkeydown="chatKeyDown(event)"></textarea>
+        <button class="btn-accent chat-send" id="chat-send" onclick="sendChatMessage()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
       </div>
     </div>
 
@@ -618,6 +692,17 @@
           <span class="proc-status idle" id="proc-status" data-i18n="proc_idle">idle</span>
           <span style="margin-left:auto;font-size:0.75rem;color:var(--text-muted)" id="proc-uptime"></span>
         </div>
+      </div>
+      <!-- Loading progress bar -->
+      <div class="load-progress" id="load-progress">
+        <div class="load-progress-info">
+          <span class="load-phase" id="load-phase"></span>
+          <span class="load-pct" id="load-pct"></span>
+        </div>
+        <div class="load-bar">
+          <div class="load-bar-fill" id="load-bar-fill"></div>
+        </div>
+        <div class="load-detail" id="load-detail"></div>
       </div>
       <div class="process-output-log" id="proc-output"></div>
       <div class="process-actions">

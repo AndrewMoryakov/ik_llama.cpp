@@ -37,6 +37,7 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <signal.h>
+#include <ctype.h>
 #if defined(__gnu_linux__)
 #include <syscall.h>
 #endif
@@ -60,6 +61,96 @@ GGML_API void ggml_set_moe_vm_prefetch(int enable) {
 
 GGML_API int ggml_get_moe_vm_prefetch(void) {
     return ggml_moe_vm_prefetch;
+}
+
+enum { GGML_EXEC_TRACE_MAX_LAYERS = 512 };
+
+struct ggml_exec_trace_layer_stat {
+    int64_t total_us;
+    int64_t qkv_us;
+    int64_t attn_us;
+    int32_t total_nodes;
+    int32_t qkv_nodes;
+    int32_t attn_nodes;
+};
+
+static bool ggml_exec_layer_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = getenv("IK_LLAMA_EXEC_LAYER_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static int ggml_exec_layer_trace_parse_layer(const char * name) {
+    if (!name || !name[0]) {
+        return -1;
+    }
+
+    const char * dash = strrchr(name, '-');
+    if (!dash || !dash[1]) {
+        return -1;
+    }
+
+    const char * p = dash + 1;
+    if (*p == '-') {
+        ++p;
+    }
+    if (!isdigit((unsigned char) *p)) {
+        return -1;
+    }
+
+    int il = 0;
+    while (*p && isdigit((unsigned char) *p)) {
+        il = il * 10 + (*p - '0');
+        ++p;
+    }
+    if (*p != '\0') {
+        return -1;
+    }
+
+    if (il >= 1000) {
+        il = il % 1000;
+    }
+    if (il < 0 || il >= GGML_EXEC_TRACE_MAX_LAYERS) {
+        return -1;
+    }
+
+    return il;
+}
+
+static int ggml_exec_layer_trace_kind(const char * name) {
+    if (!name || !name[0]) {
+        return 0;
+    }
+
+    if (strncmp(name, "Qcur-", 5) == 0 ||
+        strncmp(name, "Kcur-", 5) == 0 ||
+        strncmp(name, "Vcur-", 5) == 0 ||
+        strncmp(name, "qkv-", 4) == 0 ||
+        strncmp(name, "qkv_b-", 6) == 0) {
+        return 1;
+    }
+
+    if (strncmp(name, "flash_attn-", 11) == 0 ||
+        strncmp(name, "flash_attn_reshaped-", 19) == 0 ||
+        strncmp(name, "kq-", 3) == 0 ||
+        strncmp(name, "kq_soft_max_ext-", 16) == 0 ||
+        strncmp(name, "kqv-", 4) == 0 ||
+        strncmp(name, "kqv_merged-", 11) == 0 ||
+        strncmp(name, "kqv_merged_cont-", 16) == 0 ||
+        strncmp(name, "kqv_out-", 8) == 0 ||
+        strncmp(name, "kqv_wo-", 7) == 0 ||
+        strncmp(name, "kqv_wo_biased-", 14) == 0 ||
+        strncmp(name, "attn_out-", 9) == 0 ||
+        strncmp(name, "attn_gate-", 10) == 0 ||
+        strncmp(name, "attn_gated-", 11) == 0 ||
+        strncmp(name, "attn_gated_3d-", 14) == 0) {
+        return 2;
+    }
+
+    return 0;
 }
 
 // Expert prefetch: issue software prefetch hints for next expert's weights
@@ -189,6 +280,10 @@ typedef pthread_t ggml_thread_t;
 // Only accumulated when ggml_moe_vm_prefetch is enabled.
 static atomic_int ggml_moe_expert_hits[GGML_MOE_MAX_EXPERTS];
 static atomic_int ggml_moe_dispatch_count_val;
+static int64_t ggml_moe_locked_rows_val;
+static int64_t ggml_moe_unlocked_rows_val;
+static int ggml_moe_locked_dispatches_val;
+static int ggml_moe_unlocked_dispatches_val;
 
 GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts) {
     int n = max_experts < GGML_MOE_MAX_EXPERTS ? max_experts : GGML_MOE_MAX_EXPERTS;
@@ -202,10 +297,48 @@ GGML_API void ggml_moe_reset_expert_hits(void) {
         atomic_store(&ggml_moe_expert_hits[i], 0);
     }
     atomic_store(&ggml_moe_dispatch_count_val, 0);
+    ggml_moe_locked_rows_val = 0;
+    ggml_moe_unlocked_rows_val = 0;
+    ggml_moe_locked_dispatches_val = 0;
+    ggml_moe_unlocked_dispatches_val = 0;
 }
 
 GGML_API int ggml_moe_get_dispatch_count(void) {
     return (int)atomic_load(&ggml_moe_dispatch_count_val);
+}
+
+GGML_API void ggml_moe_get_locked_stats(int64_t * locked_rows, int64_t * unlocked_rows, int * locked_dispatches, int * unlocked_dispatches) {
+    if (locked_rows) {
+        *locked_rows = ggml_moe_locked_rows_val;
+    }
+    if (unlocked_rows) {
+        *unlocked_rows = ggml_moe_unlocked_rows_val;
+    }
+    if (locked_dispatches) {
+        *locked_dispatches = ggml_moe_locked_dispatches_val;
+    }
+    if (unlocked_dispatches) {
+        *unlocked_dispatches = ggml_moe_unlocked_dispatches_val;
+    }
+}
+
+// Expert residency sorting (PR17): tracks which experts are VirtualLocked in RAM.
+// Used by dispatch loop to compute in-RAM experts first, overlapping I/O with compute.
+static int ggml_moe_expert_locked_arr[GGML_MOE_MAX_EXPERTS];
+
+// Dispatch order: reordered expert IDs for the current mul_mat_id call.
+// Filled by thread 0 before barrier, read by all threads after barrier.
+static int32_t ggml_moe_dispatch_order[GGML_MOE_MAX_EXPERTS];
+static int32_t ggml_moe_n_dispatch;
+
+GGML_API void ggml_moe_set_expert_locked(int expert_id, int locked) {
+    if (expert_id >= 0 && expert_id < GGML_MOE_MAX_EXPERTS) {
+        ggml_moe_expert_locked_arr[expert_id] = locked;
+    }
+}
+
+GGML_API void ggml_moe_reset_expert_locked(void) {
+    memset(ggml_moe_expert_locked_arr, 0, sizeof(ggml_moe_expert_locked_arr));
 }
 
 #ifdef GGML_USE_CPU_HBM
@@ -17179,9 +17312,42 @@ static void ggml_compute_forward_mul_mat_id(
             for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
                 if (matrix_row_counts[a] > 0) {
                     atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                    if (ggml_moe_expert_locked_arr[a]) {
+                        ggml_moe_locked_rows_val += (int64_t)matrix_row_counts[a];
+                        ggml_moe_locked_dispatches_val += 1;
+                    } else {
+                        ggml_moe_unlocked_rows_val += (int64_t)matrix_row_counts[a];
+                        ggml_moe_unlocked_dispatches_val += 1;
+                    }
                 }
             }
             atomic_fetch_add(&ggml_moe_dispatch_count_val, 1);
+        }
+
+        // Expert residency sorting (PR17): build dispatch order.
+        // Locked (in-RAM) experts computed first to overlap their computation
+        // with swap I/O for non-locked experts (triggered by batch VM prefetch).
+        ggml_moe_n_dispatch = 0;
+        if (ggml_moe_vm_prefetch) {
+            // Phase 1: locked experts (guaranteed in RAM — no page faults)
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0 && ggml_moe_expert_locked_arr[a]) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
+            // Phase 2: unlocked experts (may require page-in from swap)
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0 && !ggml_moe_expert_locked_arr[a]) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
+        } else {
+            // No reordering for in-RAM models — sequential order
+            for (int a = 0; a < n_as; ++a) {
+                if (matrix_row_counts[a] > 0) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
         }
     }
 
@@ -17217,22 +17383,14 @@ static void ggml_compute_forward_mul_mat_id(
 
     }
 
-    // compute each matrix multiplication in sequence
-    for (int cur_a = 0; cur_a < n_as; ++cur_a) {
+    // compute each matrix multiplication in dispatch order (PR17: locked experts first)
+    for (int _d = 0; _d < ggml_moe_n_dispatch; ++_d) {
+        const int cur_a = ggml_moe_dispatch_order[_d];
         const int64_t cne1 = matrix_row_counts[cur_a];
 
-        if (cne1 == 0) {
-            continue;
-        }
-
-        // Cache prefetch: load first 256KB of next active expert into L2 (RAM→L2).
-        if (ith == 0) {
-            for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
-                if (matrix_row_counts[next_a] > 0) {
-                    ggml_prefetch_range((const char *)src0->data + next_a*nb02, (size_t)nb02);
-                    break;
-                }
-            }
+        // Cache prefetch: load first 256KB of next expert in dispatch order into L2.
+        if (ith == 0 && _d + 1 < ggml_moe_n_dispatch) {
+            ggml_prefetch_range((const char *)src0->data + ggml_moe_dispatch_order[_d + 1]*nb02, (size_t)nb02);
         }
 
         const char * src0_cur = (const char *) src0->data + cur_a*nb02;
@@ -17499,9 +17657,37 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
             for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
                 if (matrix_row_counts[a] > 0) {
                     atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                    if (ggml_moe_expert_locked_arr[a]) {
+                        ggml_moe_locked_rows_val += (int64_t)matrix_row_counts[a];
+                        ggml_moe_locked_dispatches_val += 1;
+                    } else {
+                        ggml_moe_unlocked_rows_val += (int64_t)matrix_row_counts[a];
+                        ggml_moe_unlocked_dispatches_val += 1;
+                    }
                 }
             }
             atomic_fetch_add(&ggml_moe_dispatch_count_val, 1);
+        }
+
+        // Expert residency sorting (PR17): build dispatch order.
+        ggml_moe_n_dispatch = 0;
+        if (ggml_moe_vm_prefetch) {
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0 && ggml_moe_expert_locked_arr[a]) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
+            for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
+                if (matrix_row_counts[a] > 0 && !ggml_moe_expert_locked_arr[a]) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
+        } else {
+            for (int a = 0; a < n_as; ++a) {
+                if (matrix_row_counts[a] > 0) {
+                    ggml_moe_dispatch_order[ggml_moe_n_dispatch++] = a;
+                }
+            }
         }
     }
 
@@ -17550,24 +17736,17 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
 
     // so GGML_TENSOR_BINARY_OP_LOCALS works
 
-    // compute each matrix multiplication in sequence
-    for (int cur_a = 0; cur_a < n_as; ++cur_a) {
+    // compute each matrix multiplication in dispatch order (PR17: locked experts first)
+    for (int _d = 0; _d < ggml_moe_n_dispatch; ++_d) {
+        const int cur_a = ggml_moe_dispatch_order[_d];
         const int64_t cne1 = matrix_row_counts[cur_a];
 
-        if (cne1 == 0) {
-            continue;
-        }
-
-        // Cache prefetch: load first 256KB of next active expert into L2 (RAM→L2).
-        if (ith == 0) {
-            for (int next_a = cur_a + 1; next_a < n_as; ++next_a) {
-                if (matrix_row_counts[next_a] > 0) {
-                    ggml_prefetch_range((const char *)src0_1->data + next_a*nb02, (size_t)nb02);
-                    if (src0_2) {
-                        ggml_prefetch_range((const char *)src0_2->data + next_a*nb02, (size_t)nb02);
-                    }
-                    break;
-                }
+        // Cache prefetch: load first 256KB of next expert in dispatch order into L2.
+        if (ith == 0 && _d + 1 < ggml_moe_n_dispatch) {
+            const int next_a = ggml_moe_dispatch_order[_d + 1];
+            ggml_prefetch_range((const char *)src0_1->data + next_a*nb02, (size_t)nb02);
+            if (src0_2) {
+                ggml_prefetch_range((const char *)src0_2->data + next_a*nb02, (size_t)nb02);
             }
         }
 
@@ -26534,6 +26713,12 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         /*.shared=*/ state->shared,
     };
 
+    const bool exec_trace = state->ith == 0 && ggml_exec_layer_trace_enabled();
+    struct ggml_exec_trace_layer_stat exec_trace_layers[GGML_EXEC_TRACE_MAX_LAYERS];
+    if (exec_trace) {
+        memset(exec_trace_layers, 0, sizeof(exec_trace_layers));
+    }
+
 #if IK_PRINT_TIMING
     int64_t t_start = ggml_time_us();
     int64_t t_eval  = 0;
@@ -26543,6 +26728,13 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         struct ggml_tensor * node = cgraph->nodes[node_n];
 
         if (ggml_is_noop(node)) continue;
+
+        int64_t exec_trace_t0 = 0;
+        const char * exec_trace_name = NULL;
+        if (exec_trace) {
+            exec_trace_t0 = ggml_time_us();
+            exec_trace_name = node->name;
+        }
 
 #if IK_PRINT_TIMING
         int64_t tim1 = ggml_time_us();
@@ -26559,6 +26751,24 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
 
         ggml_barrier(state->shared);
 
+        if (exec_trace) {
+            const int il = ggml_exec_layer_trace_parse_layer(exec_trace_name);
+            const int kind = ggml_exec_layer_trace_kind(exec_trace_name);
+            if (il >= 0 && kind != 0) {
+                struct ggml_exec_trace_layer_stat * st = &exec_trace_layers[il];
+                const int64_t dt = ggml_time_us() - exec_trace_t0;
+                st->total_us += dt;
+                st->total_nodes += 1;
+                if (kind == 1) {
+                    st->qkv_us += dt;
+                    st->qkv_nodes += 1;
+                } else if (kind == 2) {
+                    st->attn_us += dt;
+                    st->attn_nodes += 1;
+                }
+            }
+        }
+
         if (state->shared->ec != GGML_STATUS_SUCCESS) {
             break;
         }
@@ -26567,6 +26777,35 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
     int64_t t_end = ggml_time_us();
     if (state->ith == 0) printf("ggml_barrier(...): %d us\n", (int)(t_end - t_start - t_eval));
 #endif
+
+    if (exec_trace) {
+        int n_layers = 0;
+        for (int il = 0; il < GGML_EXEC_TRACE_MAX_LAYERS; ++il) {
+            if (exec_trace_layers[il].total_nodes > 0) {
+                n_layers++;
+            }
+        }
+
+        if (n_layers > 0) {
+            fprintf(stderr, "ggml_exec_layer_trace: layers=%d\n", n_layers);
+            for (int il = 0; il < GGML_EXEC_TRACE_MAX_LAYERS; ++il) {
+                const struct ggml_exec_trace_layer_stat * st = &exec_trace_layers[il];
+                if (st->total_nodes == 0) {
+                    continue;
+                }
+
+                fprintf(stderr,
+                        "ggml_exec_layer_trace: il=%d total_us=%" PRId64 " total_nodes=%d qkv_us=%" PRId64 " qkv_nodes=%d attn_us=%" PRId64 " attn_nodes=%d\n",
+                        il,
+                        st->total_us,
+                        st->total_nodes,
+                        st->qkv_us,
+                        st->qkv_nodes,
+                        st->attn_us,
+                        st->attn_nodes);
+            }
+        }
+    }
 
     return 0;
 }

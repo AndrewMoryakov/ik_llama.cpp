@@ -390,6 +390,7 @@ extern "C" {
         bool use_mlock;     // force system to keep model in RAM
         bool check_tensors; // validate model tensor data
         bool repack_tensors;// repack if available
+        bool repack_tensors_auto; // if true, may disable run-time repack for swap-bound MoE
         bool use_thp;       // use transparent huge pages (linux only)
         bool validate_quants; // if true, check for NaNs while loading the model
         bool merge_qkv;     // if true, merge separate Q, K, V tensors into a single, contiguous tensor
@@ -613,6 +614,10 @@ extern "C" {
 
     // Returns the total number of parameters in the model
     LLAMA_API uint64_t llama_model_n_params(const struct llama_model * model);
+
+    // Returns the effective run-time repack state after any auto-policy decisions.
+    LLAMA_API bool llama_model_repack_tensors(const struct llama_model * model);
+    LLAMA_API bool llama_model_repack_tensors_auto(const struct llama_model * model);
 
     // Get a llama model tensor
     LLAMA_API struct ggml_tensor * llama_get_model_tensor(struct llama_model * model, const char * name);

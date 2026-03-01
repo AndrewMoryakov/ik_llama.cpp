@@ -376,6 +376,12 @@ extern "C" {
     GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts);
     GGML_API void ggml_moe_reset_expert_hits(void);
     GGML_API int  ggml_moe_get_dispatch_count(void);
+    GGML_API void ggml_moe_get_locked_stats(int64_t * locked_rows, int64_t * unlocked_rows, int * locked_dispatches, int * unlocked_dispatches);
+
+    // Expert residency sorting (PR17): notify ggml which experts are VirtualLocked.
+    // Dispatch loop computes locked (in-RAM) experts first, overlapping with swap I/O.
+    GGML_API void ggml_moe_set_expert_locked(int expert_id, int locked);
+    GGML_API void ggml_moe_reset_expert_locked(void);
 
     // ieee 754-2008 half-precision float16
     // todo: make this not an integral type

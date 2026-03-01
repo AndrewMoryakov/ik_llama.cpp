@@ -98,6 +98,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <atomic>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -143,6 +144,192 @@ static std::string trim(const std::string & str) {
 }
 
 static bool stop_internal_decode = false;
+
+static bool llama_pg_trace_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_PG_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+// By default trace only the first decode call after prompt. Larger windows are
+// useful when checking whether a prompt-side optimization survives into mixed-path.
+static int llama_pg_trace_decode_window() {
+    static int window = -1;
+    if (window == -1) {
+        const char * env = std::getenv("IK_LLAMA_PG_TRACE_DECODE_WINDOW");
+        if (!env || !env[0]) {
+            window = 1;
+        } else {
+            window = std::max(1, std::atoi(env));
+        }
+    }
+    return window;
+}
+
+static bool llama_prompt_packed_qkv_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_PROMPT_PACKED_QKV");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static bool llama_prompt_locality_trace_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_LOCALITY_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static bool llama_hot_expert_trace_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_TRACE");
+        enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static int llama_hot_expert_budget_override() {
+    static int value = INT_MIN;
+    if (value == INT_MIN) {
+        const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_BUDGET");
+        value = (env && env[0]) ? std::atoi(env) : -1;
+    }
+    return value;
+}
+
+static double llama_hot_expert_budget_multiplier() {
+    static double value = -2.0;
+    if (value < -1.0) {
+        const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_BUDGET_MULT");
+        value = (env && env[0]) ? std::atof(env) : -1.0;
+    }
+    return value;
+}
+
+static std::string llama_prompt_packed_qkv_preset() {
+    const char * env = std::getenv("IK_LLAMA_PROMPT_PACKED_QKV_PRESET");
+    return env ? trim(env) : std::string();
+}
+
+static bool llama_prompt_packed_qkv_has_explicit_range() {
+    const char * env = std::getenv("IK_LLAMA_PROMPT_PACKED_QKV_RANGE");
+    return env && trim(env).size() > 0;
+}
+
+static std::pair<int, int> llama_prompt_packed_qkv_range(enum llm_arch arch, int n_layer) {
+    if (!llama_prompt_packed_qkv_has_explicit_range()) {
+        const std::string preset = llama_prompt_packed_qkv_preset();
+        if (preset == "front-half") {
+            return {0, (n_layer + 1) / 2};
+        }
+        if (preset == "back-half") {
+            return {n_layer / 2, n_layer};
+        }
+        if (preset == "full" || preset.empty()) {
+            return {0, n_layer};
+        }
+        if (preset == "auto") {
+            switch (arch) {
+                case LLM_ARCH_QWEN3MOE:  return {0, (n_layer + 1) / 2};
+                case LLM_ARCH_OPENAI_MOE:return {n_layer / 2, n_layer};
+                default:                 return {0, n_layer};
+            }
+        }
+        throw std::runtime_error("IK_LLAMA_PROMPT_PACKED_QKV_PRESET must be one of: auto, full, front-half, back-half");
+    }
+
+    const char * env = std::getenv("IK_LLAMA_PROMPT_PACKED_QKV_RANGE");
+
+    std::string spec = trim(env);
+    auto pos = spec.find(':');
+    if (pos == std::string::npos) {
+        throw std::runtime_error("IK_LLAMA_PROMPT_PACKED_QKV_RANGE must be start:end");
+    }
+
+    int start = std::stoi(trim(spec.substr(0, pos)));
+    int end   = std::stoi(trim(spec.substr(pos + 1)));
+
+    start = std::max(0, std::min(start, n_layer));
+    end   = std::max(0, std::min(end,   n_layer));
+    if (end < start) {
+        std::swap(start, end);
+    }
+
+    return {start, end};
+}
+
+static void llm_prepare_prompt_packed_qkv(llama_model & model);
+
+static void llama_pg_trace_graph_summary(const ggml_cgraph * gf, const char * phase) {
+    if (!gf) {
+        return;
+    }
+
+    int n_flash_attn = 0;
+    int n_mul_mat = 0;
+    int n_get_rows = 0;
+    int n_cpy = 0;
+    int n_moe_fused_up_gate = 0;
+    int n_fused_up_gate = 0;
+    int n_norm = 0;
+    int n_named_flash_attn = 0;
+    int n_named_gate = 0;
+    int n_named_expert = 0;
+    int n_named_router = 0;
+
+    for (int i = 0; i < gf->n_nodes; ++i) {
+        const ggml_tensor * node = gf->nodes[i];
+        if (!node) {
+            continue;
+        }
+
+        switch (node->op) {
+            case GGML_OP_FLASH_ATTN_EXT:   n_flash_attn++; break;
+            case GGML_OP_MUL_MAT:          n_mul_mat++; break;
+            case GGML_OP_GET_ROWS:         n_get_rows++; break;
+            case GGML_OP_CPY:              n_cpy++; break;
+            case GGML_OP_MOE_FUSED_UP_GATE:n_moe_fused_up_gate++; break;
+            case GGML_OP_FUSED_UP_GATE:    n_fused_up_gate++; break;
+            case GGML_OP_RMS_NORM:
+            case GGML_OP_NORM:             n_norm++; break;
+            default: break;
+        }
+
+        const char * name = node->name;
+        if (name && name[0]) {
+            if (strstr(name, "flash_attn")) n_named_flash_attn++;
+            if (strstr(name, "gate"))       n_named_gate++;
+            if (strstr(name, "expert"))     n_named_expert++;
+            if (strstr(name, "router"))     n_named_router++;
+        }
+    }
+
+    LLAMA_LOG_INFO(
+            "%s: pg-trace-graph phase=%s nodes=%d flash_attn=%d mul_mat=%d get_rows=%d cpy=%d "
+            "moe_fused_up_gate=%d fused_up_gate=%d norm=%d named_flash=%d named_gate=%d named_expert=%d named_router=%d\n",
+            __func__,
+            phase,
+            gf->n_nodes,
+            n_flash_attn,
+            n_mul_mat,
+            n_get_rows,
+            n_cpy,
+            n_moe_fused_up_gate,
+            n_fused_up_gate,
+            n_norm,
+            n_named_flash_attn,
+            n_named_gate,
+            n_named_expert,
+            n_named_router);
+}
 
 void  llama_decode_reset() {
     stop_internal_decode = false;
@@ -1917,6 +2104,50 @@ static bool s_hot_locked[GGML_MOE_MAX_EXPERTS];  // which experts are currently 
 static int  s_hot_max_locked;     // budget: how many experts we can lock (2 * n_expert_used)
 static int  s_hot_n_expert;       // total experts in model
 static bool s_hot_committed;      // true after one-time lock has been applied
+static int  s_hot_trace_decode_calls;
+
+static int llama_hot_expert_budget_for_model(llm_arch arch, uint32_t n_expert, uint32_t n_expert_used) {
+    const int hard_cap = (int)(n_expert < GGML_MOE_MAX_EXPERTS ? n_expert : GGML_MOE_MAX_EXPERTS);
+    const int override_budget = llama_hot_expert_budget_override();
+    if (override_budget >= 0) {
+        return std::max(0, std::min(override_budget, hard_cap));
+    }
+
+    const double mult = llama_hot_expert_budget_multiplier();
+    if (mult > 0.0) {
+        const int scaled = (int)std::llround((double)n_expert_used * mult);
+        return std::max(0, std::min(scaled, hard_cap));
+    }
+
+    const uint32_t legacy = n_expert_used * 2 < n_expert ? n_expert_used * 2 : n_expert;
+    return (int)(legacy < GGML_MOE_MAX_EXPERTS ? legacy : GGML_MOE_MAX_EXPERTS);
+}
+
+static void llama_hot_expert_log_locked_stats(const char * phase) {
+    if (!llama_hot_expert_trace_enabled()) {
+        return;
+    }
+
+    int64_t locked_rows = 0;
+    int64_t unlocked_rows = 0;
+    int locked_dispatches = 0;
+    int unlocked_dispatches = 0;
+    ggml_moe_get_locked_stats(&locked_rows, &unlocked_rows, &locked_dispatches, &unlocked_dispatches);
+
+    const int64_t total_rows = locked_rows + unlocked_rows;
+    const int total_dispatches = locked_dispatches + unlocked_dispatches;
+    const double locked_share = total_rows > 0 ? 100.0 * (double)locked_rows / (double)total_rows : 0.0;
+
+    LLAMA_LOG_INFO("hot experts trace (%s): locked_rows=%lld unlocked_rows=%lld locked_share=%.1f%% locked_dispatches=%d unlocked_dispatches=%d total_dispatches=%d budget=%d\n",
+            phase ? phase : "unknown",
+            (long long)locked_rows,
+            (long long)unlocked_rows,
+            locked_share,
+            locked_dispatches,
+            unlocked_dispatches,
+            total_dispatches,
+            s_hot_max_locked);
+}
 
 // Lock a slice of a tensor corresponding to one expert.
 // tensor->nb[2] = bytes per expert, expert_id selects the slice.
@@ -1969,6 +2200,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
 
     int hits[GGML_MOE_MAX_EXPERTS] = {0};
     ggml_moe_get_expert_hits(hits, s_hot_n_expert);
+    llama_hot_expert_log_locked_stats("before-commit");
 
     // Sort experts by hits (descending) — insertion sort, n_expert <= 256
     int idx[GGML_MOE_MAX_EXPERTS];
@@ -1990,6 +2222,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
         int ok = lock_expert_all_layers(model, idx[i]);
         if (ok > 0) {
             s_hot_locked[idx[i]] = true;
+            ggml_moe_set_expert_locked(idx[i], 1);
             locked++;
         } else {
             lock_fails++;
@@ -2002,6 +2235,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
         LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
     }
     LLAMA_LOG_INFO("\n");
+    llama_hot_expert_log_locked_stats("after-commit");
 }
 
 // Returns false if cancelled by progress_callback
@@ -2291,6 +2525,7 @@ static bool llm_load_tensors(
     if (model.arch == LLM_ARCH_DEEPSEEK2 || model.arch == LLM_ARCH_GLM_DSA) {
         llm_prepare_mla(model, mla_attn);
     }
+    llm_prepare_prompt_packed_qkv(model);
 
     if (use_mmap_buffer) {
         for (auto & mapping : ml.mappings) {
@@ -2473,9 +2708,11 @@ static bool llm_load_tensors(
             const uint32_t n_expert      = model.hparams.n_expert;
             const uint32_t n_expert_used = model.hparams.n_expert_used;
             s_hot_n_expert = (int)(n_expert < GGML_MOE_MAX_EXPERTS ? n_expert : GGML_MOE_MAX_EXPERTS);
-            s_hot_max_locked = (int)(n_expert_used * 2 < n_expert ? n_expert_used * 2 : n_expert);
+            s_hot_max_locked = llama_hot_expert_budget_for_model(model.arch, n_expert, n_expert_used);
             s_hot_committed = false;
+            s_hot_trace_decode_calls = 0;
             memset(s_hot_locked, 0, sizeof(s_hot_locked));
+            ggml_moe_reset_expert_locked();
             ggml_moe_reset_expert_hits();
 
 #if defined(_WIN32)
@@ -2507,8 +2744,10 @@ static bool llm_load_tensors(
                 }
             }
 #endif
-            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable (after first prompt)\n",
-                    __func__, s_hot_max_locked, s_hot_n_expert);
+            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable (after first prompt)%s%s\n",
+                    __func__, s_hot_max_locked, s_hot_n_expert,
+                    llama_hot_expert_budget_override() >= 0 ? " [IK_LLAMA_HOT_EXPERT_BUDGET]" : "",
+                    llama_hot_expert_budget_multiplier() > 0.0 ? " [IK_LLAMA_HOT_EXPERT_BUDGET_MULT]" : "");
         }
     }
 
@@ -2518,12 +2757,489 @@ static bool llm_load_tensors(
     return true;
 }
 
+static uint64_t llama_get_total_ram_bytes() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX mem_info;
+    mem_info.dwLength = sizeof(mem_info);
+    if (GlobalMemoryStatusEx(&mem_info)) {
+        return (uint64_t) mem_info.ullTotalPhys;
+    }
+#elif defined(__linux__)
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page_size > 0) {
+        return (uint64_t) pages * (uint64_t) page_size;
+    }
+#endif
+    return 0;
+}
+
+static void llama_tensor_to_float_buffer(const ggml_tensor * tensor, std::vector<float> & output) {
+    const size_t nelements = ggml_nelements(tensor);
+    output.resize(nelements);
+
+    if (tensor->type == GGML_TYPE_F32) {
+        memcpy(output.data(), tensor->data, nelements * sizeof(float));
+        return;
+    }
+
+    if (tensor->type == GGML_TYPE_F16) {
+        ggml_fp16_to_fp32_row((const ggml_fp16_t *) tensor->data, output.data(), nelements);
+        return;
+    }
+
+    if (tensor->type == GGML_TYPE_BF16) {
+        ggml_bf16_to_fp32_row((const ggml_bf16_t *) tensor->data, output.data(), nelements);
+        return;
+    }
+
+    if (!ggml_is_quantized(tensor->type)) {
+        throw std::runtime_error(format("cannot convert tensor type %s to float", ggml_type_name(tensor->type)));
+    }
+
+    auto traits = ggml_internal_get_type_traits(tensor->type);
+    if (traits.to_float == nullptr) {
+        throw std::runtime_error(format("no dequantizer for tensor type %s", ggml_type_name(tensor->type)));
+    }
+
+    const int64_t row_size = ggml_row_size(tensor->type, tensor->ne[0]);
+    const int64_t nrows = ggml_nrows(tensor);
+    const char * src = (const char *) tensor->data;
+    float * dst = output.data();
+    for (int64_t row = 0; row < nrows; ++row) {
+        traits.to_float(src + row * row_size, dst + row * tensor->ne[0], tensor->ne[0]);
+    }
+}
+
+static void llama_quantize_rows_parallel(
+        ggml_type type,
+        const float * src,
+        void * dst,
+        int64_t nrows,
+        int64_t n_per_row) {
+    ggml_quantize_init(type);
+
+    const size_t row_size = ggml_row_size(type, n_per_row);
+    const unsigned hw = std::max(1u, std::thread::hardware_concurrency()/2);
+    const int nthread = (int) std::min<int64_t>(hw, nrows);
+
+    if (nthread <= 1 || nrows < 128) {
+        const size_t qsize = ggml_quantize_chunk(type, src, dst, 0, nrows, n_per_row, nullptr);
+        if (qsize != row_size * (size_t) nrows) {
+            throw std::runtime_error("Failed to quantize rows");
+        }
+        return;
+    }
+
+    std::vector<std::thread> workers;
+    workers.reserve(nthread);
+    std::atomic<bool> ok{true};
+
+    int64_t start_row = 0;
+    for (int ith = 0; ith < nthread; ++ith) {
+        const int64_t rows_left = nrows - start_row;
+        const int64_t threads_left = nthread - ith;
+        const int64_t this_nrow = rows_left / threads_left;
+        const int64_t this_start = start_row;
+        workers.emplace_back([=, &ok]() {
+            const size_t qsize = ggml_quantize_chunk(type, src, dst, this_start * n_per_row, this_nrow, n_per_row, nullptr);
+            if (qsize != row_size * (size_t) this_nrow) {
+                ok.store(false, std::memory_order_relaxed);
+            }
+        });
+        start_row += this_nrow;
+    }
+
+    for (auto & w : workers) {
+        w.join();
+    }
+
+    if (!ok.load(std::memory_order_relaxed)) {
+        throw std::runtime_error("Failed to quantize rows chunk");
+    }
+}
+
+static void llm_prepare_prompt_packed_qkv(llama_model & model) {
+    if (!llama_prompt_packed_qkv_enabled()) {
+        return;
+    }
+
+    if (model.arch != LLM_ARCH_QWEN3MOE && model.arch != LLM_ARCH_OPENAI_MOE) {
+        return;
+    }
+
+    const int n_layer = (int) model.layers.size();
+    const auto [pack_start_layer, pack_end_layer] = llama_prompt_packed_qkv_range(model.arch, n_layer);
+    const std::string preset = llama_prompt_packed_qkv_preset();
+    const bool explicit_range = llama_prompt_packed_qkv_has_explicit_range();
+
+    struct prompt_packed_qkv_plan {
+        int il = -1;
+        ggml_backend_buffer_type_t weight_buft = nullptr;
+        ggml_backend_buffer_type_t bias_buft = nullptr;
+        ggml_type new_type = GGML_TYPE_COUNT;
+        int64_t n_embd = 0;
+        int64_t total_rows = 0;
+        int64_t q_rows = 0;
+        int64_t k_rows = 0;
+        int64_t v_rows = 0;
+        size_t weight_alloc_size = 0;
+        size_t weight_offset = 0;
+        size_t bias_alloc_size = 0;
+        size_t bias_offset = 0;
+        bool has_bias = false;
+    };
+
+    std::vector<prompt_packed_qkv_plan> plans;
+    plans.reserve(n_layer);
+
+    int n_to_compute = 0;
+    size_t total_weight_bytes = 0;
+    size_t total_bias_bytes = 0;
+    size_t total_weight_arena_bytes = 0;
+    size_t total_bias_arena_bytes = 0;
+    ggml_backend_buffer_type_t weight_buft = nullptr;
+    ggml_backend_buffer_type_t bias_buft = nullptr;
+
+    for (int il = 0; il < n_layer; ++il) {
+        auto & l = model.layers[il];
+        if (il < pack_start_layer || il >= pack_end_layer) {
+            continue;
+        }
+        if (l.wqkv || l.wqk || !l.wq || !l.wk || !l.wv || l.computed_prompt_wqkv) {
+            continue;
+        }
+        n_to_compute++;
+
+        prompt_packed_qkv_plan plan;
+        plan.il = il;
+        plan.weight_buft = ggml_backend_buffer_get_type(l.wq->buffer);
+        plan.bias_buft = l.bq ? ggml_backend_buffer_get_type(l.bq->buffer) : nullptr;
+        plan.q_rows = l.wq->ne[1];
+        plan.k_rows = l.wk->ne[1];
+        plan.v_rows = l.wv->ne[1];
+        plan.n_embd = l.wq->ne[0];
+        plan.total_rows = plan.q_rows + plan.k_rows + plan.v_rows;
+
+        const bool keep_fp16 = l.wq->type == GGML_TYPE_F16 && l.wk->type == GGML_TYPE_F16 && l.wv->type == GGML_TYPE_F16;
+        const bool keep_bf16 = l.wq->type == GGML_TYPE_BF16 && l.wk->type == GGML_TYPE_BF16 && l.wv->type == GGML_TYPE_BF16;
+        plan.new_type = keep_fp16 ? GGML_TYPE_F16 : keep_bf16 ? GGML_TYPE_BF16 : GGML_TYPE_Q8_0;
+
+        ggml_init_params meta_params = { ggml_tensor_overhead() * 8, nullptr, true };
+        ggml_context * meta_ctx = ggml_init(meta_params);
+        ggml_tensor * qkv_meta = ggml_new_tensor_2d(meta_ctx, plan.new_type, plan.n_embd, plan.total_rows);
+        const size_t qkv_nbytes = ggml_nbytes(qkv_meta);
+        plan.weight_alloc_size = ggml_backend_buft_get_alloc_size(plan.weight_buft, qkv_meta);
+        ggml_free(meta_ctx);
+
+        if (weight_buft == nullptr) {
+            weight_buft = plan.weight_buft;
+        } else if (weight_buft != plan.weight_buft) {
+            throw std::runtime_error("prompt-packed-qkv arena requires a uniform weight backend buffer type");
+        }
+
+        total_weight_bytes += qkv_nbytes;
+        plan.weight_offset = total_weight_arena_bytes;
+        total_weight_arena_bytes += plan.weight_alloc_size;
+
+        if (l.bq && l.bk && l.bv) {
+            ggml_context * bias_meta_ctx = ggml_init(meta_params);
+            ggml_tensor * bqkv_meta = ggml_new_tensor_1d(bias_meta_ctx, GGML_TYPE_F32, l.bq->ne[0] + l.bk->ne[0] + l.bv->ne[0]);
+            const size_t bqkv_nbytes = ggml_nbytes(bqkv_meta);
+            plan.has_bias = true;
+            plan.bias_alloc_size = ggml_backend_buft_get_alloc_size(plan.bias_buft, bqkv_meta);
+            ggml_free(bias_meta_ctx);
+
+            if (bias_buft == nullptr) {
+                bias_buft = plan.bias_buft;
+            } else if (bias_buft != plan.bias_buft) {
+                throw std::runtime_error("prompt-packed-qkv arena requires a uniform bias backend buffer type");
+            }
+
+            total_bias_bytes += bqkv_nbytes;
+            plan.bias_offset = total_bias_arena_bytes;
+            total_bias_arena_bytes += plan.bias_alloc_size;
+        }
+
+        plans.push_back(plan);
+    }
+
+    if (plans.empty()) {
+        return;
+    }
+
+    LLAMA_LOG_INFO("%s: experimental prompt-packed-qkv enabled; preset=%s explicit_range=%s preparing %d tensors in layer range [%d, %d) (~%.1f MiB q8 weights + %.1f MiB bias)\n",
+            __func__,
+            preset.empty() ? "full" : preset.c_str(),
+            explicit_range ? "yes" : "no",
+            n_to_compute,
+            pack_start_layer,
+            pack_end_layer,
+            total_weight_bytes / 1048576.0,
+            total_bias_bytes / 1048576.0);
+
+    ggml_backend_buffer_t packed_weight_arena = ggml_backend_buft_alloc_buffer(weight_buft, total_weight_arena_bytes);
+    ggml_backend_buffer_set_usage(packed_weight_arena, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+    model.bufs.push_back(packed_weight_arena);
+
+    ggml_backend_buffer_t packed_bias_arena = nullptr;
+    if (total_bias_arena_bytes > 0 && bias_buft != nullptr) {
+        packed_bias_arena = ggml_backend_buft_alloc_buffer(bias_buft, total_bias_arena_bytes);
+        ggml_backend_buffer_set_usage(packed_bias_arena, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+        model.bufs.push_back(packed_bias_arena);
+    }
+
+    std::vector<char> wq_buffer;
+    std::vector<char> wk_buffer;
+    std::vector<char> wv_buffer;
+    std::vector<char> bq_buffer;
+    std::vector<char> bk_buffer;
+    std::vector<char> bv_buffer;
+    std::vector<float> wq_f32;
+    std::vector<float> wk_f32;
+    std::vector<float> wv_f32;
+    std::vector<float> packed_wqkv_f32;
+    std::vector<float> bq_f32;
+    std::vector<float> bk_f32;
+    std::vector<float> bv_f32;
+    std::vector<float> packed_bqkv_f32;
+    std::vector<uint8_t> packed_storage;
+    uintptr_t prev_packed_base = 0;
+    size_t prev_packed_size = 0;
+
+    for (const auto & plan : plans) {
+        const int il = plan.il;
+        auto & l = model.layers[il];
+
+        if (llama_pg_trace_enabled()) {
+            LLAMA_LOG_INFO("%s: preparing layer %d q=%s k=%s v=%s\n",
+                    __func__, il, ggml_type_name(l.wq->type), ggml_type_name(l.wk->type), ggml_type_name(l.wv->type));
+        }
+        const int64_t trace_layer_start_us = llama_pg_trace_enabled() ? ggml_time_us() : 0;
+
+        auto wq = *l.wq;
+        auto wk = *l.wk;
+        auto wv = *l.wv;
+
+        if (!ggml_backend_buffer_is_host(l.wq->buffer)) {
+            const auto nbytes = ggml_nbytes(l.wq);
+            if (wq_buffer.size() < nbytes) wq_buffer.resize(nbytes);
+            ggml_backend_tensor_get(l.wq, wq_buffer.data(), 0, nbytes);
+            wq.data = wq_buffer.data();
+        }
+        if (!ggml_backend_buffer_is_host(l.wk->buffer)) {
+            const auto nbytes = ggml_nbytes(l.wk);
+            if (wk_buffer.size() < nbytes) wk_buffer.resize(nbytes);
+            ggml_backend_tensor_get(l.wk, wk_buffer.data(), 0, nbytes);
+            wk.data = wk_buffer.data();
+        }
+        if (!ggml_backend_buffer_is_host(l.wv->buffer)) {
+            const auto nbytes = ggml_nbytes(l.wv);
+            if (wv_buffer.size() < nbytes) wv_buffer.resize(nbytes);
+            ggml_backend_tensor_get(l.wv, wv_buffer.data(), 0, nbytes);
+            wv.data = wv_buffer.data();
+        }
+
+        llama_tensor_to_float_buffer(&wq, wq_f32);
+        llama_tensor_to_float_buffer(&wk, wk_f32);
+        llama_tensor_to_float_buffer(&wv, wv_f32);
+        const int64_t trace_after_dequant_us = llama_pg_trace_enabled() ? ggml_time_us() : 0;
+
+        const ggml_type new_type = plan.new_type;
+        const int64_t n_embd = plan.n_embd;
+        const int64_t total_rows = plan.total_rows;
+        packed_wqkv_f32.resize((size_t) n_embd * (size_t) total_rows);
+        float * packed_ptr = packed_wqkv_f32.data();
+        memcpy(packed_ptr, wq_f32.data(), wq_f32.size() * sizeof(float));
+        packed_ptr += wq_f32.size();
+        memcpy(packed_ptr, wk_f32.data(), wk_f32.size() * sizeof(float));
+        packed_ptr += wk_f32.size();
+        memcpy(packed_ptr, wv_f32.data(), wv_f32.size() * sizeof(float));
+
+        ggml_init_params meta_params = { ggml_tensor_overhead() * 8, nullptr, true };
+        ggml_context * meta_ctx = ggml_init(meta_params);
+        ggml_tensor * qkv_meta = ggml_new_tensor_2d(meta_ctx, new_type, n_embd, total_rows);
+        packed_storage.resize(ggml_nbytes(qkv_meta));
+        if (new_type == GGML_TYPE_F16) {
+            ggml_fp32_to_fp16_row(packed_wqkv_f32.data(), (ggml_fp16_t *) packed_storage.data(), packed_wqkv_f32.size());
+        } else if (new_type == GGML_TYPE_BF16) {
+            ggml_fp32_to_bf16_row(packed_wqkv_f32.data(), (ggml_bf16_t *) packed_storage.data(), packed_wqkv_f32.size());
+        } else {
+            llama_quantize_rows_parallel(new_type, packed_wqkv_f32.data(), packed_storage.data(), total_rows, n_embd);
+        }
+        const int64_t trace_after_quant_us = llama_pg_trace_enabled() ? ggml_time_us() : 0;
+
+        auto weight_name = std::string{"blk."} + std::to_string(il) + ".attn_qkv_prompt.weight";
+        l.computed_prompt_wqkv = std::make_unique<ggml_tensor>(*qkv_meta);
+        l.computed_prompt_wqkv->buffer = packed_weight_arena;
+        l.computed_prompt_wqkv->data = (char *) ggml_backend_buffer_get_base(packed_weight_arena) + plan.weight_offset;
+        l.computed_prompt_wqkv->op = GGML_OP_NONE;
+        for (int j = 0; j < GGML_MAX_SRC; ++j) l.computed_prompt_wqkv->src[j] = nullptr;
+        ggml_set_name(l.computed_prompt_wqkv.get(), weight_name.c_str());
+        ggml_backend_tensor_set(l.computed_prompt_wqkv.get(), packed_storage.data(), 0, packed_storage.size());
+        if (ggml_backend_buffer_is_host(l.computed_prompt_wqkv->buffer)) {
+            iqk_modify_tensor(l.computed_prompt_wqkv.get());
+        }
+        model.tensors_by_name.push_back(std::make_pair(weight_name, l.computed_prompt_wqkv.get()));
+        if (llama_pg_trace_enabled()) {
+            const int64_t trace_after_store_us = ggml_time_us();
+            LLAMA_LOG_INFO("%s: prepared layer %d packed weight type=%s bytes=%.2f MiB dequant=%.3fms quant=%.3fms store=%.3fms\n",
+                    __func__, il, ggml_type_name(l.computed_prompt_wqkv->type), ggml_nbytes(l.computed_prompt_wqkv.get()) / 1048576.0,
+                    (trace_after_dequant_us - trace_layer_start_us) / 1000.0,
+                    (trace_after_quant_us - trace_after_dequant_us) / 1000.0,
+                    (trace_after_store_us - trace_after_quant_us) / 1000.0);
+        }
+        if (llama_prompt_locality_trace_enabled()) {
+            const uintptr_t wq_base = (uintptr_t) l.wq->data;
+            const uintptr_t wk_base = (uintptr_t) l.wk->data;
+            const uintptr_t wv_base = (uintptr_t) l.wv->data;
+            const uintptr_t packed_base = (uintptr_t) ggml_backend_buffer_get_base(l.computed_prompt_wqkv->buffer);
+            const uintptr_t packed_data = (uintptr_t) l.computed_prompt_wqkv->data;
+            const int64_t packed_gap = prev_packed_base == 0 ? -1 : (int64_t) packed_data - (int64_t) (prev_packed_base + prev_packed_size);
+            LLAMA_LOG_INFO(
+                    "%s: locality layer=%d packed=%s src_host=%d/%d/%d packed_host=%d "
+                    "wq_data=%p wk_data=%p wv_data=%p packed_base=%p packed_data=%p packed_gap=%" PRId64 " packed_bytes=%zu\n",
+                    __func__,
+                    il,
+                    ggml_type_name(l.computed_prompt_wqkv->type),
+                    ggml_backend_buffer_is_host(l.wq->buffer) ? 1 : 0,
+                    ggml_backend_buffer_is_host(l.wk->buffer) ? 1 : 0,
+                    ggml_backend_buffer_is_host(l.wv->buffer) ? 1 : 0,
+                    ggml_backend_buffer_is_host(l.computed_prompt_wqkv->buffer) ? 1 : 0,
+                    (void *) wq_base,
+                    (void *) wk_base,
+                    (void *) wv_base,
+                    (void *) packed_base,
+                    (void *) packed_data,
+                    packed_gap,
+                    packed_storage.size());
+            prev_packed_base = packed_data;
+            prev_packed_size = packed_storage.size();
+        }
+
+        if (plan.has_bias) {
+            auto bq = *l.bq;
+            auto bk = *l.bk;
+            auto bv = *l.bv;
+            if (!ggml_backend_buffer_is_host(l.bq->buffer)) {
+                const auto nbytes = ggml_nbytes(l.bq);
+                if (bq_buffer.size() < nbytes) bq_buffer.resize(nbytes);
+                ggml_backend_tensor_get(l.bq, bq_buffer.data(), 0, nbytes);
+                bq.data = bq_buffer.data();
+            }
+            if (!ggml_backend_buffer_is_host(l.bk->buffer)) {
+                const auto nbytes = ggml_nbytes(l.bk);
+                if (bk_buffer.size() < nbytes) bk_buffer.resize(nbytes);
+                ggml_backend_tensor_get(l.bk, bk_buffer.data(), 0, nbytes);
+                bk.data = bk_buffer.data();
+            }
+            if (!ggml_backend_buffer_is_host(l.bv->buffer)) {
+                const auto nbytes = ggml_nbytes(l.bv);
+                if (bv_buffer.size() < nbytes) bv_buffer.resize(nbytes);
+                ggml_backend_tensor_get(l.bv, bv_buffer.data(), 0, nbytes);
+                bv.data = bv_buffer.data();
+            }
+
+            llama_tensor_to_float_buffer(&bq, bq_f32);
+            llama_tensor_to_float_buffer(&bk, bk_f32);
+            llama_tensor_to_float_buffer(&bv, bv_f32);
+
+            packed_bqkv_f32.resize(bq_f32.size() + bk_f32.size() + bv_f32.size());
+            float * bias_ptr = packed_bqkv_f32.data();
+            memcpy(bias_ptr, bq_f32.data(), bq_f32.size() * sizeof(float));
+            bias_ptr += bq_f32.size();
+            memcpy(bias_ptr, bk_f32.data(), bk_f32.size() * sizeof(float));
+            bias_ptr += bk_f32.size();
+            memcpy(bias_ptr, bv_f32.data(), bv_f32.size() * sizeof(float));
+
+            ggml_tensor * bqkv_meta = ggml_new_tensor_1d(meta_ctx, GGML_TYPE_F32, packed_bqkv_f32.size());
+            auto bias_name = std::string{"blk."} + std::to_string(il) + ".attn_qkv_prompt.bias";
+            l.computed_prompt_bqkv = std::make_unique<ggml_tensor>(*bqkv_meta);
+            l.computed_prompt_bqkv->buffer = packed_bias_arena;
+            l.computed_prompt_bqkv->data = (char *) ggml_backend_buffer_get_base(packed_bias_arena) + plan.bias_offset;
+            l.computed_prompt_bqkv->op = GGML_OP_NONE;
+            for (int j = 0; j < GGML_MAX_SRC; ++j) l.computed_prompt_bqkv->src[j] = nullptr;
+            ggml_set_name(l.computed_prompt_bqkv.get(), bias_name.c_str());
+            ggml_backend_tensor_set(l.computed_prompt_bqkv.get(), packed_bqkv_f32.data(), 0, ggml_nbytes(bqkv_meta));
+            model.tensors_by_name.push_back(std::make_pair(bias_name, l.computed_prompt_bqkv.get()));
+        }
+
+        ggml_free(meta_ctx);
+    }
+}
+
+static bool llama_rtr_auto_should_disable(const std::string & fname, const llama_model_params & params, std::string & reason) {
+    if (!params.repack_tensors || !params.repack_tensors_auto) {
+        return false;
+    }
+
+    const uint64_t phys_ram = llama_get_total_ram_bytes();
+    if (phys_ram == 0) {
+        return false;
+    }
+
+    try {
+        // Metadata-only probe: use mmap + no repack to inspect architecture/hparams cheaply.
+        llama_model_loader probe(
+                fname,
+                /*use_mmap*/ true,
+                /*check_tensors*/ false,
+                /*repack_tensors*/ false,
+                params.use_thp,
+                params.merge_qkv,
+                params.merge_up_gate_exps,
+                params.kv_overrides,
+                params.tensor_buft_overrides);
+
+        llama_model probe_model;
+        probe_model.hparams.vocab_only = params.vocab_only;
+        llm_load_arch(probe, probe_model);
+        llm_load_hparams(probe, probe_model);
+
+        const bool is_moe = probe_model.hparams.n_expert > 0 && probe_model.hparams.n_expert_used > 0;
+        const bool is_minimax_m2 = probe_model.arch == LLM_ARCH_MINIMAX_M2;
+        if (!is_moe && !is_minimax_m2) {
+            return false;
+        }
+
+        const uint64_t model_bytes = (uint64_t) probe.n_bytes;
+        if (model_bytes <= phys_ram * 9 / 10) {
+            return false;
+        }
+
+        if (is_minimax_m2) {
+            reason = format("MiniMax M2 model %.1f GiB > 90%% of RAM %.1f GiB",
+                    model_bytes / 1073741824.0, phys_ram / 1073741824.0);
+        } else {
+            reason = format("MoE model %.1f GiB > 90%% of RAM %.1f GiB",
+                    model_bytes / 1073741824.0, phys_ram / 1073741824.0);
+        }
+        return true;
+    } catch (const std::exception & e) {
+        LLAMA_LOG_WARN("%s: failed to evaluate --run-time-repack auto: %s\n", __func__, e.what());
+        return false;
+    }
+}
+
 // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
 static int llama_model_load(const std::string & fname, llama_model & model, llama_model_params & params) {
     try {
+        if (params.repack_tensors && params.repack_tensors_auto) {
+            std::string reason;
+            if (llama_rtr_auto_should_disable(fname, params, reason)) {
+                params.repack_tensors = false;
+                LLAMA_LOG_INFO("%s: --run-time-repack auto: disabled (%s)\n", __func__, reason.c_str());
+            } else {
+                LLAMA_LOG_INFO("%s: --run-time-repack auto: keeping repack enabled\n", __func__);
+            }
+        }
+
         llama_model_loader ml(fname, params.use_mmap, params.check_tensors,
                 params.repack_tensors, params.use_thp, params.merge_qkv, params.merge_up_gate_exps,
                 params.kv_overrides, params.tensor_buft_overrides);
+
+        model.effective_repack_tensors = params.repack_tensors;
+        model.effective_repack_tensors_auto = params.repack_tensors_auto;
 
         model.hparams.vocab_only = params.vocab_only;
 
@@ -3339,6 +4055,21 @@ static int llama_decode_internal(
 
     lctx.is_encoding = false;
     const uint32_t n_tokens_all = batch_all.n_tokens;
+    const bool pg_trace = llama_pg_trace_enabled();
+    const bool is_prompt_like = n_tokens_all > 1;
+    const bool is_decode_after_prompt = n_tokens_all == 1 && lctx.pg_trace_prompt_pending && lctx.pg_trace_decode_remaining > 0;
+    const bool trace_this_call = pg_trace && (is_prompt_like || is_decode_after_prompt);
+    const int trace_decode_index = is_decode_after_prompt ? lctx.pg_trace_decode_index : 0;
+    const int64_t trace_call_start_us = trace_this_call ? ggml_time_us() : 0;
+    int64_t trace_reset_graph_us = 0;
+    int64_t trace_build_graph_us = 0;
+    int64_t trace_alloc_graph_us = 0;
+    int64_t trace_set_inputs_us = 0;
+    int64_t trace_compute_us = 0;
+    int64_t trace_post_reset_us = 0;
+    int trace_reuse_hits = 0;
+    int trace_rebuilds = 0;
+    int trace_ubatches = 0;
 
     if (n_tokens_all == 0) {
         LLAMA_LOG_ERROR("%s: n_tokens == 0", __func__);
@@ -3416,6 +4147,7 @@ static int llama_decode_internal(
 
     bool warned_qnext_mixed_repeat = false;
     for (uint32_t cur_token = 0; cur_token < n_tokens_all; ) {
+        trace_ubatches++;
 #if IK_PRINT_TIMING
         auto tim1 = ggml_time_us();
 #endif
@@ -3571,7 +4303,12 @@ static int llama_decode_internal(
 #endif
         ggml_cgraph * gf = nullptr;
         if (!lctx.can_reuse_graph(u_batch)) {
+            trace_rebuilds++;
+            int64_t trace_t0 = trace_this_call ? ggml_time_us() : 0;
             lctx.reset_scheduler();
+            if (trace_this_call) {
+                trace_reset_graph_us += ggml_time_us() - trace_t0;
+            }
             ggml_backend_sched_set_eval_callback(lctx.sched, lctx.cparams.cb_eval, lctx.cparams.cb_eval_user_data);
 #if IK_PRINT_TIMING
             tim2 = ggml_time_us();
@@ -3581,7 +4318,18 @@ static int llama_decode_internal(
 #if IK_PRINT_TIMING
             tim1 = ggml_time_us();
 #endif
+            trace_t0 = trace_this_call ? ggml_time_us() : 0;
             gf = llm_build_context::llama_build_graph(lctx, u_batch, false);
+            if (trace_this_call) {
+                trace_build_graph_us += ggml_time_us() - trace_t0;
+                if (is_prompt_like) {
+                    llama_pg_trace_graph_summary(gf, "prompt");
+                } else {
+                    LLAMA_LOG_INFO("%s: pg-trace-graph phase=decode_after_prompt index=%d/%d\n",
+                            __func__, trace_decode_index, llama_pg_trace_decode_window());
+                    llama_pg_trace_graph_summary(gf, "decode_after_prompt");
+                }
+            }
 #if IK_PRINT_TIMING
             tim2 = ggml_time_us();
             printf("build_graph(...): %d us\n", int(tim2-tim1));
@@ -3590,7 +4338,11 @@ static int llama_decode_internal(
 #if IK_PRINT_TIMING
             tim1 = ggml_time_us();
 #endif
+            trace_t0 = trace_this_call ? ggml_time_us() : 0;
             ggml_backend_sched_alloc_graph(lctx.sched, gf);
+            if (trace_this_call) {
+                trace_alloc_graph_us += ggml_time_us() - trace_t0;
+            }
 #if IK_PRINT_TIMING
             tim2 = ggml_time_us();
             printf("sched_alloc_graph(...): %d us\n", int(tim2-tim1));
@@ -3600,6 +4352,7 @@ static int llama_decode_internal(
                         (int)u_batch.all_seq_id, (int)lctx.n_outputs, (int)lctx.kv_self.n, gf});
             }
         } else {
+            trace_reuse_hits++;
             //printf("Reusing graph\n");
             gf = lctx.prev->graph;
         }
@@ -3631,7 +4384,11 @@ static int llama_decode_internal(
 #if IK_PRINT_TIMING == 1
         tim1 = ggml_time_us();
 #endif
+        int64_t trace_t0 = trace_this_call ? ggml_time_us() : 0;
         llama_set_inputs(lctx, u_batch);
+        if (trace_this_call) {
+            trace_set_inputs_us += ggml_time_us() - trace_t0;
+        }
 #if IK_PRINT_TIMING == 1
         tim2 = ggml_time_us();
         printf("set_inputs(...): %d us\n", int(tim2-tim1));
@@ -3640,7 +4397,11 @@ static int llama_decode_internal(
 #if IK_PRINT_TIMING
         tim1 = ggml_time_us();
 #endif
+        trace_t0 = trace_this_call ? ggml_time_us() : 0;
         llama_graph_compute(lctx, gf, n_threads);
+        if (trace_this_call) {
+            trace_compute_us += ggml_time_us() - trace_t0;
+        }
 #if IK_PRINT_TIMING
         llama_synchronize(&lctx);
         tim2 = ggml_time_us();
@@ -3762,7 +4523,11 @@ static int llama_decode_internal(
     auto tim1 = ggml_time_us();
 #endif
     if (!lctx.prev) {
+        int64_t trace_t0 = trace_this_call ? ggml_time_us() : 0;
         lctx.reset_scheduler();
+        if (trace_this_call) {
+            trace_post_reset_us += ggml_time_us() - trace_t0;
+        }
     }
 #if IK_PRINT_TIMING
         auto tim2 = ggml_time_us();
@@ -3775,6 +4540,66 @@ static int llama_decode_internal(
     // that pages in from swap.  Doing it during TG adds ~2.6 GB of page-in latency.
     if (n_tokens_all > 1 && !s_hot_committed) {
         llama_hot_expert_commit(model);
+    } else if (n_tokens_all == 1 && s_hot_committed && llama_hot_expert_trace_enabled() && s_hot_trace_decode_calls < 8) {
+        ++s_hot_trace_decode_calls;
+        llama_hot_expert_log_locked_stats("post-commit-decode");
+    }
+
+    if (trace_this_call) {
+        const int64_t trace_total_us = ggml_time_us() - trace_call_start_us;
+        if (is_prompt_like) {
+            LLAMA_LOG_INFO(
+                    "%s: pg-trace phase=prompt tokens=%u ubatches=%d reuse_hits=%d rebuilds=%d "
+                    "reset_pre=%.3fms build=%.3fms alloc=%.3fms inputs=%.3fms compute=%.3fms reset_post=%.3fms total=%.3fms kv_n=%u kv_head=%u\n",
+                    __func__,
+                    n_tokens_all,
+                    trace_ubatches,
+                    trace_reuse_hits,
+                    trace_rebuilds,
+                    trace_reset_graph_us / 1000.0,
+                    trace_build_graph_us / 1000.0,
+                    trace_alloc_graph_us / 1000.0,
+                    trace_set_inputs_us / 1000.0,
+                    trace_compute_us / 1000.0,
+                    trace_post_reset_us / 1000.0,
+                    trace_total_us / 1000.0,
+                    kv_self.n,
+                    kv_self.head);
+        } else {
+            LLAMA_LOG_INFO(
+                    "%s: pg-trace phase=decode_after_prompt index=%d/%d tokens=%u ubatches=%d reuse_hits=%d rebuilds=%d "
+                    "reset_pre=%.3fms build=%.3fms alloc=%.3fms inputs=%.3fms compute=%.3fms reset_post=%.3fms total=%.3fms kv_n=%u kv_head=%u\n",
+                    __func__,
+                    trace_decode_index,
+                    llama_pg_trace_decode_window(),
+                    n_tokens_all,
+                    trace_ubatches,
+                    trace_reuse_hits,
+                    trace_rebuilds,
+                    trace_reset_graph_us / 1000.0,
+                    trace_build_graph_us / 1000.0,
+                    trace_alloc_graph_us / 1000.0,
+                    trace_set_inputs_us / 1000.0,
+                    trace_compute_us / 1000.0,
+                    trace_post_reset_us / 1000.0,
+                    trace_total_us / 1000.0,
+                    kv_self.n,
+                    kv_self.head);
+        }
+    }
+
+    if (n_tokens_all > 1) {
+        lctx.pg_trace_prompt_pending = true;
+        lctx.pg_trace_decode_remaining = llama_pg_trace_decode_window();
+        lctx.pg_trace_decode_index = 0;
+    } else if (n_tokens_all == 1 && lctx.pg_trace_prompt_pending) {
+        if (lctx.pg_trace_decode_remaining > 0) {
+            lctx.pg_trace_decode_index++;
+            lctx.pg_trace_decode_remaining--;
+        }
+        if (lctx.pg_trace_decode_remaining <= 0) {
+            lctx.pg_trace_prompt_pending = false;
+        }
     }
 
     return 0;
@@ -4502,6 +5327,7 @@ struct llama_model_params llama_model_default_params() {
         /*.use_mlock                   =*/ false,
         /*.check_tensors               =*/ false,
         /*.repack_tensors              =*/ false,
+        /*.repack_tensors_auto         =*/ false,
         /*.use_thp                     =*/ false,
         /*.validate_quants             =*/ false,
         /*.merge_qkv                   =*/ false,
@@ -5628,6 +6454,14 @@ uint64_t llama_model_n_params(const struct llama_model * model) {
         nparams += ggml_nelements(it.second);
     }
     return nparams;
+}
+
+bool llama_model_repack_tensors(const struct llama_model * model) {
+    return model->effective_repack_tensors;
+}
+
+bool llama_model_repack_tensors_auto(const struct llama_model * model) {
+    return model->effective_repack_tensors_auto;
 }
 
 struct ggml_tensor * llama_get_model_tensor(struct llama_model * model, const char * name) {

@@ -144,6 +144,11 @@ struct llama_context {
 
     bool has_evaluated_once = false;
 
+    // Mixed-path tracing state: prompt call arms a short decode trace window.
+    bool pg_trace_prompt_pending = false;
+    int  pg_trace_decode_remaining = 0;
+    int  pg_trace_decode_index = 0;
+
     int64_t t_start_us;
     int64_t t_load_us;
     int64_t t_p_eval_us = 0;

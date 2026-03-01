@@ -333,6 +333,8 @@ struct llama_layer {
     std::unique_ptr<ggml_tensor> computed_wk_b;
     std::unique_ptr<ggml_tensor> computed_wv_b;
     std::unique_ptr<ggml_tensor> computed_wkv_b;
+    std::unique_ptr<ggml_tensor> computed_prompt_wqkv;
+    std::unique_ptr<ggml_tensor> computed_prompt_bqkv;
 };
 
 struct llama_lora_adapter;
@@ -412,6 +414,8 @@ struct llama_model {
 
     int64_t t_load_us = 0;
     int64_t t_start_us = 0;
+    bool effective_repack_tensors = false;
+    bool effective_repack_tensors_auto = false;
 
     // keep track of loaded lora adapters
     std::set<llama_lora_adapter *> lora_adapters;

@@ -8,19 +8,21 @@ const LANG = {
     p_model: 'Путь к модели', d_model: 'Путь к GGUF-файлу. Split-модели (00001-of-NNNNN) определяются автоматически',
     p_model_size: 'Размер модели (ГБ)', d_model_size: 'Суммарный размер всех частей. Ключевой параметр: если модель > 90% RAM — она swap-bound, и нужны другие настройки',
     p_model_type: 'Тип модели', d_model_type: 'Dense — все веса активны всегда (Llama, Phi, Gemma). MoE — только часть экспертов активна на токен (MiniMax, DeepSeek, Qwen3-MoE). Определяется автоматически при чтении GGUF',
+    p_workload: 'Сценарий нагрузки', d_workload: 'Что для вас важнее: реальный prompt+generation, чистая скорость генерации или обработка промта. Рекомендации отличаются',
     p_ngl: 'GPU слои', d_ngl: 'Количество слоёв, размещаемых на GPU. -1 = авто (все что влезут), 0 = только CPU. Для CPU-only систем ставьте 0',
-    p_threads: 'Потоки', d_threads: 'Потоки вычислений при генерации (TG). На dual-CCD (7950X): 16 оптимально — оба CCD дают 64 МБ L3. Больше 16 на MoE вредит (-7..12%)',
+    p_threads: 'Потоки', d_threads: 'Потоки вычислений при генерации (TG). На dual-CCD (7950X) 16 — хороший baseline для MoE. Для in-RAM моделей имеет смысл отдельно проверить 24/32, а не считать их вредными заранее',
     p_threads_batch: 'Потоки (batch)', d_threads_batch: 'Потоки для обработки промта (PP). -1 = как -t. Отдельное значение полезно если PP и TG по-разному масштабируются',
     p_ctx: 'Размер контекста', d_ctx: 'Контекстное окно (токены). 0 = из метаданных модели. Каждый токен в KV-кеше занимает память — для swap-bound лучше ограничить (напр. 8192)',
     p_batch: 'Batch size', d_batch: 'Логический batch для PP. Больше = быстрее обработка промта, но больше памяти. По умолчанию 2048, минимум 32',
     p_ubatch: 'Micro-batch size', d_ubatch: 'Физический batch — сколько токенов реально обрабатываются за раз. Должен быть <= batch size. По умолчанию 512',
-    p_fa: 'Flash Attention', d_fa: 'Оптимизированное ядро внимания: меньше памяти, выше скорость. Нет причин выключать — всегда держите ON',
-    p_rtr: 'Runtime Repack', d_rtr: 'Перепаковка весов для оптимального доступа к L1D-кешу. Ускоряет in-RAM модели. Автоматически отключает mmap. Для swap-bound: КАТАСТРОФА (-46..60% TG) — увеличивает working set',
-    p_muge: 'Merge Up+Gate Experts', d_muge: 'Слияние ffn_up + ffn_gate экспертов в единый тензор. Влияет только на MoE модели. Для swap-bound: -46% TG (удваивает contiguous allocation)',
-    p_ctk: 'Тип KV Cache K', d_ctk: 'Квантизация ключей в KV-кеше. q8_0 — лучший выбор: экономит 50% памяти кеша при 0% потере скорости и качества. Для макс. контекста можно q4_0',
+    p_fa: 'Flash Attention', d_fa: 'Оптимизированное ядро внимания. Для текущих Zen4 MoE сценариев особенно важно для mixed path (prompt+generation). Держите ON по умолчанию; выключайте только для явной A/B-проверки или диагностики',
+    p_rtr: 'Runtime Repack', d_rtr: 'Три режима: off, on, auto. AUTO — throughput-first старт для Qwen3MoE и gpt-oss на Zen4. Для MiniMax safer baseline пока OFF. rtr=on отключает mmap; при auto итог решает runtime policy',
+    p_muge: 'Merge Up+Gate Experts', d_muge: 'Слияние ffn_up + ffn_gate экспертов. Влияет только на MoE. Сильного стабильного выигрыша пока не подтверждено; для swap-bound риск деградации высокий, поэтому обычно держите OFF',
+    p_ctk: 'Тип KV Cache K', d_ctk: 'Квантизация ключей в KV-кеше. q8_0 — текущий лучший baseline: сильно экономит память и в текущих validated профилях не показал заметимой деградации. Для макс. контекста можно q4_0',
     p_ctv: 'Тип KV Cache V', d_ctv: 'Квантизация значений в KV-кеше. Можно агрессивнее чем K — качество менее чувствительно. q4_0 для максимального контекстного окна',
     p_mla: 'Режим MLA', d_mla: 'Multi-head Latent Attention — режим работы KV-кеша для моделей, поддерживающих MLA (DeepSeek и т.п.). 3 = автовыбор оптимального',
-    p_ser: 'Smart Expert Reduction', d_ser: 'Роутер отбрасывает экспертов с весом ниже threshold, гарантируя минимум min_experts. Вместо фиксированных 8 — переменное число 4-8. Снижает swap I/O на ~25-30%',
+    p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная опция: роутер отбрасывает экспертов с весом ниже threshold, гарантируя минимум min_experts. Это promising для huge MoE, но пока не validated default',
+    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Экспериментальный env-knob для huge MoE: сколько hot experts пытаться держать залоченными после prompt. 0 = не задавать, оставить runtime default. Для MiniMax первый более длинный controlled run не подтвердил новый default выше legacy 16, поэтому начинайте с 0',
     ser_min: 'мин. экспертов:', ser_thresh: 'порог:',
     p_gr: 'Graph Reuse', d_gr: 'Переиспользование графа вычислений между токенами. Экономит время на построение графа. Выключать только для отладки',
     p_mqkv: 'Merge QKV', d_mqkv: 'Слияние Q, K, V в один тензор для attention. Улучшает локальность данных при вычислениях внимания',
@@ -31,7 +33,7 @@ const LANG = {
     p_apikey: 'API ключ', p_thttp: 'HTTP потоки', d_thttp: 'Потоки для обработки HTTP запросов (не вычислений). -1 = авто. Обычно не нужно менять',
     p_seed: 'Seed', d_seed: 'Зерно генератора случайных чисел. -1 = случайное. Фиксированный seed для воспроизводимых результатов',
     p_predict: 'Макс. токенов', d_predict: 'Максимум токенов на генерацию. -1 = без ограничений. Полезно для бенчмарков (-n 128) или ограничения длины ответа',
-    p_mmap: 'Memory-mapped I/O (mmap)', d_mmap: 'Загрузка модели через отображение файла в память. OS подгружает страницы по необходимости. Автоматически OFF при -rtr (repack требует полную копию в RAM)',
+    p_mmap: 'Memory-mapped I/O (mmap)', d_mmap: 'Загрузка модели через отображение файла в память. OS подгружает страницы по необходимости. rtr=on принудительно выключает mmap; при rtr=auto итоговое решение может изменить runtime policy',
     p_mlock: 'mlock', d_mlock: 'Блокировка всей модели в RAM — запрещает OS вытеснять страницы в swap. На Windows требует SeLockMemoryPrivilege',
     p_numa: 'Стратегия NUMA', d_numa: 'Размещение памяти по NUMA-нодам. Для single-socket (AM5): disabled оптимально. Бенчмарки показали что distribute/isolate вредят на Zen4',
     p_defrag: 'Порог дефрагментации', d_defrag: 'KV-кеш фрагментируется при удалении токенов. Дефрагментация компактифицирует его. -1 = выключено. 0.1 = мягкая, 0.01 = агрессивная',
@@ -42,6 +44,13 @@ const LANG = {
     toast_copied: 'Скопировано!', toast_exported: 'Конфиг экспортирован!',
     toast_imported: 'Конфиг импортирован!', toast_reset: 'Сброшено!',
     btn_launch: 'Запустить', btn_stop: 'Остановить', btn_clear: 'Очистить',
+    chat_title: 'Чат', chat_empty: 'Запустите модель, чтобы начать общение',
+    cli_welcome: 'Запустите модель для начала сессии',
+    cli_terminal_label: 'llama-cli \u2014 логи (сессия в терминале)',
+    console_label: 'Консоль \u2014 логи',
+    cli_ext_session: 'Интерактивная сессия открыта в отдельном терминале. Здесь отображаются логи загрузки.',
+    cli_ext_ready: 'Модель загружена. Введите сообщение в окне терминала.',
+    cli_ext_input: 'Используйте внешний терминал для ввода',
     proc_title: 'Вывод процесса', proc_idle: 'не запущен', proc_running: 'работает', proc_stopped: 'остановлен',
     srv_online: 'Dashboard-сервер: подключён', srv_offline: 'Dashboard-сервер: не подключён (запустите dashboard_server.py)',
     scan_no_path: 'Введите путь к модели или директории', scan_empty: 'GGUF-файлы не найдены',
@@ -52,22 +61,54 @@ const LANG = {
     glossary_title: 'Словарь терминов',
     glossary_search: 'Поиск...',
     // warnings
-    w_rtr_swap: 'Runtime Repack + swap-bound модель: от -46% до -60% TG. Repack увеличивает working set, вызывая больше page faults.',
-    w_rtr_swap_fix: 'Отключите -rtr для моделей, превышающих 90% RAM.',
-    w_muge_swap: 'Merge Up+Gate + swap-bound модель: -46% TG. Удваивает размер непрерывного выделения для тензоров экспертов.',
+    w_rtr_swap: 'Принудительный rtr=on на swap-bound модели рискован: растёт working set, отключается mmap и можно получить сильную просадку, особенно на mixed path.',
+    w_rtr_swap_fix: 'Для swap-bound не форсируйте ON. Для Qwen3MoE/gpt-oss начните с AUTO. Для MiniMax пока безопаснее OFF.',
+    w_muge_swap: 'Merge Up+Gate на swap-bound MoE обычно вреден: растёт размер непрерывных выделений и усиливаются page faults.',
     w_muge_swap_fix: 'Отключите -muge для swap-bound моделей.',
-    w_rtr_muge: 'Оба rtr и muge включены. Работают вместе (краш исправлен), но избегайте для swap-bound моделей.',
-    w_threads_moe: 'MoE модель с >16 потоками: от -7% до -12% TG из-за контенции без дополнительной пропускной способности.',
-    w_threads_moe_fix: 'Используйте -t 16 для MoE моделей на Zen4.',
-    w_ctk_good: 'q8_0 KV cache экономит 50% памяти кеша при 0% потери скорости и качества. Отличный выбор.',
-    w_ser_info: 'Smart Expert Reduction уменьшает число активных экспертов. Экономит swap I/O и вычисления, но может повлиять на качество сложных промтов.',
-    w_swap_bound: 'Модель swap-bound (превышает 90% RAM). Рекомендуется: отключить rtr и muge, включить ctk=q8_0.',
-    w_fa_off: 'Flash Attention выключен. Это значительно снижает производительность. Рекомендуется всегда ON.',
+    w_rtr_muge: 'rtr и muge включены одновременно. Это уже не аварийная комбинация, но для swap-bound MoE её лучше избегать.',
+    w_rtr_auto_moe: 'rtr=auto на MoE — текущий throughput-first старт для Zen4-профиля на Qwen3MoE и gpt-oss. Mixed path нельзя оценивать только по TG.',
+    w_rtr_auto_fix: 'Если модель MiniMax или другой тяжёлый swap-bound кейс — проверьте также rtr=off отдельно.',
+    w_rtr_off_validated_moe: 'Для текущих Qwen3MoE/gpt-oss на Zen4 rtr=off консервативен, но часто оставляет производительность на столе по сравнению с auto.',
+    w_threads_moe: 'MoE модель с >16 потоками: на этом Zen4-хосте это часто хуже для throughput, но не является универсальным правилом. Для in-RAM моделей делайте A/B с 24/32.',
+    w_threads_moe_fix: 'Используйте -t 16 как baseline для MoE на Zen4 и отдельно проверяйте 24/32 только на реальных бенчах.',
+    w_ctk_good: 'q8_0 KV cache остаётся лучшим текущим baseline: он сильно экономит память и на текущих validated профилях не показал заметного ухудшения.',
+    w_ser_info: 'SER — экспериментальная router-side опция. Она может уменьшить swap I/O, но пока не должна подаваться как validated default.',
+    w_gptoss_huge_auto: 'Для huge gpt-oss throughput-first старт сейчас обычно rtr=auto, но помните о высокой цене по startup/load time.',
+    w_gptoss_huge_auto_fix: 'Если важнее запуск и cold-start, сравните с rtr=off.',
+    w_swap_bound: 'Модель swap-bound (превышает 90% RAM). Для таких кейсов важны mmap, размер KV cache и режим rtr. Не переносите выводы с in-RAM моделей напрямую.',
+    w_fa_off: 'Flash Attention выключен. Это особенно бьёт по mixed path (prompt+generation). На текущем Zen4 MoE профиле держите ON.',
     w_threads_ccd: 'Используется потоков меньше одного CCD на dual-CCD процессоре. L3 кеш урезан с 64 МБ до 32 МБ.',
     w_threads_ccd_fix: 'Используйте -t 16 для задействования обоих CCD.',
-    w_rtr_nommap: 'Runtime Repack автоматически отключает mmap (--no-mmap). Модель будет загружена целиком в RAM.',
+    w_rtr_nommap: 'rtr=on принудительно отключает mmap. В режиме auto mmap может остаться включённым до решения runtime policy.',
     w_muge_dense: '-muge влияет только на MoE модели (ffn_up_exps + ffn_gate_exps). На dense модели эффекта нет.',
     w_khad_f16: 'K-Cache Hadamard полезен только с квантизированным KV cache (не f16/f32).',
+    w_minimax_rtr_on: 'MiniMax M2.5 имеет свою attention/runtime специфику. Принудительный rtr=on для swap-bound MiniMax остаётся рискованным режимом.',
+    w_minimax_rtr_auto: 'Для MiniMax safer baseline пока rtr=off, но старый плохой auto-результат был связан с policy bug. AUTO теперь нужно перепроверять на длинном прогоне, а не считать заведомо плохим.',
+    w_minimax_hot_budget_hint: 'Для MiniMax короткий quick check когда-то подсветил 24/32, но первый более длинный controlled rtr=off run не подтвердил новый default выше legacy 16.',
+    w_minimax_hot_budget_fix: 'Практический user-facing baseline сейчас простой: оставьте Hot Expert Budget = 0. Более крупные бюджеты пока research-only.',
+    w_workload_mixed: 'Выбран mixed (PG) режим. Для текущего форка это основной пользовательский сценарий, и его нельзя оценивать только по TG.',
+    w_workload_tg: 'Выбран TG-only режим. Хорош для decode throughput, но не переносите выводы напрямую на prompt+generation.',
+    w_workload_pp: 'Выбран PP режим. Это полезно для длинных промтов, но не отражает общую скорость диалога.',
+    w_mqkv_experimental: 'Merge QKV — экспериментальная опция. Она model-sensitive и не является validated default для текущего релизного слоя.',
+    w_hot_budget_experimental: 'Hot Expert Budget — экспериментальный env-knob. Для обычного MiniMax запуска оставляйте 0; более крупные бюджеты пока не стали validated default.',
+    w_hot_budget_family: 'Hot Expert Budget сейчас имеет практический смысл прежде всего для huge MiniMax / huge MoE исследований. Не переносите его как готовое правило на другие семьи моделей.',
+    badge_family: 'Семейство',
+    badge_path: 'Путь',
+    badge_status: 'Статус',
+    badge_family_qwen: 'Qwen3MoE',
+    badge_family_gptoss: 'gpt-oss',
+    badge_family_minimax: 'MiniMax M2.5',
+    badge_family_other: 'Generic / unknown',
+    badge_path_inram: 'in-RAM профиль',
+    badge_path_swap: 'swap-bound профиль',
+    badge_path_mixed: 'mixed-path важен',
+    badge_path_tg: 'TG-only фокус',
+    badge_path_pp: 'PP фокус',
+    badge_status_validated: 'validated baseline',
+    badge_status_partial: 'research / partial',
+    badge_status_unknown: 'unknown family',
+    badge_status_exp_knobs: 'experimental knobs active',
+    note_minimax_hot_budget: 'MiniMax advanced note: короткий quick check когда-то подсветил большие бюджеты, но первый более длинный controlled rtr=off run вернул нас к legacy default 16. Для обычного запуска оставляйте Hot Expert Budget = 0; большие бюджеты пока research-only.',
   },
   en: {
     sec_model: 'Model', sec_perf: 'Performance', sec_opt: 'Optimization',
@@ -75,19 +116,21 @@ const LANG = {
     p_model: 'Model path', d_model: 'Path to GGUF file. Split models (00001-of-NNNNN) are detected automatically',
     p_model_size: 'Model size (GB)', d_model_size: 'Total size of all parts. Key parameter: if model > 90% RAM it is swap-bound and needs different settings',
     p_model_type: 'Model type', d_model_type: 'Dense — all weights active always (Llama, Phi, Gemma). MoE — only a subset of experts active per token (MiniMax, DeepSeek, Qwen3-MoE). Auto-detected from GGUF metadata',
+    p_workload: 'Workload', d_workload: 'What matters most to you: real prompt+generation flow, decode-only throughput, or prompt processing. Recommendations differ',
     p_ngl: 'GPU layers', d_ngl: 'Layers placed on GPU. -1 = auto (as many as fit), 0 = CPU only. Set 0 for CPU-only systems',
-    p_threads: 'Threads', d_threads: 'Compute threads for generation (TG). On dual-CCD (7950X): 16 optimal — both CCDs give 64 MB L3. Over 16 on MoE hurts (-7..12%)',
+    p_threads: 'Threads', d_threads: 'Compute threads for generation (TG). On dual-CCD (7950X), 16 is a good MoE baseline. For in-RAM models it is still worth A/B testing 24/32 instead of assuming they are always worse',
     p_threads_batch: 'Threads (batch)', d_threads_batch: 'Threads for prompt processing (PP). -1 = same as -t. Separate value useful if PP and TG scale differently',
     p_ctx: 'Context size', d_ctx: 'Context window (tokens). 0 = from model metadata. Each token in KV cache uses memory — for swap-bound better to limit (e.g. 8192)',
     p_batch: 'Batch size', d_batch: 'Logical batch for PP. Larger = faster prompt processing but more memory. Default 2048, minimum 32',
     p_ubatch: 'Micro-batch size', d_ubatch: 'Physical batch — tokens actually processed at once. Must be <= batch size. Default 512',
-    p_fa: 'Flash Attention', d_fa: 'Optimized attention kernel: less memory, higher speed. No reason to disable — always keep ON',
-    p_rtr: 'Runtime Repack', d_rtr: 'Repack weights for optimal L1D cache access. Speeds up in-RAM models. Auto-disables mmap. For swap-bound: CATASTROPHIC (-46..60% TG) — increases working set',
-    p_muge: 'Merge Up+Gate Experts', d_muge: 'Merge ffn_up + ffn_gate expert tensors into one. Only affects MoE models. For swap-bound: -46% TG (doubles contiguous allocation)',
-    p_ctk: 'KV Cache K Type', d_ctk: 'Key quantization in KV cache. q8_0 is the best choice: saves 50% cache memory with 0% speed/quality loss. For max context try q4_0',
+    p_fa: 'Flash Attention', d_fa: 'Optimized attention kernel. For current Zen4 MoE work it matters especially for mixed path (prompt+generation). Keep it ON by default; only disable for explicit A/B checks or debugging',
+    p_rtr: 'Runtime Repack', d_rtr: 'Three modes: off, on, auto. AUTO is the current throughput-first starting point for Qwen3MoE and gpt-oss on Zen4. For MiniMax, OFF is still the safer baseline. rtr=on disables mmap; with auto the runtime policy decides the effective outcome',
+    p_muge: 'Merge Up+Gate Experts', d_muge: 'Merge ffn_up + ffn_gate expert tensors. Only affects MoE. No strong stable win is confirmed yet; for swap-bound cases regression risk is high, so keep it OFF by default',
+    p_ctk: 'KV Cache K Type', d_ctk: 'Key quantization in KV cache. q8_0 is the current best baseline: it saves a lot of memory and showed no meaningful regression in the current validated profiles. For max context try q4_0',
     p_ctv: 'KV Cache V Type', d_ctv: 'Value quantization in KV cache. Can be more aggressive than K — quality is less sensitive. q4_0 for maximum context window',
     p_mla: 'MLA Mode', d_mla: 'Multi-head Latent Attention — KV cache mode for models supporting MLA (DeepSeek etc.). 3 = auto-select optimal',
-    p_ser: 'Smart Expert Reduction', d_ser: 'Router drops experts with weight below threshold, guaranteeing min_experts. Instead of fixed 8 — variable 4-8. Reduces swap I/O by ~25-30%',
+    p_ser: 'Smart Expert Reduction', d_ser: 'Experimental option: router drops experts below a threshold while guaranteeing min_experts. Promising for huge MoE, but not a validated default yet',
+    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Experimental env knob for huge MoE: how many hot experts to try to keep locked after prompt. 0 = do not set it, keep the runtime default. For MiniMax, the first longer controlled run did not justify promoting a larger default above legacy 16, so start with 0',
     ser_min: 'min experts:', ser_thresh: 'threshold:',
     p_gr: 'Graph Reuse', d_gr: 'Reuse compute graph between tokens. Saves graph construction time. Only disable for debugging',
     p_mqkv: 'Merge QKV', d_mqkv: 'Merge Q, K, V into one tensor for attention. Improves data locality during attention computation',
@@ -98,7 +141,7 @@ const LANG = {
     p_apikey: 'API Key', p_thttp: 'HTTP threads', d_thttp: 'Threads for HTTP request processing (not compute). -1 = auto. Rarely needs changing',
     p_seed: 'Seed', d_seed: 'Random number generator seed. -1 = random. Fixed seed for reproducible results',
     p_predict: 'Predict tokens', d_predict: 'Max tokens per generation. -1 = unlimited. Useful for benchmarks (-n 128) or limiting response length',
-    p_mmap: 'Memory-mapped I/O (mmap)', d_mmap: 'Load model by mapping file into memory. OS loads pages on demand. Auto OFF with -rtr (repack needs full copy in RAM)',
+    p_mmap: 'Memory-mapped I/O (mmap)', d_mmap: 'Load model by mapping file into memory. OS loads pages on demand. rtr=on forces mmap off; with rtr=auto the runtime policy may still change the effective outcome',
     p_mlock: 'mlock', d_mlock: 'Lock entire model in RAM — prevents OS from swapping pages. On Windows requires SeLockMemoryPrivilege',
     p_numa: 'NUMA strategy', d_numa: 'Memory placement across NUMA nodes. For single-socket (AM5): disabled is optimal. Benchmarks showed distribute/isolate hurt on Zen4',
     p_defrag: 'Defrag threshold', d_defrag: 'KV cache fragments when tokens are deleted. Defrag compacts it. -1 = disabled. 0.1 = gentle, 0.01 = aggressive',
@@ -109,6 +152,13 @@ const LANG = {
     toast_copied: 'Copied!', toast_exported: 'Config exported!',
     toast_imported: 'Config imported!', toast_reset: 'Reset!',
     btn_launch: 'Launch', btn_stop: 'Stop', btn_clear: 'Clear',
+    chat_title: 'Chat', chat_empty: 'Launch a model to start chatting',
+    cli_welcome: 'Launch a model to start the terminal session',
+    cli_terminal_label: 'llama-cli \u2014 logs (session in terminal)',
+    console_label: 'Console \u2014 logs',
+    cli_ext_session: 'Interactive session opened in external terminal. Loading logs displayed here.',
+    cli_ext_ready: 'Model loaded. Type your message in the terminal window.',
+    cli_ext_input: 'Use the external terminal for input',
     proc_title: 'Process Output', proc_idle: 'idle', proc_running: 'running', proc_stopped: 'stopped',
     srv_online: 'Dashboard server: connected', srv_offline: 'Dashboard server: offline (run dashboard_server.py)',
     scan_no_path: 'Enter a model path or directory first', scan_empty: 'No .gguf files found',
@@ -118,22 +168,54 @@ const LANG = {
     btn_glossary: '? Glossary',
     glossary_title: 'Glossary',
     glossary_search: 'Search...',
-    w_rtr_swap: 'Runtime Repack + swap-bound model: -46% to -60% TG regression. Repack increases working set, causing more page faults.',
-    w_rtr_swap_fix: 'Disable -rtr for models exceeding 90% of RAM.',
-    w_muge_swap: 'Merge Up+Gate + swap-bound model: -46% TG regression. Doubles contiguous allocation for expert tensors.',
+    w_rtr_swap: 'Forced rtr=on on a swap-bound model is risky: working set grows, mmap gets disabled, and the slowdown can become severe, especially on mixed path.',
+    w_rtr_swap_fix: 'Do not force ON for swap-bound models. Start with AUTO for Qwen3MoE/gpt-oss. For MiniMax, OFF is currently the safer baseline.',
+    w_muge_swap: 'Merge Up+Gate on swap-bound MoE is usually harmful: contiguous allocations get larger and page-fault pressure rises.',
     w_muge_swap_fix: 'Disable -muge for swap-bound models.',
-    w_rtr_muge: 'Both rtr and muge enabled. They work together (crash was fixed), but avoid this combo for swap-bound models.',
-    w_threads_moe: 'MoE model with >16 threads: -7% to -12% TG from contention without extra bandwidth.',
-    w_threads_moe_fix: 'Use -t 16 for MoE models on Zen4.',
-    w_ctk_good: 'q8_0 KV cache saves 50% cache memory with 0% speed/quality loss. Excellent choice.',
-    w_ser_info: 'Smart Expert Reduction reduces active experts. Saves swap I/O and compute, but may affect quality for complex prompts.',
-    w_swap_bound: 'Model is swap-bound (exceeds 90% RAM). Recommended: disable rtr and muge, enable ctk=q8_0.',
-    w_fa_off: 'Flash Attention is OFF. This significantly hurts performance. Always recommended ON.',
+    w_rtr_muge: 'rtr and muge are both enabled. This is no longer a crash combo, but it is still best avoided for swap-bound MoE.',
+    w_rtr_auto_moe: 'rtr=auto on MoE is the current throughput-first starting point for the Zen4 profile on Qwen3MoE and gpt-oss. Do not infer mixed-path behavior from TG alone.',
+    w_rtr_auto_fix: 'If the model is MiniMax or another heavy swap-bound case, also test rtr=off explicitly.',
+    w_rtr_off_validated_moe: 'For current Zen4 Qwen3MoE/gpt-oss cases, rtr=off is conservative but often leaves performance on the table versus auto.',
+    w_threads_moe: 'MoE model with >16 threads: on this Zen4 host that is often worse for throughput, but it is not a universal rule. For in-RAM models, A/B test 24/32.',
+    w_threads_moe_fix: 'Use -t 16 as the MoE baseline on Zen4 and test 24/32 only on real benchmarks.',
+    w_ctk_good: 'q8_0 KV cache remains the best current baseline: it saves a lot of memory and showed no meaningful regression in the current validated profiles.',
+    w_ser_info: 'SER is an experimental router-side option. It may reduce swap I/O, but it should not be presented as a validated default yet.',
+    w_gptoss_huge_auto: 'For huge gpt-oss, rtr=auto is currently the throughput-first start, but remember the high startup/load-time cost.',
+    w_gptoss_huge_auto_fix: 'If cold-start matters more, compare against rtr=off.',
+    w_swap_bound: 'Model is swap-bound (exceeds 90% RAM). For these cases, mmap, KV cache size, and rtr mode matter a lot. Do not copy in-RAM conclusions directly.',
+    w_fa_off: 'Flash Attention is OFF. This hurts mixed path (prompt+generation) especially hard. On the current Zen4 MoE profile, keep it ON.',
     w_threads_ccd: 'Using fewer threads than one CCD on dual-CCD CPU. L3 cache cut from 64 MB to 32 MB.',
     w_threads_ccd_fix: 'Use -t 16 to leverage both CCDs.',
-    w_rtr_nommap: 'Runtime Repack automatically disables mmap (--no-mmap). Model will be fully loaded into RAM.',
+    w_rtr_nommap: 'rtr=on forces mmap off. In auto mode mmap may still remain enabled until the runtime policy decides otherwise.',
     w_muge_dense: '-muge only affects MoE models (ffn_up_exps + ffn_gate_exps). No effect on dense models.',
     w_khad_f16: 'K-Cache Hadamard only useful with quantized KV cache (not f16/f32).',
+    w_minimax_rtr_on: 'MiniMax M2.5 has its own attention/runtime specifics. Forced rtr=on remains a risky mode for swap-bound MiniMax.',
+    w_minimax_rtr_auto: 'For MiniMax, rtr=off is still the safer baseline, but the old bad auto result came from a policy bug. AUTO now needs a fresh long rerun instead of being treated as automatically bad.',
+    w_minimax_hot_budget_hint: 'For MiniMax, a short quick check once highlighted 24/32, but the first longer controlled rtr=off run did not confirm a new default above the legacy 16 budget.',
+    w_minimax_hot_budget_fix: 'The current user-facing baseline is simple: leave Hot Expert Budget = 0. Larger budgets remain research-only for now.',
+    w_workload_mixed: 'Mixed (PG) workload is selected. In the current fork this is the main user-facing scenario, and it must not be inferred from TG alone.',
+    w_workload_tg: 'TG-only workload is selected. Good for decode throughput, but do not transfer those conclusions directly to prompt+generation.',
+    w_workload_pp: 'PP workload is selected. Useful for long prompts, but it does not represent full dialog speed.',
+    w_mqkv_experimental: 'Merge QKV is experimental. It is model-sensitive and not part of the validated default layer.',
+    w_hot_budget_experimental: 'Hot Expert Budget is an experimental env knob. For normal MiniMax use, leave it at 0; larger budgets have not become a validated default.',
+    w_hot_budget_family: 'Right now Hot Expert Budget is mainly meaningful for huge MiniMax / huge MoE research. Do not carry it over as a ready-made rule to other model families.',
+    badge_family: 'Family',
+    badge_path: 'Path',
+    badge_status: 'Status',
+    badge_family_qwen: 'Qwen3MoE',
+    badge_family_gptoss: 'gpt-oss',
+    badge_family_minimax: 'MiniMax M2.5',
+    badge_family_other: 'Generic / unknown',
+    badge_path_inram: 'in-RAM profile',
+    badge_path_swap: 'swap-bound profile',
+    badge_path_mixed: 'mixed-path matters',
+    badge_path_tg: 'TG-only focus',
+    badge_path_pp: 'PP focus',
+    badge_status_validated: 'validated baseline',
+    badge_status_partial: 'research / partial',
+    badge_status_unknown: 'unknown family',
+    badge_status_exp_knobs: 'experimental knobs active',
+    note_minimax_hot_budget: 'MiniMax advanced note: a short quick check once pointed at larger budgets, but the first longer controlled rtr=off run brought the practical answer back to the legacy default 16. For normal launches leave Hot Expert Budget = 0; larger budgets remain research-only.',
   }
 };
 
@@ -167,25 +249,31 @@ const PRESETS = {
   'moe_in_ram': {
     name: { ru: 'MoE (в RAM)', en: 'MoE (In-RAM)' },
     desc: { ru: 'Qwen3-30B-A3B, gpt-oss-20b и т.д.', en: 'Qwen3-30B-A3B, gpt-oss-20b, etc.' },
-    values: { threads: 16, flash_attn: true, repack_tensors: true, merge_up_gate_exps: false,
+    values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false,
               cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'moe' },
   },
-  'moe_swap': {
-    name: { ru: 'MoE (swap-bound)', en: 'MoE (Swap-bound)' },
-    desc: { ru: 'MiniMax-M2.5 151 ГБ и т.п.', en: 'MiniMax-M2.5 151 GB, etc.' },
-    values: { threads: 16, flash_attn: true, repack_tensors: false, merge_up_gate_exps: false,
-              cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe' },
+  'gptoss_huge_throughput': {
+    name: { ru: 'gpt-oss huge (throughput)', en: 'gpt-oss huge (throughput)' },
+    desc: { ru: 'gpt-oss-120b: throughput-first, startup дороже', en: 'gpt-oss-120b: throughput-first, startup is more expensive' },
+    values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false,
+              cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' },
+  },
+  'minimax_huge_safe': {
+    name: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
+    desc: { ru: 'MiniMax M2.5: safer baseline для текущего дерева', en: 'MiniMax M2.5: safer baseline for current tree' },
+    values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false,
+              cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' },
   },
   'dense_in_ram': {
     name: { ru: 'Dense (в RAM)', en: 'Dense (In-RAM)' },
     desc: { ru: 'Llama-3, Phi-4 и т.д.', en: 'Llama-3, Phi-4, etc.' },
-    values: { threads: 16, flash_attn: true, repack_tensors: true, merge_up_gate_exps: false,
+    values: { threads: 16, flash_attn: true, repack_tensors: 'on', merge_up_gate_exps: false,
               cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'dense' },
   },
   'server_prod': {
     name: { ru: 'Сервер (Production)', en: 'Server (Production)' },
     desc: { ru: 'llama-server с параллельными слотами', en: 'llama-server with parallel slots' },
-    values: { threads: 16, flash_attn: true, repack_tensors: true, cache_type_k: 'q8_0',
+    values: { threads: 16, flash_attn: true, repack_tensors: 'on', cache_type_k: 'q8_0',
               cache_type_v: 'f16', n_parallel: 4, hostname: '0.0.0.0', model_type: 'dense',
               target: 'llama-server' },
   },
@@ -203,11 +291,63 @@ function isSwapBound(s, p) {
   return p.totalRamGb > 0 && s.model_size_gb > 0 && s.model_size_gb > p.totalRamGb * 0.9;
 }
 
+function getRtrMode(s = state) {
+  return s.repack_tensors || 'off';
+}
+
+function isRtrForcedOn(s = state) {
+  return getRtrMode(s) === 'on';
+}
+
+function isRtrEnabled(s = state) {
+  return getRtrMode(s) !== 'off';
+}
+
+function detectModelFamily(s = state, meta = lastModelMeta) {
+  const arch = String(meta?.architecture || '').toLowerCase();
+  const name = String(meta?.name || meta?.basename || s.model || '').toLowerCase();
+  if (arch.includes('minimax') || name.includes('minimax')) return 'minimax';
+  if (arch.includes('openai') || arch.includes('gpt-oss') || name.includes('gpt-oss')) return 'gpt-oss';
+  if (arch.includes('qwen3moe') || (name.includes('qwen3') && name.includes('a3b'))) return 'qwen3moe';
+  return 'other';
+}
+
+function isValidatedAutoMoeFamily(s = state, meta = lastModelMeta) {
+  const family = detectModelFamily(s, meta);
+  return s.model_type === 'moe' && (family === 'qwen3moe' || family === 'gpt-oss');
+}
+
+function getFamilyValidationStatus(s = state, meta = lastModelMeta) {
+  const family = detectModelFamily(s, meta);
+  if (family === 'qwen3moe' || family === 'gpt-oss') return 'validated';
+  if (family === 'minimax') return 'partial';
+  return 'unknown';
+}
+
+function hasExperimentalKnobs(s = state) {
+  return !!(s.ser_enabled || s.merge_qkv || (s.hot_expert_budget || 0) > 0);
+}
+
 const RULES = [
   {
     id: 'rtr_swap', severity: 'error', params: ['repack_tensors'],
-    test: (s, p) => s.repack_tensors && isSwapBound(s, p),
+    test: (s, p) => getRtrMode(s) === 'on' && isSwapBound(s, p),
     msg: 'w_rtr_swap', fix: 'w_rtr_swap_fix',
+  },
+  {
+    id: 'rtr_auto_moe', severity: 'success', params: ['repack_tensors'],
+    test: (s, p) => getRtrMode(s) === 'auto' && isValidatedAutoMoeFamily(s),
+    msg: 'w_rtr_auto_moe', fix: 'w_rtr_auto_fix',
+  },
+  {
+    id: 'gptoss_huge_auto', severity: 'info', params: ['repack_tensors'],
+    test: (s, p) => detectModelFamily(s) === 'gpt-oss' && isSwapBound(s, p) && getRtrMode(s) === 'auto',
+    msg: 'w_gptoss_huge_auto', fix: 'w_gptoss_huge_auto_fix',
+  },
+  {
+    id: 'rtr_off_validated_moe', severity: 'info', params: ['repack_tensors'],
+    test: (s, p) => getRtrMode(s) === 'off' && isValidatedAutoMoeFamily(s) && !isSwapBound(s, p),
+    msg: 'w_rtr_off_validated_moe',
   },
   {
     id: 'muge_swap', severity: 'error', params: ['merge_up_gate_exps'],
@@ -216,7 +356,7 @@ const RULES = [
   },
   {
     id: 'rtr_muge', severity: 'info', params: ['repack_tensors', 'merge_up_gate_exps'],
-    test: (s, p) => s.repack_tensors && s.merge_up_gate_exps,
+    test: (s, p) => isRtrEnabled(s) && s.merge_up_gate_exps,
     msg: 'w_rtr_muge',
   },
   {
@@ -235,6 +375,21 @@ const RULES = [
     msg: 'w_ser_info',
   },
   {
+    id: 'mqkv_experimental', severity: 'info', params: ['merge_qkv'],
+    test: (s) => s.merge_qkv,
+    msg: 'w_mqkv_experimental',
+  },
+  {
+    id: 'hot_budget_experimental', severity: 'info', params: ['hot_expert_budget'],
+    test: (s) => (s.hot_expert_budget || 0) > 0,
+    msg: 'w_hot_budget_experimental',
+  },
+  {
+    id: 'hot_budget_family', severity: 'info', params: ['hot_expert_budget'],
+    test: (s, p) => (s.hot_expert_budget || 0) > 0 && !(detectModelFamily(s) === 'minimax' && isSwapBound(s, p)),
+    msg: 'w_hot_budget_family',
+  },
+  {
     id: 'swap_bound', severity: 'warning', params: ['model_size_gb'],
     test: (s, p) => isSwapBound(s, p),
     msg: 'w_swap_bound',
@@ -251,8 +406,38 @@ const RULES = [
   },
   {
     id: 'rtr_nommap', severity: 'info', params: ['repack_tensors', 'use_mmap'],
-    test: (s) => s.repack_tensors,
+    test: (s) => isRtrForcedOn(s),
     msg: 'w_rtr_nommap',
+  },
+  {
+    id: 'minimax_rtr_on', severity: 'warning', params: ['repack_tensors'],
+    test: (s, p) => detectModelFamily(s) === 'minimax' && getRtrMode(s) === 'on' && isSwapBound(s, p),
+    msg: 'w_minimax_rtr_on',
+  },
+  {
+    id: 'minimax_rtr_auto', severity: 'info', params: ['repack_tensors'],
+    test: (s, p) => detectModelFamily(s) === 'minimax' && getRtrMode(s) === 'auto' && isSwapBound(s, p),
+    msg: 'w_minimax_rtr_auto',
+  },
+  {
+    id: 'minimax_hot_budget_hint', severity: 'info', params: ['model_size_gb'],
+    test: (s, p) => detectModelFamily(s) === 'minimax' && isSwapBound(s, p) && s.workload_profile !== 'pp',
+    msg: 'w_minimax_hot_budget_hint', fix: 'w_minimax_hot_budget_fix',
+  },
+  {
+    id: 'workload_mixed', severity: 'info', params: ['workload_profile'],
+    test: (s) => s.workload_profile === 'mixed',
+    msg: 'w_workload_mixed',
+  },
+  {
+    id: 'workload_tg', severity: 'info', params: ['workload_profile'],
+    test: (s) => s.workload_profile === 'tg',
+    msg: 'w_workload_tg',
+  },
+  {
+    id: 'workload_pp', severity: 'info', params: ['workload_profile'],
+    test: (s) => s.workload_profile === 'pp',
+    msg: 'w_workload_pp',
   },
   {
     id: 'muge_dense', severity: 'info', params: ['merge_up_gate_exps'],
@@ -276,14 +461,16 @@ let suppressUpdate = false;
 const DEFAULTS = {
   model: '', model_size_gb: 0, model_type: 'dense', n_gpu_layers: -1,
   threads: 16, threads_batch: -1, n_ctx: 0, n_batch: 2048, n_ubatch: 512,
-  flash_attn: true, repack_tensors: false, merge_up_gate_exps: false,
+  flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false,
   cache_type_k: 'f16', cache_type_v: 'f16', mla_attn: 3,
   ser_enabled: false, ser_min: 4, ser_thresh: 0.05,
+  hot_expert_budget: 0,
   graph_reuse: true, merge_qkv: false, k_cache_hadamard: false,
   fused_moe_up_gate: true, fused_up_gate: true,
   hostname: '127.0.0.1', port: 8080, n_parallel: 1, api_key: '', n_threads_http: -1,
   seed: -1, n_predict: -1, use_mmap: true, use_mlock: false,
   numa: 'disabled', defrag_thold: -1,
+  workload_profile: 'mixed',
   target: 'llama-cli', shell: 'bash',
 };
 
@@ -293,11 +480,16 @@ const state = { ...DEFAULTS };
 const S = new Proxy(state, {
   set(t, k, v) {
     if (t[k] === v) return true;
+    const prev = t[k];
     t[k] = v;
-    // rtr forces mmap off
-    if (k === 'repack_tensors' && v) {
+    // only forced ON hard-disables mmap in the dashboard model
+    if (k === 'repack_tensors' && v === 'on') {
       t.use_mmap = false;
+    } else if (k === 'repack_tensors' && prev === 'on' && t.use_mmap === false) {
+      t.use_mmap = true;
     }
+    // Switch CLI terminal / Chat panel when target changes
+    if (k === 'target') updateInteractionPanels();
     if (!suppressUpdate) {
       syncToDOM(k);
       evaluate();
@@ -312,7 +504,7 @@ const S = new Proxy(state, {
 // === DOM SYNC ===
 // ============================================================
 const TOGGLE_PARAMS = [
-  'flash_attn', 'repack_tensors', 'merge_up_gate_exps', 'graph_reuse',
+  'flash_attn', 'merge_up_gate_exps', 'graph_reuse',
   'merge_qkv', 'k_cache_hadamard', 'fused_moe_up_gate', 'fused_up_gate',
   'use_mmap', 'use_mlock', 'ser_enabled',
 ];
@@ -327,20 +519,25 @@ function syncToDOM(changedKey) {
       if (label) label.textContent = state[p] ? 'ON' : 'OFF';
     }
     // mmap forced by rtr
-    if (p === 'use_mmap' && state.repack_tensors) {
+    if (p === 'use_mmap' && isRtrForcedOn(state)) {
       if (track) track.classList.add('disabled');
     } else if (p === 'use_mmap') {
       const track2 = document.getElementById('tog-use_mmap');
       if (track2) track2.classList.remove('disabled');
     }
   }
+  const rtrSel = document.getElementById('p-repack_tensors');
+  if (rtrSel && rtrSel !== document.activeElement) {
+    rtrSel.value = getRtrMode(state);
+  }
   // Sync inputs/selects
   const inputMap = {
     model: 'p-model', model_size_gb: 'p-model_size_gb', model_type: 'p-model_type',
     n_gpu_layers: 'p-n_gpu_layers', threads: 'p-threads', threads_batch: 'p-threads_batch',
     n_ctx: 'p-n_ctx', n_batch: 'p-n_batch', n_ubatch: 'p-n_ubatch',
+    workload_profile: 'p-workload_profile',
     cache_type_k: 'p-cache_type_k', cache_type_v: 'p-cache_type_v', mla_attn: 'p-mla_attn',
-    ser_min: 'p-ser_min', ser_thresh: 'p-ser_thresh',
+    ser_min: 'p-ser_min', ser_thresh: 'p-ser_thresh', hot_expert_budget: 'p-hot_expert_budget',
     hostname: 'p-hostname', port: 'p-port', n_parallel: 'p-n_parallel',
     api_key: 'p-api_key', n_threads_http: 'p-n_threads_http',
     seed: 'p-seed', n_predict: 'p-n_predict', numa: 'p-numa', defrag_thold: 'p-defrag_thold',
@@ -366,7 +563,7 @@ function syncAllToDOM() {
 }
 
 function toggleParam(name) {
-  if (name === 'use_mmap' && state.repack_tensors) return; // locked
+  if (name === 'use_mmap' && isRtrForcedOn(state)) return; // locked only for forced ON
   S[name] = !state[name];
 }
 
@@ -393,7 +590,9 @@ function evaluate() {
   }
 
   renderWarnings(active);
+  renderModelBadges();
   renderDots(paramSeverity);
+  renderAdvancedHints();
 }
 
 function severityLevel(s) {
@@ -424,6 +623,57 @@ function renderWarnings(active) {
   }
 }
 
+function renderModelBadges() {
+  const el = document.getElementById('model-badges');
+  if (!el) return;
+
+  const family = detectModelFamily(state);
+  const familyClass = family === 'qwen3moe'
+    ? 'family-qwen'
+    : family === 'gpt-oss'
+      ? 'family-gptoss'
+      : family === 'minimax'
+        ? 'family-minimax'
+        : 'family-generic';
+  const familyText = family === 'qwen3moe'
+    ? t('badge_family_qwen')
+    : family === 'gpt-oss'
+      ? t('badge_family_gptoss')
+      : family === 'minimax'
+        ? t('badge_family_minimax')
+        : t('badge_family_other');
+
+  const profile = currentProfile || { totalRamGb: 0 };
+  const swapBadge = isSwapBound(state, profile) ? t('badge_path_swap') : t('badge_path_inram');
+  const workloadBadge = state.workload_profile === 'tg'
+    ? t('badge_path_tg')
+    : state.workload_profile === 'pp'
+      ? t('badge_path_pp')
+      : t('badge_path_mixed');
+  const validationStatus = getFamilyValidationStatus(state);
+  const statusClass = validationStatus === 'validated'
+    ? 'status-validated'
+    : validationStatus === 'partial'
+      ? 'status-partial'
+      : 'status-unknown';
+  const statusText = validationStatus === 'validated'
+    ? t('badge_status_validated')
+    : validationStatus === 'partial'
+      ? t('badge_status_partial')
+      : t('badge_status_unknown');
+  const experimentalBadge = hasExperimentalKnobs(state)
+    ? `<span class="model-badge status-experimental">${t('badge_status_exp_knobs')}</span>`
+    : '';
+
+  el.innerHTML = `
+    <span class="model-badge ${familyClass}">${t('badge_family')}: ${familyText}</span>
+    <span class="model-badge family-generic">${t('badge_path')}: ${swapBadge}</span>
+    <span class="model-badge family-generic">${workloadBadge}</span>
+    <span class="model-badge ${statusClass}">${t('badge_status')}: ${statusText}</span>
+    ${experimentalBadge}
+  `;
+}
+
 function renderDots(paramSeverity) {
   // Reset all dots
   document.querySelectorAll('.param-label .dot').forEach(d => {
@@ -438,18 +688,60 @@ function renderDots(paramSeverity) {
   }
 }
 
+function renderAdvancedHints() {
+  const el = document.getElementById('advanced-hints');
+  if (!el) return;
+
+  const profile = currentProfile || { totalRamGb: 0 };
+  const family = detectModelFamily(state);
+  const minimaxHint = family === 'minimax' && isSwapBound(state, profile);
+
+  if (!minimaxHint) {
+    el.innerHTML = '';
+    el.classList.remove('visible');
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="advanced-hint">
+      <div class="advanced-hint-title">MiniMax</div>
+      <div class="advanced-hint-body">${t('note_minimax_hot_budget')}</div>
+    </div>
+  `;
+  el.classList.add('visible');
+}
+
+function buildEnvOverrides(s = state) {
+  const env = {};
+  if ((s.hot_expert_budget || 0) > 0) {
+    env.IK_LLAMA_HOT_EXPERT_BUDGET = String(s.hot_expert_budget);
+  }
+  return env;
+}
+
+function renderEnvPrefix(env, shell) {
+  const entries = Object.entries(env);
+  if (!entries.length) return '';
+  if (shell === 'powershell') {
+    return entries.map(([k, v]) => `$env:${k}='${String(v).replace(/'/g, "''")}'`).join('\n') + '\n';
+  }
+  return entries.map(([k, v]) => `${k}=${String(v)}`).join(' ') + ' \\\n';
+}
+
 // ============================================================
 // === COMMAND GENERATION ===
 // ============================================================
 function renderCommand() {
   const s = state;
   const isServer = s.target === 'llama-server';
-  const parts = [s.target];
+  // On Linux/macOS prefix with ./ for local executables
+  const isUnix = serverInfo && (serverInfo.os === 'Linux' || serverInfo.os === 'Darwin');
+  const prefix = isUnix ? './' : '';
+  const parts = [prefix + s.target];
 
   // Model
   if (s.model) {
-    const path = s.shell === 'powershell' ? s.model : s.model;
-    parts.push('-m "' + path + '"');
+    parts.push('-m "' + s.model + '"');
   }
 
   // Performance
@@ -461,7 +753,7 @@ function renderCommand() {
 
   // Optimization — always emit fa for clarity
   parts.push(s.flash_attn ? '-fa 1' : '-fa 0');
-  if (s.repack_tensors) parts.push('-rtr');
+  parts.push('-rtr ' + getRtrMode(s));
   if (s.merge_up_gate_exps) parts.push('-muge');
   if (s.cache_type_k !== 'f16') parts.push('-ctk ' + s.cache_type_k);
   if (s.cache_type_v !== 'f16') parts.push('-ctv ' + s.cache_type_v);
@@ -485,10 +777,15 @@ function renderCommand() {
     if (s.n_threads_http !== -1) parts.push('--threads-http ' + s.n_threads_http);
   }
 
+  // llama-cli: interactive conversation mode
+  if (!isServer) {
+    parts.push('-i -cnv');
+  }
+
   // Advanced
   if (s.seed !== -1) parts.push('-s ' + s.seed);
   if (s.n_predict !== -1) parts.push('-n ' + s.n_predict);
-  if (!s.use_mmap && !s.repack_tensors) parts.push('--no-mmap'); // rtr implies it
+  if (!s.use_mmap && !isRtrForcedOn(s)) parts.push('--no-mmap');
   if (s.use_mlock) parts.push('--mlock');
   if (s.numa !== 'disabled') parts.push('--numa ' + s.numa);
   if (s.defrag_thold !== -1) parts.push('-dt ' + s.defrag_thold);
@@ -501,6 +798,11 @@ function renderCommand() {
     cmd = parts.join(' ');
   } else {
     cmd = parts[0] + cont + sep + parts.slice(1).join(cont + sep);
+  }
+
+  const envPrefix = renderEnvPrefix(buildEnvOverrides(s), s.shell);
+  if (envPrefix) {
+    cmd = envPrefix + cmd;
   }
 
   document.getElementById('command-output').textContent = cmd;
@@ -575,6 +877,7 @@ function applyPreset(id) {
   evaluate();
   renderCommand();
   saveState();
+  updateInteractionPanels();
   // Reset preset selector
   document.getElementById('sel-preset').value = '';
   toast(currentLang === 'ru' ? 'Пресет применён!' : 'Preset applied!');
@@ -636,17 +939,14 @@ function loadState() {
       for (const [k, v] of Object.entries(data.state)) {
         if (k in DEFAULTS) state[k] = v;
       }
+      if (typeof state.repack_tensors === 'boolean') {
+        state.repack_tensors = state.repack_tensors ? 'on' : 'off';
+      }
       suppressUpdate = false;
     }
     if (data.profileId) {
       document.getElementById('sel-profile').value = data.profileId;
       if (data.profileId === 'custom' && data.customProfile) {
-        for (const [k, v] of Object.entries(data.customProfile)) {
-          const el = document.getElementById('pe-' + k.replace(/([A-Z])/g, (m) => {
-            // convert camelCase keys to element IDs
-            return m;
-          }));
-        }
         if (data.customProfile.cores) document.getElementById('pe-cores').value = data.customProfile.cores;
         if (data.customProfile.threads) document.getElementById('pe-threads').value = data.customProfile.threads;
         if (data.customProfile.ccdCount) document.getElementById('pe-ccds').value = data.customProfile.ccdCount;
@@ -698,11 +998,15 @@ function importConfig(event) {
         for (const [k, v] of Object.entries(config.params)) {
           if (k in DEFAULTS) state[k] = v;
         }
+        if (typeof state.repack_tensors === 'boolean') {
+          state.repack_tensors = state.repack_tensors ? 'on' : 'off';
+        }
         suppressUpdate = false;
         syncAllToDOM();
         evaluate();
         renderCommand();
         saveState();
+        updateInteractionPanels();
         toast(t('toast_imported'));
       }
     } catch(err) {
@@ -721,6 +1025,7 @@ function resetAll() {
   evaluate();
   renderCommand();
   saveState();
+  updateInteractionPanels();
   toast(t('toast_reset'));
 }
 
@@ -764,6 +1069,7 @@ let serverInfo = null;
 let outputPollTimer = null;
 let statusPollTimer = null;
 let lastOutputOffset = 0;
+let pollInFlight = false;
 
 async function apiGet(path) {
   const r = await fetch(API_BASE + path);
@@ -786,19 +1092,21 @@ async function checkServer() {
     document.getElementById('server-status-text').textContent = t('srv_online');
     // Show system info
     const info = [];
+    if (serverInfo.cpu_name && serverInfo.cpu_name !== 'unknown') info.push(serverInfo.cpu_name);
     if (serverInfo.physical_cores) info.push(serverInfo.physical_cores + ' cores');
     if (serverInfo.total_ram_gb) info.push(serverInfo.total_ram_gb + ' GB RAM');
     if (serverInfo.os) info.push(serverInfo.os);
     document.getElementById('sys-info').textContent = info.join(' | ');
     // Auto-populate profile RAM if available
     if (serverInfo.total_ram_gb && currentProfile) {
-      // Update custom profile fields if system RAM detected
       const peRam = document.getElementById('pe-ram');
       if (peRam && document.getElementById('sel-profile').value === 'custom') {
         peRam.value = serverInfo.total_ram_gb;
         updateCustomProfile();
       }
     }
+    // Adapt shell dropdown to server OS
+    adaptShellForOS(serverInfo.os);
     // Enable launch button
     document.getElementById('btn-launch').style.opacity = '1';
     // Check if process is already running
@@ -809,6 +1117,30 @@ async function checkServer() {
     document.getElementById('server-status-text').textContent = t('srv_offline');
     document.getElementById('sys-info').textContent = '';
     document.getElementById('btn-launch').style.opacity = '0.4';
+  }
+}
+
+function adaptShellForOS(osName) {
+  const sel = document.getElementById('sel-shell');
+  if (!sel) return;
+  if (osName === 'Linux' || osName === 'Darwin') {
+    // On Linux/macOS: default to Bash, hide PowerShell option
+    for (const opt of sel.options) {
+      if (opt.value === 'powershell') opt.style.display = 'none';
+    }
+    if (state.shell === 'powershell') {
+      S.shell = 'bash';
+      sel.value = 'bash';
+    }
+    // Rename "Bash / CMD" to just "Bash"
+    for (const opt of sel.options) {
+      if (opt.value === 'bash') opt.textContent = 'Bash';
+    }
+  } else {
+    // On Windows: show all options
+    for (const opt of sel.options) {
+      opt.style.display = '';
+    }
   }
 }
 
@@ -899,8 +1231,8 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   const expertCount = modelInfo.expert_count || 0;
   const expertUsed = modelInfo.expert_used_count || 0;
   const isSwapBound = modelSizeGb > totalRam * 0.9;
-  const isComfortable = modelSizeGb > 0 && modelSizeGb < totalRam * 0.6;
   const contextLen = modelInfo.context_length || 0;
+  const family = detectModelFamily({ ...state, model_type: isMoE ? 'moe' : 'dense' }, modelInfo);
 
   const params = {};
   const reasons = [];
@@ -941,20 +1273,63 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   // --- Flash Attention: always ON ---
   params.flash_attn = true;
 
+  // --- Workload profile ---
+  params.workload_profile = isSwapBound ? 'mixed' : 'mixed';
+  reasons.push({
+    param: 'workload_profile', value: 'mixed',
+    ru: 'Профиль нагрузки: mixed (PG). Это основной пользовательский сценарий, и именно под него сейчас собраны главные выводы',
+    en: 'Workload profile: mixed (PG). This is the main user-facing scenario and the main source of current conclusions',
+  });
+
   // --- Runtime Repack ---
-  if (isSwapBound) {
-    params.repack_tensors = false;
+  if (family === 'minimax' && isSwapBound) {
+    params.repack_tensors = 'off';
     reasons.push({
       param: 'repack_tensors', value: 'OFF',
-      ru: `rtr OFF: swap-bound (${modelSizeGb} ГБ > ${Math.round(totalRam*0.9)} ГБ). rtr даёт -46..60% TG`,
-      en: `rtr OFF: swap-bound (${modelSizeGb} GB > ${Math.round(totalRam*0.9)} GB). rtr causes -46..60% TG`,
+      ru: 'rtr OFF: MiniMax в swap-bound режиме пока безопаснее держать в OFF, особенно для mixed path',
+      en: 'rtr OFF: MiniMax is currently safer with OFF in swap-bound mode, especially for mixed path',
+    });
+  } else if (family === 'gpt-oss' && isSwapBound) {
+    params.repack_tensors = 'auto';
+    reasons.push({
+      param: 'repack_tensors', value: 'AUTO',
+      ru: 'rtr AUTO: для huge gpt-oss это текущий throughput-first старт, но cold-start и load time будут заметно дороже, чем у OFF',
+      en: 'rtr AUTO: for huge gpt-oss this is the current throughput-first starting point, but cold-start and load time will be noticeably worse than OFF',
+    });
+  } else if (family === 'qwen3moe' || family === 'gpt-oss') {
+    params.repack_tensors = 'auto';
+    reasons.push({
+      param: 'repack_tensors', value: 'AUTO',
+      ru: 'rtr AUTO: текущий лучший общий старт для Qwen3MoE/gpt-oss на Zen4; mixed path нужно оценивать отдельно от TG',
+      en: 'rtr AUTO: current best general starting point for Qwen3MoE/gpt-oss on Zen4; mixed path must be judged separately from TG',
+    });
+  } else if (isMoE && isSwapBound) {
+    params.repack_tensors = 'off';
+    reasons.push({
+      param: 'repack_tensors', value: 'OFF',
+      ru: 'rtr OFF: для неизвестной swap-bound MoE безопаснее начать консервативно и потом отдельно проверить AUTO',
+      en: 'rtr OFF: for an unknown swap-bound MoE it is safer to start conservatively and test AUTO separately later',
+    });
+  } else if (isMoE) {
+    params.repack_tensors = 'auto';
+    reasons.push({
+      param: 'repack_tensors', value: 'AUTO',
+      ru: 'rtr AUTO: это ближайший текущий baseline для in-RAM MoE, но если семейство невалидированное — подтверждайте отдельным бенчем',
+      en: 'rtr AUTO: this is the closest current baseline for in-RAM MoE, but if the family is not validated yet, confirm it with a separate benchmark',
+    });
+  } else if (isSwapBound) {
+    params.repack_tensors = 'off';
+    reasons.push({
+      param: 'repack_tensors', value: 'OFF',
+      ru: `rtr OFF: swap-bound (${modelSizeGb} ГБ > ${Math.round(totalRam*0.9)} ГБ). Не форсируем repack на большой модели`,
+      en: `rtr OFF: swap-bound (${modelSizeGb} GB > ${Math.round(totalRam*0.9)} GB). Do not force repack on a large model`,
     });
   } else {
-    params.repack_tensors = true;
+    params.repack_tensors = 'on';
     reasons.push({
       param: 'repack_tensors', value: 'ON',
-      ru: 'rtr ON: модель помещается в RAM, repacking ускоряет L1D доступ',
-      en: 'rtr ON: model fits in RAM, repacking improves L1D access',
+      ru: 'rtr ON: плотная модель помещается в RAM, можно форсировать repack ради CPU locality',
+      en: 'rtr ON: dense model fits in RAM, forcing repack is reasonable for CPU locality',
     });
   }
 
@@ -970,8 +1345,8 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
     params.merge_up_gate_exps = false;
     reasons.push({
       param: 'merge_up_gate_exps', value: 'OFF',
-      ru: 'muge OFF: swap-bound MoE, muge даёт -46% TG',
-      en: 'muge OFF: swap-bound MoE, muge causes -46% TG',
+      ru: 'muge OFF: swap-bound MoE, сильного плюса не подтверждено, риск деградации высокий',
+      en: 'muge OFF: swap-bound MoE, no strong upside confirmed and regression risk is high',
     });
   } else {
     params.merge_up_gate_exps = false;
@@ -981,8 +1356,8 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   params.cache_type_k = 'q8_0';
   reasons.push({
     param: 'cache_type_k', value: 'q8_0',
-    ru: 'ctk q8_0: экономит 50% памяти KV при 0% потере качества',
-    en: 'ctk q8_0: saves 50% KV memory with 0% quality loss',
+    ru: 'ctk q8_0: текущий лучший baseline для KV-кеша — сильно экономит память без заметной деградации в текущих validated профилях',
+    en: 'ctk q8_0: current best KV-cache baseline — saves a lot of memory without meaningful regression in the current validated profiles',
   });
 
   if (isSwapBound || (contextLen > 65536)) {
@@ -998,13 +1373,13 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
 
   // --- SER for swap-bound MoE ---
   if (isMoE && isSwapBound && expertUsed >= 4) {
-    params.ser_enabled = true;
+    params.ser_enabled = false;
     params.ser_min = Math.max(2, Math.floor(expertUsed / 2));
     params.ser_thresh = 0.05;
     reasons.push({
       param: 'ser', value: `${params.ser_min},${params.ser_thresh}`,
-      ru: `SER ON: min=${params.ser_min} из ${expertUsed} активных. Снижает swap I/O на ~25-30%`,
-      en: `SER ON: min=${params.ser_min} of ${expertUsed} active. Reduces swap I/O by ~25-30%`,
+      ru: `SER остаётся OFF по умолчанию: идея перспективная для huge MoE, но пока это experimental path. Если хотите проверять — начните с ${params.ser_min},${params.ser_thresh}`,
+      en: `SER stays OFF by default: the idea is promising for huge MoE, but it is still experimental. If you want to test it, start with ${params.ser_min},${params.ser_thresh}`,
     });
   } else {
     params.ser_enabled = false;
@@ -1017,8 +1392,8 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   params.n_gpu_layers = 0;
 
   // --- mmap ---
-  if (params.repack_tensors) {
-    params.use_mmap = false; // forced by rtr
+  if (params.repack_tensors === 'on') {
+    params.use_mmap = false; // only forced by explicit ON
   } else {
     params.use_mmap = true;
   }
@@ -1031,6 +1406,14 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
       param: 'n_ctx', value: params.n_ctx,
       ru: `Контекст ${params.n_ctx}: swap-bound, ограничиваем для экономии RAM (макс. модели: ${contextLen})`,
       en: `Context ${params.n_ctx}: swap-bound, limited to save RAM (model max: ${contextLen})`,
+    });
+  }
+
+  if (family === 'minimax' && isSwapBound) {
+    reasons.push({
+      param: 'hot_expert_budget', value: '0 / runtime default',
+      ru: 'Hot experts: первый более длинный controlled rtr=off run не подтвердил новый MiniMax default выше legacy 16. Для обычного запуска оставляйте 0 и не переопределяйте runtime default.',
+      en: 'Hot experts: the first longer controlled rtr=off run did not confirm a new MiniMax default above the legacy 16 budget. For normal use, leave this at 0 and do not override the runtime default.',
     });
   }
 
@@ -1225,12 +1608,23 @@ async function launchProcess() {
   }
   // Build args array from current state
   const args = buildArgsArray();
+  const env = buildEnvOverrides();
+  const isCli = state.target === 'llama-cli';
   try {
-    const result = await apiPost('/api/launch', { args });
+    const result = await apiPost('/api/launch', { args, env, terminal: isCli });
     if (result.ok) {
       toast(result.message);
+      resetModelLoadProgress();
+      clearProcOutput();
+      clearChat();
+      clearCliTerminal();
+      setChatReady(false);
       showProcessPanel(true);
       startOutputPolling();
+      if (isCli) {
+        // CLI terminal mode: show log message that interactive session is in external terminal
+        appendCliLine(t('cli_ext_session'), 'system');
+      }
     } else {
       toast(result.message || result.error);
     }
@@ -1241,7 +1635,8 @@ async function launchProcess() {
 
 function buildArgsArray() {
   const s = state;
-  const args = [s.target]; // llama-cli or llama-server
+  const isServer = s.target === 'llama-server';
+  const args = [s.target];
 
   if (s.model) args.push('-m', s.model);
 
@@ -1252,7 +1647,7 @@ function buildArgsArray() {
   if (s.n_ubatch !== 512) { args.push('-ub', '' + s.n_ubatch); }
 
   args.push('-fa', s.flash_attn ? '1' : '0');
-  if (s.repack_tensors) args.push('-rtr');
+  args.push('-rtr', getRtrMode(s));
   if (s.merge_up_gate_exps) args.push('-muge');
   if (s.cache_type_k !== 'f16') { args.push('-ctk', s.cache_type_k); }
   if (s.cache_type_v !== 'f16') { args.push('-ctv', s.cache_type_v); }
@@ -1266,17 +1661,21 @@ function buildArgsArray() {
 
   if (s.n_gpu_layers !== -1) { args.push('-ngl', '' + s.n_gpu_layers); }
 
-  if (s.target === 'llama-server') {
-    if (s.hostname !== '127.0.0.1') { args.push('--host', s.hostname); }
-    if (s.port !== 8080) { args.push('--port', '' + s.port); }
+  if (isServer) {
+    // Server mode: include server-specific settings
+    args.push('--host', s.hostname || '127.0.0.1');
+    args.push('--port', '' + (s.port || 8080));
     if (s.n_parallel !== 1) { args.push('-np', '' + s.n_parallel); }
     if (s.api_key) { args.push('--api-key', s.api_key); }
     if (s.n_threads_http !== -1) { args.push('--threads-http', '' + s.n_threads_http); }
+  } else {
+    // CLI mode: interactive conversation
+    args.push('-i', '-cnv');
   }
 
   if (s.seed !== -1) { args.push('-s', '' + s.seed); }
   if (s.n_predict !== -1) { args.push('-n', '' + s.n_predict); }
-  if (!s.use_mmap && !s.repack_tensors) args.push('--no-mmap');
+  if (!s.use_mmap && !isRtrForcedOn(s)) args.push('--no-mmap');
   if (s.use_mlock) args.push('--mlock');
   if (s.numa !== 'disabled') { args.push('--numa', s.numa); }
   if (s.defrag_thold !== -1) { args.push('-dt', '' + s.defrag_thold); }
@@ -1290,6 +1689,7 @@ async function stopProcess() {
     const result = await apiPost('/api/stop', {});
     toast(result.message);
     stopOutputPolling();
+    chatStreaming = false;
     await checkProcessStatus();
   } catch(e) {
     toast('Stop error: ' + e.message);
@@ -1315,17 +1715,204 @@ function stopOutputPolling() {
   statusPollTimer = null;
 }
 
+// ── Loading progress tracking ──
+const modelLoadProgress = {
+  phase: 'idle',  // idle | loading_meta | loading_tensors | init_context | ready | error
+  pct: 0,
+  detail: '',
+  dotCount: 0,
+  totalTensors: 0,
+  loadedTensors: 0,
+  startTime: 0,
+};
+
+function resetModelLoadProgress() {
+  modelLoadProgress.phase = 'idle';
+  modelLoadProgress.pct = 0;
+  modelLoadProgress.detail = '';
+  modelLoadProgress.dotCount = 0;
+  modelLoadProgress.totalTensors = 0;
+  modelLoadProgress.loadedTensors = 0;
+  modelLoadProgress.startTime = Date.now();
+}
+
+function parseOutputForProgress(line) {
+  // Model metadata loaded
+  if (/llama_model_load:.*loaded meta data/i.test(line)) {
+    const m = line.match(/(\d+)\s+tensors/);
+    if (m) modelLoadProgress.totalTensors = parseInt(m[1]);
+    modelLoadProgress.phase = 'loading_meta';
+    modelLoadProgress.pct = 5;
+    modelLoadProgress.detail = line.trim();
+  }
+  // Tensor loading started
+  else if (/llm_load_tensors:/i.test(line) && /loading/i.test(line)) {
+    modelLoadProgress.phase = 'loading_tensors';
+    modelLoadProgress.pct = 10;
+    modelLoadProgress.detail = line.trim();
+  }
+  // Buffer size info (indicates progress through tensor loading)
+  else if (/buffer size\s*=/i.test(line) || /CPU_Mapped buffer/i.test(line)) {
+    modelLoadProgress.phase = 'loading_tensors';
+    if (modelLoadProgress.pct < 50) modelLoadProgress.pct = Math.min(modelLoadProgress.pct + 10, 50);
+    modelLoadProgress.detail = line.trim();
+  }
+  // Progress dots (llama.cpp outputs dots during loading: "......")
+  else if (/^\.*\.{3,}/.test(line.trim())) {
+    modelLoadProgress.dotCount += line.trim().length;
+    if (modelLoadProgress.totalTensors > 0) {
+      // Rough estimate: dots ~ tensors loaded
+      modelLoadProgress.pct = Math.min(10 + Math.round((modelLoadProgress.dotCount / modelLoadProgress.totalTensors) * 80), 90);
+    } else {
+      modelLoadProgress.pct = Math.min(modelLoadProgress.pct + 5, 85);
+    }
+    modelLoadProgress.phase = 'loading_tensors';
+  }
+  // Percentage in output (some builds output "XX%")
+  else if (/(\d{1,3})\s*%/.test(line)) {
+    const m = line.match(/(\d{1,3})\s*%/);
+    if (m) {
+      const p = parseInt(m[1]);
+      if (p > 0 && p <= 100) {
+        modelLoadProgress.pct = p;
+        modelLoadProgress.phase = 'loading_tensors';
+      }
+    }
+  }
+  // Context init
+  else if (/llama_new_context_with_model/i.test(line)) {
+    modelLoadProgress.phase = 'init_context';
+    modelLoadProgress.pct = 92;
+    modelLoadProgress.detail = line.trim();
+  }
+  // KV cache allocated
+  else if (/KV.*cache.*type/i.test(line) || /kv_self/i.test(line)) {
+    if (modelLoadProgress.phase === 'init_context') {
+      modelLoadProgress.pct = 95;
+    }
+  }
+  // rtr repack
+  else if (/repacking tensors/i.test(line) || /repack/i.test(line) && /runtime/i.test(line)) {
+    modelLoadProgress.phase = 'init_context';
+    modelLoadProgress.pct = 85;
+    modelLoadProgress.detail = currentLang === 'ru' ? 'Перепаковка тензоров (rtr)...' : 'Repacking tensors (rtr)...';
+  }
+  // VirtualLock / swap-bound init
+  else if (/VirtualLock|mlock.*shared|locking.*tensor/i.test(line)) {
+    modelLoadProgress.pct = Math.max(modelLoadProgress.pct, 90);
+    modelLoadProgress.detail = line.trim();
+  }
+  // Ready — interactive mode or server slots
+  else if (/interactive mode|all slots are idle|server listening|waiting for/i.test(line)) {
+    modelLoadProgress.phase = 'ready';
+    modelLoadProgress.pct = 100;
+    modelLoadProgress.detail = '';
+    setChatReady(true);
+  }
+  // Error detection
+  else if (/error:|failed|abort|GGML_ASSERT/i.test(line) && !/error_bg/i.test(line)) {
+    modelLoadProgress.phase = 'error';
+    modelLoadProgress.detail = line.trim();
+  }
+  // Init from model (early loading phase)
+  else if (/llama_init_from_model/i.test(line)) {
+    modelLoadProgress.phase = 'loading_tensors';
+    if (modelLoadProgress.pct < 10) modelLoadProgress.pct = 10;
+  }
+  // Warm up phase
+  else if (/warm up/i.test(line) || /warming/i.test(line)) {
+    modelLoadProgress.pct = 97;
+    modelLoadProgress.detail = currentLang === 'ru' ? 'Прогрев...' : 'Warming up...';
+  }
+}
+
+function updateLoadProgressUI() {
+  const container = document.getElementById('load-progress');
+  const phaseEl = document.getElementById('load-phase');
+  const pctEl = document.getElementById('load-pct');
+  const fillEl = document.getElementById('load-bar-fill');
+  const detailEl = document.getElementById('load-detail');
+
+  if (!container) return;
+
+  const isRu = currentLang === 'ru';
+
+  if (modelLoadProgress.phase === 'idle') {
+    container.classList.remove('active');
+    return;
+  }
+
+  container.classList.add('active');
+
+  // Phase text
+  const phaseTexts = {
+    loading_meta:    isRu ? 'Загрузка метаданных модели...' : 'Loading model metadata...',
+    loading_tensors: isRu ? 'Загрузка тензоров...' : 'Loading tensors...',
+    init_context:    isRu ? 'Инициализация контекста...' : 'Initializing context...',
+    ready:           isRu ? 'Модель загружена' : 'Model loaded',
+    error:           isRu ? 'Ошибка' : 'Error',
+  };
+  phaseEl.textContent = phaseTexts[modelLoadProgress.phase] || '';
+
+  // Percentage
+  if (modelLoadProgress.pct > 0) {
+    pctEl.textContent = modelLoadProgress.pct + '%';
+    fillEl.style.width = modelLoadProgress.pct + '%';
+    fillEl.classList.remove('indeterminate');
+  } else {
+    pctEl.textContent = '';
+    fillEl.classList.add('indeterminate');
+  }
+
+  // Done state
+  if (modelLoadProgress.phase === 'ready') {
+    fillEl.classList.add('done');
+    fillEl.style.width = '100%';
+    pctEl.textContent = '100%';
+    const elapsed = ((Date.now() - modelLoadProgress.startTime) / 1000).toFixed(1);
+    detailEl.textContent = (isRu ? 'Загружено за ' : 'Loaded in ') + elapsed + 's';
+    // Auto-hide after 5s
+    setTimeout(() => {
+      container.classList.remove('active');
+    }, 5000);
+  } else if (modelLoadProgress.phase === 'error') {
+    fillEl.style.width = modelLoadProgress.pct + '%';
+    fillEl.style.background = 'var(--error)';
+    detailEl.textContent = modelLoadProgress.detail;
+  } else {
+    fillEl.classList.remove('done');
+    fillEl.style.background = '';
+    // Elapsed time
+    const elapsed = ((Date.now() - modelLoadProgress.startTime) / 1000).toFixed(0);
+    const elapsedStr = elapsed + 's';
+    detailEl.textContent = modelLoadProgress.detail ? modelLoadProgress.detail.substring(0, 80) : elapsedStr;
+  }
+}
+
 async function pollOutput() {
-  if (!serverConnected) return;
+  if (!serverConnected || pollInFlight) return;
+  pollInFlight = true;
   try {
     const data = await apiGet('/api/output?offset=' + lastOutputOffset);
     if (data.lines && data.lines.length > 0) {
       const el = document.getElementById('proc-output');
+      for (const line of data.lines) {
+        parseOutputForProgress(line);
+      }
       el.textContent += data.lines.join('\n') + '\n';
       lastOutputOffset += data.lines.length;
       el.scrollTop = el.scrollHeight;
+      updateLoadProgressUI();
+
+      // Feed loading logs into the console panel (visible for both modes)
+      for (const line of data.lines) {
+        if (line.trim()) {
+          appendCliLine(line, 'output');
+        }
+      }
     }
   } catch(e) {}
+  pollInFlight = false;
 }
 
 async function checkProcessStatus() {
@@ -1340,10 +1927,23 @@ async function checkProcessStatus() {
 
     if (s.running) {
       statusEl.className = 'proc-status running';
-      statusEl.textContent = t('proc_running');
+      // Show phase-aware status text
+      if (modelLoadProgress.phase && modelLoadProgress.phase !== 'idle' && modelLoadProgress.phase !== 'ready') {
+        const isRu = currentLang === 'ru';
+        const loadingText = isRu ? 'загрузка ' + modelLoadProgress.pct + '%' : 'loading ' + modelLoadProgress.pct + '%';
+        statusEl.textContent = loadingText;
+        statusEl.className = 'proc-status loading';
+      } else {
+        statusEl.textContent = t('proc_running');
+        // If phase is ready, ensure chat is enabled
+        if (modelLoadProgress.phase === 'ready' && !interactionReady) {
+          setChatReady(true);
+        }
+      }
       uptimeEl.textContent = s.uptime_s ? formatUptime(s.uptime_s) : '';
       btnLaunch.classList.add('hidden');
       btnStop.classList.remove('hidden');
+      if (btnStop2) btnStop2.classList.remove('hidden');
       showProcessPanel(true);
       if (!outputPollTimer) startOutputPolling();
     } else {
@@ -1354,8 +1954,14 @@ async function checkProcessStatus() {
       uptimeEl.textContent = '';
       btnLaunch.classList.remove('hidden');
       btnStop.classList.add('hidden');
+      if (btnStop2) btnStop2.classList.add('hidden');
+      // Reset load state and chat when process stops
+      if (modelLoadProgress.phase !== 'idle') {
+        modelLoadProgress.phase = 'idle';
+        updateLoadProgressUI();
+      }
+      setChatReady(false);
       if (outputPollTimer) {
-        // Do one final poll then stop
         await pollOutput();
         stopOutputPolling();
       }
@@ -1453,7 +2059,7 @@ const HELP = {
 <p>• Снижает потребление памяти с O(n²) до O(n)</p>
 <p>• Увеличивает скорость за счёт лучшей утилизации кеша</p>
 <p>• Позволяет работать с более длинным контекстом</p>
-<div class="tip">Нет ни одной причины выключать. Если что-то не работает с -fa 1 — это баг, о нём стоит сообщить.</div>
+<div class="tip">На текущем Zen4 профиле держите ON по умолчанию. Выключать стоит только для явной A/B-проверки, совместимости или диагностики.</div>
 <div class="see-also">См. также: <span>-ctk</span> (тип KV-кеша), <span>-c</span> (контекст)</div>`,
     en: `<h4>Flash Attention (-fa)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Attention is the core LLM mechanism: the model "looks at" all previous tokens to decide what to say next. Flash Attention is an optimized version — faster and uses less memory. Always enable it.</div>
@@ -1461,49 +2067,51 @@ const HELP = {
 <p>• Reduces memory from O(n²) to O(n)</p>
 <p>• Faster through better cache utilization</p>
 <p>• Enables longer context windows</p>
-<div class="tip">There is no reason to disable this. If something breaks with -fa 1 — it's a bug worth reporting.</div>
+<div class="tip">Keep it ON by default on the current Zen4 profile. Only disable it for explicit A/B checks, compatibility work, or debugging.</div>
 <div class="see-also">See also: <span>-ctk</span> (KV cache type), <span>-c</span> (context)</div>`,
   },
   repack_tensors: {
     ru: `<h4>Runtime Repack (-rtr)</h4>
-<div class="beginner-section"><div class="label">Для новичков</div>Представьте книжный шкаф: обычно книги стоят как попало, и чтобы найти нужную — нужно рыться. Repack переставляет «книги» (веса модели) так, чтобы процессор мог быстрее их читать. Но если модель не влезает в память — перестановка только мешает, потому что надо загрузить ВСЁ с диска.</div>
-<p>При загрузке модели перепаковывает тензоры в формат, оптимальный для L1D-кеша процессора (interleaved layout). Тип меняется, например, Q4_K → Q4_K_R4.</p>
-<p><b>Для in-RAM моделей:</b> <span class="good">рекомендуется</span> — ускоряет матричные операции.</p>
-<p><b>Для swap-bound моделей:</b> <span class="bad">КАТЕГОРИЧЕСКИ НЕТ</span></p>
-<div class="bench">Бенчмарки на MiniMax-M2.5 (151 ГБ, 96 ГБ RAM):
-• Без rtr: <span class="good">0.91 t/s</span>
-• С rtr:   <span class="bad">0.36-0.49 t/s</span> (-46..60%)
-Причина: rtr отключает mmap и загружает ВСЮ модель
-(151 ГБ) в виртуальную память, увеличивая working set.</div>
-<div class="tip">Правило: если модель помещается в RAM — включайте rtr. Если нет — ни в коем случае.</div>
+<div class="beginner-section"><div class="label">Для новичков</div>Repack переставляет веса модели в более удобный для CPU порядок. Это может ускорять вычисления, но меняет поведение загрузки и памяти. Теперь в fork есть три режима: <span class="hl">off</span>, <span class="hl">on</span>, <span class="hl">auto</span>.</div>
+<p>Режимы:</p>
+<p>• <b>off</b> — не перепаковывать, сохранить обычную mmap-загрузку</p>
+<p>• <b>on</b> — форсировать repack во что бы то ни стало</p>
+<p>• <b>auto</b> — дать runtime самому решить, стоит ли repack включать</p>
+<p><b>Текущий практический вывод:</b> для Qwen3MoE и gpt-oss на Zen4 лучший общий старт — <span class="good">auto</span>. Для swap-bound MiniMax пока безопаснее <span class="hl">off</span>.</p>
+<div class="bench">Почему это важно:
+• in-RAM модель: repack может помочь CPU locality
+• swap-bound модель: принудительный ON может отключить mmap и увеличить working set
+• mixed path (prompt+generation) нельзя оценивать только по TG</div>
+<div class="tip">Простое правило для новичка: <b>MoE на Zen4</b> — начните с <span class="hl">rtr=auto</span>. Если это MiniMax или очень большая swap-bound модель — отдельно проверьте <span class="hl">rtr=off</span>.</div>
 <div class="see-also">См. также: <span>-muge</span> (merge экспертов), <span>mmap</span></div>`,
     en: `<h4>Runtime Repack (-rtr)</h4>
-<div class="beginner-section"><div class="label">For beginners</div>Imagine a bookshelf: books are scattered randomly, finding the right one takes time. Repack rearranges the "books" (model weights) so the CPU reads them faster. But if the model doesn't fit in memory — rearranging makes things worse because you must load EVERYTHING from disk.</div>
-<p>At load time, repacks tensors into a layout optimal for L1D cache (interleaved). Type changes e.g. Q4_K → Q4_K_R4.</p>
-<p><b>For in-RAM models:</b> <span class="good">recommended</span> — speeds up matrix ops.</p>
-<p><b>For swap-bound models:</b> <span class="bad">ABSOLUTELY NOT</span></p>
-<div class="bench">Benchmarks on MiniMax-M2.5 (151 GB, 96 GB RAM):
-• Without rtr: <span class="good">0.91 t/s</span>
-• With rtr:    <span class="bad">0.36-0.49 t/s</span> (-46..60%)
-Reason: rtr disables mmap and loads the ENTIRE model
-(151 GB) into virtual memory, increasing working set.</div>
-<div class="tip">Rule: if model fits in RAM — enable rtr. If not — never.</div>
+<div class="beginner-section"><div class="label">For beginners</div>Repack rearranges model weights into a CPU-friendlier layout. That can speed up compute, but it also changes memory and loading behavior. The fork now has three modes: <span class="hl">off</span>, <span class="hl">on</span>, <span class="hl">auto</span>.</div>
+<p>Modes:</p>
+<p>• <b>off</b> — no repack, keep normal mmap-style loading</p>
+<p>• <b>on</b> — force repack unconditionally</p>
+<p>• <b>auto</b> — let the runtime decide whether repack is worth it</p>
+<p><b>Current practical takeaway:</b> for Qwen3MoE and gpt-oss on Zen4, the best general starting point is <span class="good">auto</span>. For swap-bound MiniMax, <span class="hl">off</span> is still the safer baseline.</p>
+<div class="bench">Why it matters:
+• in-RAM model: repack can help CPU locality
+• swap-bound model: forced ON can disable mmap and increase working set
+• mixed path (prompt+generation) must not be judged from TG alone</div>
+<div class="tip">Simple beginner rule: for <b>MoE on Zen4</b>, start with <span class="hl">rtr=auto</span>. If the model is MiniMax or another huge swap-bound case, also test <span class="hl">rtr=off</span>.</div>
 <div class="see-also">See also: <span>-muge</span> (merge experts), <span>mmap</span></div>`,
   },
   merge_up_gate_exps: {
     ru: `<h4>Merge Up+Gate Experts (-muge)</h4>
-<div class="beginner-section"><div class="label">Для новичков</div>В MoE-моделях каждый «эксперт» состоит из двух частей (up и gate). Эта опция склеивает их в одну, чтобы CPU мог читать их за один проход. Работает только для MoE моделей. Для больших моделей, не помещающихся в память — вредит.</div>
+<div class="beginner-section"><div class="label">Для новичков</div>В MoE-моделях каждый «эксперт» состоит из двух частей (up и gate). Эта опция склеивает их в одну, чтобы CPU мог читать их за один проход. Работает только для MoE моделей. Для больших swap-bound моделей риск деградации высокий.</div>
 <p>Объединяет два экспертных тензора (ffn_up_exps и ffn_gate_exps) в один непрерывный тензор. Потенциально лучше утилизирует кеш при последовательном доступе.</p>
 <p><b>Только MoE:</b> на dense моделях эффекта нет.</p>
-<p><b>Для swap-bound MoE:</b> <span class="bad">-46% TG</span> — удваивает размер непрерывного выделения, страдает от page faults.</p>
-<div class="tip">В текущей версии даже для in-RAM MoE прирост минимальный. Безопаснее держать OFF.</div>
+<p><b>Для swap-bound MoE:</b> высокий риск деградации — растут непрерывные выделения и page faults.</p>
+<div class="tip">Текущий практический вывод: сильного стабильного выигрыша не подтверждено даже для in-RAM MoE. Безопаснее держать OFF и включать только для отдельных проверок.</div>
 <div class="see-also">См. также: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
     en: `<h4>Merge Up+Gate Experts (-muge)</h4>
-<div class="beginner-section"><div class="label">For beginners</div>In MoE models each "expert" consists of two parts (up and gate). This option glues them into one so the CPU reads them in a single pass. Only works for MoE models. For large models that don't fit in memory — it hurts.</div>
+<div class="beginner-section"><div class="label">For beginners</div>In MoE models each "expert" consists of two parts (up and gate). This option glues them into one so the CPU reads them in a single pass. Only works for MoE models. For large swap-bound models the regression risk is high.</div>
 <p>Merges two expert tensors (ffn_up_exps and ffn_gate_exps) into one contiguous tensor. Potentially better cache utilization for sequential access.</p>
 <p><b>MoE only:</b> no effect on dense models.</p>
-<p><b>For swap-bound MoE:</b> <span class="bad">-46% TG</span> — doubles contiguous allocation, suffers from page faults.</p>
-<div class="tip">Even for in-RAM MoE the gain is minimal in current version. Safer to keep OFF.</div>
+<p><b>For swap-bound MoE:</b> regression risk is high — larger contiguous allocations and more page-fault pressure.</p>
+<div class="tip">Current practical takeaway: no strong stable win is confirmed even for in-RAM MoE. Safer to keep it OFF and only enable for targeted testing.</div>
 <div class="see-also">See also: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
   },
   cache_type_k: {
@@ -1512,20 +2120,20 @@ Reason: rtr disables mmap and loads the ENTIRE model
 <p>Тип квантизации для ключей (K) в KV-кеше. KV-кеш хранит промежуточные данные внимания для всех обработанных токенов.</p>
 <div class="bench">Сравнение типов:
 • f16:   базовый, 2 байта/элемент
-• <span class="good">q8_0:  1 байт/элемент — 50% экономии, 0% потери</span>
+• <span class="good">q8_0:  1 байт/элемент — 50% экономии, текущий безопасный baseline</span>
 • q4_0:  0.5 байт/элемент — 75% экономии, минимальные потери
 • f32:   4 байта — перерасход, не рекомендуется</div>
-<div class="tip"><b>q8_0 — золотой стандарт.</b> Экономит половину памяти KV-кеша бесплатно. Подтверждено бенчмарками: PP=315 t/s, TG=29.6 t/s — идентично f16.</div>
+<div class="tip"><b>q8_0 — текущий лучший baseline.</b> Он резко экономит память KV-кеша и в текущих validated профилях не показал значимой деградации.</div>
 <div class="see-also">См. также: <span>-ctv</span> (тип V-кеша), <span>-khad</span> (Hadamard), <span>-c</span> (контекст)</div>`,
     en: `<h4>KV Cache K Type (-ctk)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>As the model generates text, it memorizes "keys" and "values" for each previous token — that's the KV cache. The longer the conversation, the more memory it uses. Quantization (q8_0) compresses this data by half with no quality loss — like lossless ZIP for photos.</div>
 <p>Quantization type for keys (K) in KV cache. KV cache stores intermediate attention data for all processed tokens.</p>
 <div class="bench">Type comparison:
 • f16:   baseline, 2 bytes/element
-• <span class="good">q8_0:  1 byte/element — 50% savings, 0% loss</span>
+• <span class="good">q8_0:  1 byte/element — 50% savings, current safe baseline</span>
 • q4_0:  0.5 bytes/element — 75% savings, minimal loss
 • f32:   4 bytes — wasteful, not recommended</div>
-<div class="tip"><b>q8_0 is the gold standard.</b> Saves half KV cache memory for free. Confirmed by benchmarks: PP=315 t/s, TG=29.6 t/s — identical to f16.</div>
+<div class="tip"><b>q8_0 is the current best baseline.</b> It saves a lot of KV memory and showed no meaningful regression in the current validated profiles.</div>
 <div class="see-also">See also: <span>-ctv</span> (V-cache type), <span>-khad</span> (Hadamard), <span>-c</span> (context)</div>`,
   },
   cache_type_v: {
@@ -1556,23 +2164,45 @@ Reason: rtr disables mmap and loads the ENTIRE model
 <p>В MoE моделях роутер выбирает top-K экспертов на каждый токен (напр. 8 из 256). SER позволяет отбрасывать экспертов с низким весом:</p>
 <p>• <b>min_experts</b> — минимум экспертов (гарантия). Напр. 4</p>
 <p>• <b>threshold</b> — порог веса. Эксперт с весом < threshold отбрасывается. Напр. 0.05</p>
-<div class="bench">Пример для MiniMax-M2.5 (256 экспертов, 8 активных):
-• Без SER: 8 экспертов × 62 слоя × 8.8 МБ = 4.4 ГБ/токен с диска
-• SER min=4,thresh=0.05: ~6 экспертов = 3.3 ГБ/токен (-25%)
-• Ожидание: ~1.15-1.25 t/s вместо 0.91 t/s</div>
-<div class="tip">Начните с <span class="hl">-ser 4,0.05</span> и проверьте качество генерации. Увеличивайте порог осторожно.</div>
+<div class="bench">Идея на примере MiniMax-M2.5 (256 экспертов, 8 активных):
+• Без SER: роутер всегда тащит полный top-K
+• С SER: часть слабых экспертов может быть отброшена
+• Это потенциально уменьшает swap I/O, но эффект и цена по качеству пока нужно проверять отдельно</div>
+<div class="tip">SER пока держите как experimental knob. Если проверяете, начните с <span class="hl">-ser 4,0.05</span> и обязательно делайте A/B по качеству и скорости.</div>
 <div class="see-also">См. также: <span>тип модели</span> (Dense vs MoE)</div>`,
     en: `<h4>Smart Expert Reduction (-ser)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In MoE models, experts "vote" on each token and usually the top 8 are selected. But sometimes 2-3 of them barely contribute (very low "vote"). SER filters out these weak experts, saving time loading them from disk. It's like not inviting people who have nothing to say to a meeting.</div>
 <p>In MoE models the router picks top-K experts per token (e.g. 8 of 256). SER drops low-weight experts:</p>
 <p>• <b>min_experts</b> — minimum guaranteed experts. E.g. 4</p>
 <p>• <b>threshold</b> — weight threshold. Expert with weight < threshold is dropped. E.g. 0.05</p>
-<div class="bench">Example for MiniMax-M2.5 (256 experts, 8 active):
-• No SER: 8 experts × 62 layers × 8.8 MB = 4.4 GB/token from disk
-• SER min=4,thresh=0.05: ~6 experts = 3.3 GB/token (-25%)
-• Expected: ~1.15-1.25 t/s instead of 0.91 t/s</div>
-<div class="tip">Start with <span class="hl">-ser 4,0.05</span> and check generation quality. Increase threshold cautiously.</div>
+<div class="bench">Idea using MiniMax-M2.5 (256 experts, 8 active) as an example:
+• Without SER: the router always keeps the full top-K
+• With SER: some weak experts may be dropped
+• That can reduce swap I/O, but both the speed effect and the quality cost still need separate validation</div>
+<div class="tip">Treat SER as an experimental knob for now. If you test it, start with <span class="hl">-ser 4,0.05</span> and always do quality and speed A/B checks.</div>
 <div class="see-also">See also: <span>model type</span> (Dense vs MoE)</div>`,
+  },
+  hot_expert_budget: {
+    ru: `<h4>Hot Expert Budget (IK_LLAMA_HOT_EXPERT_BUDGET)</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>У huge MoE вроде MiniMax не все эксперты одинаково полезны сразу после промта. Fork может запомнить «горячих» экспертов из prompt-фазы и попытаться держать их в памяти для первых decode-токенов. Этот параметр задаёт, сколько таких экспертов разрешено держать в hot-наборе.</div>
+<p><b>0</b> = оставить runtime default.</p>
+<p><b>N &gt; 0</b> = попросить runtime держать до N «горячих» экспертов.</p>
+<div class="bench">Что это значит practically:
+• слишком маленький budget — полезные эксперты не помещаются в hot-набор
+• слишком большой budget — растёт давление на RAM без гарантии выигрыша
+• короткий quick check когда-то подсветил большие бюджеты, но первый более длинный controlled MiniMax run не оправдал новый default выше legacy 16</div>
+<div class="tip">Трогайте этот параметр только для huge swap-bound MoE, прежде всего MiniMax. Для обычного запуска MiniMax безопаснее оставить 0. Для Qwen3MoE, gpt-oss и неизвестных моделей тоже лучше оставить 0.</div>
+<div class="see-also">См. также: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>тип модели</span> (Dense vs MoE)</div>`,
+    en: `<h4>Hot Expert Budget (IK_LLAMA_HOT_EXPERT_BUDGET)</h4>
+<div class="beginner-section"><div class="label">For beginners</div>In huge MoE models such as MiniMax, not all experts are equally useful right after the prompt. The fork can remember "hot" experts from the prompt phase and try to keep them resident for the first decode tokens. This parameter sets how many experts are allowed in that hot set.</div>
+<p><b>0</b> = keep the runtime default.</p>
+<p><b>N &gt; 0</b> = ask the runtime to keep up to N "hot" experts.</p>
+<div class="bench">What this means in practice:
+• too small a budget — useful experts do not fit into the hot set
+• too large a budget — RAM pressure increases without a guaranteed win
+• a short quick check once highlighted larger budgets, but the first longer controlled MiniMax run did not justify a new default above the legacy 16 budget</div>
+<div class="tip">Only touch this for huge swap-bound MoE, primarily MiniMax. For normal MiniMax use, leaving it at 0 is safer. For Qwen3MoE, gpt-oss, and unknown families, leaving it at 0 is also the safer choice.</div>
+<div class="see-also">See also: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>model type</span> (Dense vs MoE)</div>`,
   },
   model_size_gb: {
     ru: `<h4>Размер модели</h4>
@@ -1580,17 +2210,17 @@ Reason: rtr disables mmap and loads the ENTIRE model
 <p>Суммарный размер GGUF-файлов модели. Для split-моделей (например MiniMax 5 частей) суммируются все части автоматически.</p>
 <p><b>Swap-bound порог:</b> модель > 90% от RAM вашего профиля.</p>
 <div class="bench">Пример: 96 ГБ RAM, порог = 86 ГБ
-• Qwen3-30B Q4_K_M (17 ГБ): <span class="good">in-RAM</span> — rtr ON
-• MiniMax-M2.5 Q5_K (151 ГБ): <span class="bad">swap-bound</span> — rtr OFF, muge OFF
-• Потолок swap-bound на SSD 3 ГБ/с: ~1.0-1.2 t/s</div>`,
+• Qwen3-30B Q4_K_M (17 ГБ): <span class="good">in-RAM</span> — обычно rtr AUTO
+• MiniMax-M2.5 Q5_K (151 ГБ): <span class="bad">swap-bound</span> — пока безопаснее rtr OFF, muge OFF
+• Для MiniMax-класса на этом хосте throughput часто оказывается около ~1 t/s, но это сильно зависит от memory state и не должно подаваться как жёсткий потолок</div>`,
     en: `<h4>Model Size</h4>
 <div class="beginner-section"><div class="label">For beginners</div>This is the total size of model files on disk. Key rule: if the model is larger than ~90% of your RAM — it's "swap-bound" (doesn't fit in memory, so the system constantly loads data from SSD). This fundamentally changes optimal settings.</div>
 <p>Total size of GGUF model files. For split models (e.g. MiniMax 5 parts) all parts are summed automatically.</p>
 <p><b>Swap-bound threshold:</b> model > 90% of your profile's RAM.</p>
 <div class="bench">Example: 96 GB RAM, threshold = 86 GB
-• Qwen3-30B Q4_K_M (17 GB): <span class="good">in-RAM</span> — rtr ON
-• MiniMax-M2.5 Q5_K (151 GB): <span class="bad">swap-bound</span> — rtr OFF, muge OFF
-• Swap-bound ceiling at SSD 3 GB/s: ~1.0-1.2 t/s</div>`,
+• Qwen3-30B Q4_K_M (17 GB): <span class="good">in-RAM</span> — usually rtr AUTO
+• MiniMax-M2.5 Q5_K (151 GB): <span class="bad">swap-bound</span> — safer baseline is still rtr OFF, muge OFF
+• For MiniMax-class runs on this host throughput often lands around ~1 t/s, but this is strongly memory-state dependent and should not be treated as a hard ceiling</div>`,
   },
   model_type: {
     ru: `<h4>Тип модели: Dense vs MoE</h4>
@@ -1598,7 +2228,7 @@ Reason: rtr disables mmap and loads the ENTIRE model
 <p><b>Dense</b> (Llama, Phi, Gemma): все параметры активны на каждый токен. Производительность зависит от bandwidth.</p>
 <p><b>MoE</b> (MiniMax, DeepSeek, Qwen3-MoE): на каждый токен активируется только K экспертов из N. Например, MiniMax: 8 из 256.</p>
 <div class="bench">Что это значит для параметров:
-• MoE: -muge и -rtr критичны для swap-bound
+• MoE: режим -rtr и опция -muge критичны для swap-bound
 • MoE: -ser может уменьшить число активных экспертов
 • MoE: >16 потоков вредит из-за контенции
 • Dense: -muge и -ser не имеют эффекта</div>
@@ -1608,7 +2238,7 @@ Reason: rtr disables mmap and loads the ENTIRE model
 <p><b>Dense</b> (Llama, Phi, Gemma): all parameters active for every token. Performance depends on bandwidth.</p>
 <p><b>MoE</b> (MiniMax, DeepSeek, Qwen3-MoE): only K of N experts activated per token. E.g. MiniMax: 8 of 256.</p>
 <div class="bench">What this means for parameters:
-• MoE: -muge and -rtr critical for swap-bound
+• MoE: the -rtr mode and -muge are critical for swap-bound
 • MoE: -ser can reduce active expert count
 • MoE: >16 threads hurts due to contention
 • Dense: -muge and -ser have no effect</div>
@@ -1712,16 +2342,16 @@ Reason: rtr disables mmap and loads the ENTIRE model
     ru: `<h4>Memory-mapped I/O (mmap)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Вместо загрузки всего файла модели в RAM, mmap «показывает» файл системе как часть памяти. Когда нужны данные — система подгружает их с диска автоматически. Это единственный способ работать с моделями, которые больше вашей RAM.</div>
 <p>Модель отображается в виртуальное адресное пространство через CreateFileMapping (Windows) / mmap (Linux). OS подгружает страницы с диска по мере обращения.</p>
-<p><b>Для swap-bound:</b> обязательно ON — это единственный способ работать с моделью больше RAM. OS управляет подкачкой автоматически.</p>
-<p><b>При -rtr:</b> принудительно OFF — repack требует изменения данных в памяти, что невозможно с read-only mmap.</p>
-<div class="tip">Не трогайте вручную — rtr и система управляют этим автоматически.</div>
+<p><b>Для swap-bound:</b> mmap обычно является правильной базой, потому что OS может подгружать страницы по требованию.</p>
+<p><b>При rtr=on:</b> mmap принудительно OFF — repack требует изменения данных в памяти. При <b>rtr=auto</b> итог уже зависит от runtime policy.</p>
+<div class="tip">Практическое правило: вручную запрещайте mmap только если вы специально проверяете такой сценарий. Для auto/off обычно разумнее оставить mmap включённым.</div>
 <div class="see-also">См. также: <span>-rtr</span> (repack), <span>--mlock</span></div>`,
     en: `<h4>Memory-mapped I/O (mmap)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Instead of loading the entire model file into RAM, mmap "shows" the file to the system as if it were memory. When data is needed — the system loads it from disk automatically. This is the only way to work with models larger than your RAM.</div>
 <p>Model is mapped into virtual address space via CreateFileMapping (Windows) / mmap (Linux). OS loads pages from disk on access.</p>
-<p><b>For swap-bound:</b> must be ON — only way to work with models larger than RAM. OS manages paging automatically.</p>
-<p><b>With -rtr:</b> forced OFF — repack modifies data in memory, impossible with read-only mmap.</p>
-<div class="tip">Don't touch manually — rtr and the system manage this automatically.</div>
+<p><b>For swap-bound:</b> mmap is usually the right baseline because the OS can load pages on demand.</p>
+<p><b>With rtr=on:</b> mmap is forced OFF — repack modifies data in memory. With <b>rtr=auto</b> the effective outcome depends on the runtime policy.</p>
+<div class="tip">Practical rule: only disable mmap manually if you are explicitly testing that scenario. For auto/off it is usually better to leave mmap enabled.</div>
 <div class="see-also">See also: <span>-rtr</span> (repack), <span>--mlock</span></div>`,
   },
   use_mlock: {
@@ -1961,6 +2591,11 @@ const GLOSSARY = [
       ru: 'Компонент MoE модели, который решает какие эксперты будут обрабатывать каждый токен. Присваивает каждому эксперту «вес» — насколько он нужен. Экспертов с высоким весом берут, с низким — пропускают.',
       en: 'MoE component that decides which experts process each token. Assigns each expert a "weight" — how needed it is. High-weight experts are selected, low-weight ones are skipped.',
     }},
+  { term: { ru: 'Горячие эксперты (hot experts)', en: 'Hot Experts' },
+    def: {
+      ru: 'Небольшой набор экспертов MoE, которые были особенно активны на prompt-фазе и которые runtime пытается держать «поближе» к памяти для начала decode. Это полезно прежде всего для huge swap-bound моделей вроде MiniMax. Слишком маленький набор не помогает, слишком большой увеличивает давление на RAM.',
+      en: 'A small subset of MoE experts that were especially active during the prompt phase and that the runtime tries to keep "closer" to memory for the beginning of decode. This is mainly useful for huge swap-bound models such as MiniMax. Too small a set does not help, too large a set increases RAM pressure.',
+    }},
   { term: { ru: 'Слой (layer)', en: 'Layer' },
     def: {
       ru: 'Модель — это стопка одинаковых «слоёв» (обычно 32-80). Каждый слой выполняет: attention (внимание) + FFN (вычисления). Токен проходит через все слои последовательно, как по конвейеру.',
@@ -2044,8 +2679,8 @@ function toggleGlossary() {
     overlay.classList.add('open');
     document.getElementById('glossary-filter').value = '';
     document.getElementById('glossary-filter').focus();
-    document.getElementById('glossary-title').textContent = L('glossary_title');
-    document.getElementById('glossary-filter').placeholder = L('glossary_search');
+    document.getElementById('glossary-title').textContent = t('glossary_title');
+    document.getElementById('glossary-filter').placeholder = t('glossary_search');
   }
 }
 
@@ -2100,9 +2735,474 @@ function filterGlossary(value) {
 }
 
 // ============================================================
+// === INTERACTION PANELS (CLI Terminal + Server Chat) ===
+// ============================================================
+
+let interactionReady = false;
+
+function updateInteractionPanels() {
+  const isCli = state.target === 'llama-cli';
+  const isServer = state.target === 'llama-server';
+  const cliEl = document.getElementById('cli-terminal');
+  const chatEl = document.getElementById('chat-panel');
+
+  // Console/log viewer — ALWAYS visible (shows loading logs for both modes)
+  if (cliEl) cliEl.classList.add('active');
+  // Chat panel — ONLY for server mode
+  if (chatEl) chatEl.classList.toggle('active', isServer);
+
+  // Update terminal label based on mode
+  const termLabel = document.querySelector('#cli-terminal .terminal-label');
+  if (termLabel) {
+    if (isCli) {
+      termLabel.textContent = t('cli_terminal_label');
+    } else {
+      termLabel.textContent = t('console_label');
+    }
+  }
+
+  // Hide input line — console is always a log viewer
+  const cliInputLine = document.querySelector('#cli-terminal .cli-input-line');
+  if (cliInputLine) {
+    cliInputLine.style.display = 'none';
+  }
+}
+
+function setChatReady(ready) {
+  if (ready && interactionReady) return;  // Already in desired state, avoid duplicate messages
+  interactionReady = ready;
+  const isCli = state.target === 'llama-cli';
+
+  // Console is always a log viewer — show status messages there
+  if (ready && isCli) {
+    appendCliLine(t('cli_ext_ready'), 'system');
+  }
+
+  // Server chat input controls
+  const sendBtn = document.getElementById('chat-send');
+  const isServer = state.target === 'llama-server';
+  if (sendBtn) sendBtn.disabled = !(ready && isServer) || chatStreaming;
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.disabled = !(ready && isServer);
+    chatInput.placeholder = ready
+      ? (currentLang === 'ru' ? 'Введите сообщение...' : 'Type a message...')
+      : (currentLang === 'ru' ? 'Ожидание загрузки модели...' : 'Waiting for model to load...');
+  }
+}
+
+
+// ────────────────────────────────────────────
+// ── CLI TERMINAL (llama-cli mode) ──
+// ────────────────────────────────────────────
+const cliHistory = [];
+let cliHistoryIdx = -1;
+let chatStreaming = false;
+
+function appendCliLine(text, type) {
+  const output = document.getElementById('cli-output');
+  if (!output) return;
+  // Hide welcome
+  const welcome = document.getElementById('cli-welcome');
+  if (welcome) welcome.style.display = 'none';
+
+  const line = document.createElement('span');
+  line.className = 'cli-line ' + (type || 'output');
+  line.textContent = text;
+  output.appendChild(line);
+  output.scrollTop = output.scrollHeight;
+}
+
+function clearCliTerminal() {
+  const output = document.getElementById('cli-output');
+  if (!output) return;
+  const isCli = state.target === 'llama-cli';
+  const welcomeText = isCli ? t('cli_welcome') : t('console_label');
+  output.innerHTML = `<span class="cli-line system" id="cli-welcome" data-i18n="cli_welcome">${welcomeText}</span>`;
+}
+
+function cliKeyDown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const input = document.getElementById('cli-input');
+    const text = input.value;
+    if (!text.trim() || !interactionReady) return;
+    input.value = '';
+    cliHistory.push(text);
+    cliHistoryIdx = cliHistory.length;
+    sendCliInput(text);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (cliHistoryIdx > 0) {
+      cliHistoryIdx--;
+      e.target.value = cliHistory[cliHistoryIdx];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (cliHistoryIdx < cliHistory.length - 1) {
+      cliHistoryIdx++;
+      e.target.value = cliHistory[cliHistoryIdx];
+    } else {
+      cliHistoryIdx = cliHistory.length;
+      e.target.value = '';
+    }
+  }
+}
+
+let cliStreamingEl = null;
+
+async function sendCliInput(text) {
+  const input = document.getElementById('cli-input');
+
+  // Show user input in terminal
+  appendCliLine('> ' + text, 'input');
+  input.disabled = true;
+  chatStreaming = true;
+
+  // Add to shared conversation history (used by API)
+  chatMessages.push({ role: 'user', content: text });
+
+  const port = state.port || 8080;
+  const host = state.hostname || '127.0.0.1';
+  const url = `http://${host}:${port}/v1/chat/completions`;
+
+  const apiMessages = chatMessages.map(m => ({ role: m.role, content: m.content }));
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (state.api_key) headers['Authorization'] = 'Bearer ' + state.api_key;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ messages: apiMessages, stream: true }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      appendCliLine('[Error ' + response.status + ']: ' + err, 'error');
+      chatMessages.pop(); // remove failed user message
+      chatStreaming = false;
+      input.disabled = false;
+      input.focus();
+      return;
+    }
+
+    // Stream SSE response into terminal
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullResponse = '';
+    let visibleResponse = '';
+
+    // Create a streaming output element
+    const output = document.getElementById('cli-output');
+    const welcome = document.getElementById('cli-welcome');
+    if (welcome) welcome.style.display = 'none';
+    cliStreamingEl = document.createElement('span');
+    cliStreamingEl.className = 'cli-line output';
+    output.appendChild(cliStreamingEl);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullResponse += delta;
+            // Strip <think>...</think> blocks for terminal display
+            visibleResponse = stripThinkBlocks(fullResponse);
+            cliStreamingEl.textContent = visibleResponse;
+            output.scrollTop = output.scrollHeight;
+          }
+        } catch(e) {}
+      }
+    }
+
+    // Finalize
+    cliStreamingEl = null;
+    chatMessages.push({ role: 'assistant', content: fullResponse, rawContent: fullResponse });
+
+  } catch(e) {
+    appendCliLine('[Connection error]: ' + e.message, 'error');
+    chatMessages.pop();
+  }
+
+  chatStreaming = false;
+  input.disabled = false;
+  input.focus();
+}
+
+function stripThinkBlocks(text) {
+  // Remove complete <think>...</think> blocks
+  let result = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // If still inside an open <think> tag, remove from <think> to end
+  const openIdx = result.indexOf('<think>');
+  if (openIdx !== -1) {
+    result = result.substring(0, openIdx);
+  }
+  return result.trim();
+}
+
+// ────────────────────────────────────────────
+// ── SERVER CHAT (llama-server mode) ──
+// ────────────────────────────────────────────
+const chatMessages = [];  // {role: 'user'|'assistant', content: string, rawContent: string}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function addChatMessage(role, content) {
+  chatMessages.push({ role, content, rawContent: content });
+  renderChatMessages();
+}
+
+function clearChat() {
+  chatMessages.length = 0;
+  chatStreaming = false;
+  renderChatMessages();
+}
+
+function chatKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+}
+
+// ── Thinking block parser ──
+function parseThinkingContent(fullText) {
+  // Returns array of segments: { type: 'text'|'thinking', content, isActive }
+  const segments = [];
+  let remaining = fullText;
+  let hasActiveThinking = false;
+
+  while (remaining.length > 0) {
+    const thinkStart = remaining.indexOf('<think>');
+
+    if (thinkStart === -1) {
+      // No more think blocks
+      if (remaining.trim()) {
+        segments.push({ type: 'text', content: remaining });
+      }
+      break;
+    }
+
+    // Text before think block
+    if (thinkStart > 0) {
+      const before = remaining.substring(0, thinkStart);
+      if (before.trim()) {
+        segments.push({ type: 'text', content: before });
+      }
+    }
+
+    const thinkEnd = remaining.indexOf('</think>', thinkStart + 7);
+    if (thinkEnd === -1) {
+      // Still thinking (no closing tag yet)
+      const thinkContent = remaining.substring(thinkStart + 7);
+      segments.push({ type: 'thinking', content: thinkContent, isActive: true });
+      hasActiveThinking = true;
+      break;
+    }
+
+    // Complete think block
+    const thinkContent = remaining.substring(thinkStart + 7, thinkEnd);
+    segments.push({ type: 'thinking', content: thinkContent, isActive: false });
+    remaining = remaining.substring(thinkEnd + 8);
+  }
+
+  return { segments, hasActiveThinking };
+}
+
+function renderMessageContent(rawContent, isStreaming) {
+  const { segments, hasActiveThinking } = parseThinkingContent(rawContent);
+
+  if (segments.length === 0) {
+    return isStreaming ? '<span class="think-shimmer"></span>' : '';
+  }
+
+  // If content is entirely within a thinking block (no response text yet)
+  const hasTextContent = segments.some(s => s.type === 'text' && s.content.trim());
+
+  let html = '';
+  for (const seg of segments) {
+    if (seg.type === 'thinking') {
+      const isActive = seg.isActive;
+      const label = currentLang === 'ru'
+        ? (isActive ? 'Размышляет' : 'Размышление')
+        : (isActive ? 'Thinking' : 'Thought');
+      const shimmer = isActive ? ' <span class="think-shimmer"></span>' : '';
+      // Open by default while active, collapsed when done
+      html += `<details class="think-block${isActive ? ' active' : ''}"${isActive ? ' open' : ''}>`;
+      html += `<summary>${label}${shimmer}</summary>`;
+      html += `<div class="think-content">${escapeHtml(seg.content)}</div>`;
+      html += `</details>`;
+    } else {
+      html += escapeHtml(seg.content);
+    }
+  }
+
+  return html;
+}
+
+function renderChatMessages() {
+  const el = document.getElementById('chat-messages');
+  if (!el) return;
+
+  if (chatMessages.length === 0) {
+    el.innerHTML = `<div class="chat-empty" id="chat-empty" data-i18n="chat_empty">${t('chat_empty')}</div>`;
+    return;
+  }
+
+  let html = '';
+  for (let i = 0; i < chatMessages.length; i++) {
+    const msg = chatMessages[i];
+    const isLast = i === chatMessages.length - 1;
+    const isStreamingMsg = isLast && chatStreaming && msg.role === 'assistant';
+
+    if (msg.role === 'user') {
+      html += `<div class="chat-msg user">${escapeHtml(msg.content)}</div>`;
+    } else {
+      // Assistant message with thinking support
+      const rendered = renderMessageContent(msg.rawContent || msg.content, isStreamingMsg);
+      html += `<div class="chat-msg assistant">${rendered}</div>`;
+    }
+  }
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !interactionReady || chatStreaming) return;
+
+  input.value = '';
+  addChatMessage('user', text);
+  await sendChatViaServer(text);
+}
+
+async function sendChatViaServer(text) {
+  chatStreaming = true;
+  addChatMessage('assistant', '');
+  updateSendButton();
+
+  const port = state.port || 8080;
+  const host = state.hostname || '127.0.0.1';
+  const url = `http://${host}:${port}/v1/chat/completions`;
+
+  // Build messages for API (exclude the empty assistant message)
+  const apiMessages = chatMessages
+    .slice(0, -1)
+    .filter(m => m.content)
+    .map(m => ({ role: m.role, content: m.content }));
+
+  try {
+    const chatHeaders = { 'Content-Type': 'application/json' };
+    if (state.api_key) chatHeaders['Authorization'] = 'Bearer ' + state.api_key;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: chatHeaders,
+      body: JSON.stringify({
+        messages: apiMessages,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      chatMessages[chatMessages.length - 1].content = `[Error ${response.status}]: ${err}`;
+      chatMessages[chatMessages.length - 1].rawContent = chatMessages[chatMessages.length - 1].content;
+      chatStreaming = false;
+      renderChatMessages();
+      updateSendButton();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullResponse = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullResponse += delta;
+            const lastMsg = chatMessages[chatMessages.length - 1];
+            lastMsg.rawContent = fullResponse;
+            // Store content without think tags for history
+            lastMsg.content = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || fullResponse;
+            renderChatMessages();
+          }
+        } catch(e) {}
+      }
+    }
+
+    chatStreaming = false;
+    renderChatMessages();
+    updateSendButton();
+
+  } catch(e) {
+    chatMessages[chatMessages.length - 1].content = `[Connection error]: ${e.message}`;
+    chatMessages[chatMessages.length - 1].rawContent = chatMessages[chatMessages.length - 1].content;
+    chatStreaming = false;
+    renderChatMessages();
+    updateSendButton();
+  }
+}
+
+function updateSendButton() {
+  const sendBtn = document.getElementById('chat-send');
+  if (sendBtn) sendBtn.disabled = !interactionReady || chatStreaming;
+}
+
+// ============================================================
+// === THEME ===
+// ============================================================
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('ik_dash_theme', next);
+}
+
+function restoreTheme() {
+  const saved = localStorage.getItem('ik_dash_theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+  }
+}
+
+// ============================================================
 // === INIT ===
 // ============================================================
 function init() {
+  restoreTheme();
   initProfiles();
   const loaded = loadState();
   if (!loaded) {
@@ -2113,6 +3213,8 @@ function init() {
   evaluate();
   renderCommand();
   injectHelpButtons();
+  // Show correct interaction panel based on target
+  updateInteractionPanels();
   // Try connecting to dashboard server
   checkServer();
   // Periodic server check

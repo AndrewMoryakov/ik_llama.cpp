@@ -16,6 +16,7 @@ Endpoints:
   POST /api/launch        — launch llama-cli or llama-server
   GET  /api/status        — running process status + recent output
   POST /api/stop          — stop the running process
+  POST /api/stdin         — write text to process stdin (interactive mode)
   GET  /api/output        — full stdout/stderr buffer
 """
 
@@ -46,6 +47,25 @@ STATIC_FILES = {
     "/dashboard.js":  ("dashboard.js",  "application/javascript; charset=utf-8"),
 }
 
+# ── Find terminal emulator (Linux) ──────────────────────────────
+def _find_linux_terminal():
+    """Find an available terminal emulator on Linux."""
+    terminals = [
+        # (command, args_template) — {cmd} will be replaced with the command to run
+        ("gnome-terminal", ["gnome-terminal", "--", "bash", "-c", "{cmd}; exec bash"]),
+        ("konsole", ["konsole", "-e", "bash", "-c", "{cmd}; exec bash"]),
+        ("xfce4-terminal", ["xfce4-terminal", "-e", "bash -c '{cmd}; exec bash'"]),
+        ("mate-terminal", ["mate-terminal", "-e", "bash -c '{cmd}; exec bash'"]),
+        ("xterm", ["xterm", "-e", "bash -c '{cmd}; exec bash'"]),
+        ("lxterminal", ["lxterminal", "-e", "bash -c '{cmd}; exec bash'"]),
+    ]
+    import shutil
+    for name, tmpl in terminals:
+        if shutil.which(name):
+            return name, tmpl
+    return None, None
+
+
 # ── Process Manager ─────────────────────────────────────────────
 class ProcessManager:
     def __init__(self):
@@ -55,72 +75,213 @@ class ProcessManager:
         self.output_buf = deque(maxlen=5000)  # last 5000 lines
         self._reader_thread = None
         self._lock = threading.Lock()
+        self.terminal_mode = False  # True when running in external terminal (llama-cli)
 
     @property
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def launch(self, args, cwd=None):
+    def launch(self, args, cwd=None, terminal=False, env_overrides=None):
         with self._lock:
             if self.running:
                 return False, "Process already running. Stop it first."
             self.output_buf.clear()
-            self.cmd = " ".join(args)
+            env_overrides = env_overrides or {}
+            env_prefix = " ".join(f"{k}={v}" for k, v in env_overrides.items())
+            self.cmd = (env_prefix + " " if env_prefix else "") + " ".join(args)
+            self.terminal_mode = terminal
+            work_dir = cwd or BUILD_BIN
+            merged_env = os.environ.copy()
+            merged_env.update({str(k): str(v) for k, v in env_overrides.items()})
+
             try:
-                self.proc = subprocess.Popen(
-                    args,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    cwd=cwd or BUILD_BIN,
-                    bufsize=1,
-                    universal_newlines=True,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
-                )
+                if terminal:
+                    # Terminal mode: open a real console/terminal for interactive use.
+                    # Key insight: piping ANY handle (even stderr) breaks console stdin
+                    # on Windows — the process gets EOF instead of real input.
+                    # Solution: redirect stderr to a temp FILE (not pipe) and tail it.
+                    import tempfile
+                    fd, stderr_path = tempfile.mkstemp(prefix='ik_dash_', suffix='.log')
+                    os.close(fd)
+                    self._stderr_path = stderr_path
+
+                    if os.name == "nt":
+                        # Windows: create a .bat wrapper that redirects stderr to file.
+                        # The .bat runs in a new console with fully real stdin/stdout.
+                        fd2, bat_path = tempfile.mkstemp(prefix='ik_dash_', suffix='.bat')
+                        with os.fdopen(fd2, 'w') as bf:
+                            cmd_line = subprocess.list2cmdline(args)
+                            bf.write(f'@echo off\n')
+                            bf.write(f'title llama-cli interactive\n')
+                            for key, value in env_overrides.items():
+                                bf.write(f'set "{key}={value}"\n')
+                            bf.write(f'{cmd_line} 2>"{stderr_path}"\n')
+                        self._bat_path = bat_path
+
+                        self.proc = subprocess.Popen(
+                            [bat_path],
+                            cwd=work_dir,
+                            env=merged_env,
+                            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
+                        )
+                    else:
+                        # Linux: launch inside a terminal emulator with stderr redirect.
+                        term_name, term_tmpl = _find_linux_terminal()
+                        if not term_name:
+                            return False, "No terminal emulator found (install gnome-terminal, konsole, or xterm)"
+
+                        inner_cmd = " ".join(
+                            f'"{a}"' if " " in a else a for a in args
+                        ) + f' 2>"{stderr_path}"'
+
+                        term_args = []
+                        for part in term_tmpl:
+                            term_args.append(part.replace("{cmd}", inner_cmd))
+
+                        self.proc = subprocess.Popen(
+                            term_args,
+                            stdin=None, stdout=None, stderr=None,
+                            cwd=work_dir,
+                            env=merged_env,
+                        )
+
+                    # Tail the stderr log file for browser log viewer
+                    self._reader_thread = threading.Thread(
+                        target=self._tail_stderr_file, args=(stderr_path,), daemon=True
+                    )
+                    self._reader_thread.start()
+                else:
+                    # Piped mode: capture all output for dashboard (llama-server)
+                    self.proc = subprocess.Popen(
+                        args,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        cwd=work_dir,
+                        env=merged_env,
+                        bufsize=1,
+                        universal_newlines=True,
+                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+                    )
+                    self._reader_thread = threading.Thread(
+                        target=self._read_output, args=(self.proc.stdout,), daemon=True
+                    )
+                    self._reader_thread.start()
             except FileNotFoundError as e:
                 return False, f"Executable not found: {e}"
             except Exception as e:
                 return False, str(e)
+
             self.started_at = time.time()
-            self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
-            self._reader_thread.start()
             return True, f"Launched PID {self.proc.pid}"
 
     def stop(self):
         with self._lock:
             if not self.running:
                 return False, "No process running."
+            pid = self.proc.pid
             try:
                 if os.name == "nt":
-                    self.proc.send_signal(signal.CTRL_BREAK_EVENT)
+                    if self.terminal_mode:
+                        # Terminal mode: self.proc is cmd.exe running .bat,
+                        # llama-cli.exe is a child process. Must kill entire tree.
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(pid)],
+                            capture_output=True, timeout=10,
+                        )
+                    else:
+                        self.proc.send_signal(signal.CTRL_BREAK_EVENT)
+                        self.proc.wait(timeout=5)
                 else:
-                    self.proc.terminate()
-                self.proc.wait(timeout=5)
+                    if self.terminal_mode:
+                        # Linux: terminal emulator → bash → llama-cli. Kill group.
+                        import os as _os
+                        try:
+                            _os.killpg(_os.getpgid(pid), signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        self.proc.terminate()
+                    self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            # Ensure proc is reaped
+            try:
                 self.proc.wait(timeout=3)
             except Exception:
-                self.proc.kill()
+                pass
+            self._cleanup_temp_files()
             return True, "Process stopped."
+
+    def _cleanup_temp_files(self):
+        """Clean up temporary files created for terminal mode."""
+        for attr in ('_stderr_path', '_bat_path'):
+            path = getattr(self, attr, None)
+            if path:
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
 
     def status(self):
         return {
             "running": self.running,
             "pid": self.proc.pid if self.proc else None,
             "cmd": self.cmd,
+            "terminal_mode": self.terminal_mode,
             "uptime_s": round(time.time() - self.started_at, 1) if self.started_at and self.running else None,
             "exit_code": self.proc.returncode if self.proc and not self.running else None,
             "output_lines": len(self.output_buf),
             "last_lines": list(self.output_buf)[-30:],
         }
 
+    def write_stdin(self, text):
+        """Write text to the process stdin (for interactive mode)."""
+        with self._lock:
+            if not self.running or not self.proc or not self.proc.stdin:
+                return False, "Process not running or stdin closed"
+            try:
+                self.proc.stdin.write(text + "\n")
+                self.proc.stdin.flush()
+                return True, "OK"
+            except Exception as e:
+                return False, str(e)
+
     def get_output(self, offset=0):
         buf = list(self.output_buf)
         return buf[offset:]
 
-    def _read_output(self):
+    def _read_output(self, stream):
         try:
-            for line in self.proc.stdout:
+            for line in stream:
                 self.output_buf.append(line.rstrip("\n\r"))
+        except Exception:
+            pass
+
+    def _tail_stderr_file(self, path):
+        """Tail a stderr log file (used for Linux terminal mode)."""
+        try:
+            # Wait for file to appear
+            for _ in range(50):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+            with open(path, 'r') as f:
+                while self.running:
+                    line = f.readline()
+                    if line:
+                        self.output_buf.append(line.rstrip("\n\r"))
+                    else:
+                        time.sleep(0.3)
+                # Read remaining lines after process stops
+                for line in f:
+                    self.output_buf.append(line.rstrip("\n\r"))
         except Exception:
             pass
 
@@ -180,12 +341,17 @@ def get_system_info():
     else:
         # Linux/Mac
         try:
+            mem_total = mem_avail = None
             with open("/proc/meminfo") as f:
                 for line in f:
                     if line.startswith("MemTotal:"):
-                        kb = int(line.split()[1])
-                        info["total_ram_gb"] = round(kb / (1024**2), 1)
-                        break
+                        mem_total = int(line.split()[1])
+                    elif line.startswith("MemAvailable:"):
+                        mem_avail = int(line.split()[1])
+            if mem_total:
+                info["total_ram_gb"] = round(mem_total / (1024**2), 1)
+            if mem_avail:
+                info["available_ram_gb"] = round(mem_avail / (1024**2), 1)
         except Exception:
             pass
         try:
@@ -196,6 +362,15 @@ def get_system_info():
             )) or info["logical_cores"] // 2
         except Exception:
             info["physical_cores"] = info["logical_cores"] // 2
+        # Better CPU name on Linux
+        if info["cpu_name"] in ("unknown", "", "x86_64"):
+            try:
+                for line in open("/proc/cpuinfo"):
+                    if line.startswith("model name"):
+                        info["cpu_name"] = line.split(":", 1)[1].strip()
+                        break
+            except Exception:
+                pass
 
     # Check available executables
     info["executables"] = {}
@@ -406,8 +581,47 @@ def scan_models(directory, max_depth=3):
     return {"directory": str(base), "models": results}
 
 
+def _try_zenity_file(initial_dir="", title="Select model file"):
+    """Try zenity (GTK) or kdialog (KDE) file picker on Linux."""
+    for cmd in ["zenity", "kdialog"]:
+        try:
+            if cmd == "zenity":
+                args = ["zenity", "--file-selection", "--title=" + title,
+                        "--file-filter=GGUF models (*.gguf)|*.gguf",
+                        "--file-filter=All files|*"]
+                if initial_dir:
+                    args.append("--filename=" + initial_dir + "/")
+            else:
+                args = ["kdialog", "--getopenfilename", initial_dir or ".",
+                        "GGUF models (*.gguf);;All files (*)"]
+            out = subprocess.check_output(args, text=True, timeout=120).strip()
+            if out:
+                return out
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
+def _try_zenity_dir(initial_dir="", title="Select directory"):
+    """Try zenity/kdialog directory picker on Linux."""
+    for cmd in ["zenity", "kdialog"]:
+        try:
+            if cmd == "zenity":
+                args = ["zenity", "--file-selection", "--directory", "--title=" + title]
+                if initial_dir:
+                    args.append("--filename=" + initial_dir + "/")
+            else:
+                args = ["kdialog", "--getexistingdirectory", initial_dir or "."]
+            out = subprocess.check_output(args, text=True, timeout=120).strip()
+            if out:
+                return out
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
 def open_file_dialog(initial_dir="", title="Select model file"):
-    """Open native OS file picker. Runs tkinter in a temporary thread."""
+    """Open native OS file picker. Tries tkinter, then zenity/kdialog on Linux."""
     result = {"path": None}
 
     def _run():
@@ -428,12 +642,21 @@ def open_file_dialog(initial_dir="", title="Select model file"):
             root.destroy()
             if path:
                 result["path"] = path
-        except Exception as e:
-            result["error"] = str(e)
+                return
+        except Exception:
+            pass
+
+        # Fallback: zenity / kdialog (Linux without tkinter or without display)
+        if platform.system() != "Windows":
+            path = _try_zenity_file(initial_dir, title)
+            if path:
+                result["path"] = path
+                return
+            result["error"] = "No file picker available (install python3-tk or zenity)"
 
     t = threading.Thread(target=_run)
     t.start()
-    t.join(timeout=120)  # 2 min max wait
+    t.join(timeout=120)
     return result
 
 
@@ -455,8 +678,17 @@ def open_dir_dialog(initial_dir="", title="Select directory"):
             root.destroy()
             if path:
                 result["path"] = path
-        except Exception as e:
-            result["error"] = str(e)
+                return
+        except Exception:
+            pass
+
+        # Fallback: zenity / kdialog
+        if platform.system() != "Windows":
+            path = _try_zenity_dir(initial_dir, title)
+            if path:
+                result["path"] = path
+                return
+            result["error"] = "No directory picker available (install python3-tk or zenity)"
 
     t = threading.Thread(target=_run)
     t.start()
@@ -593,9 +825,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/launch":
             body = self._read_body()
             args = body.get("args", [])
+            env = body.get("env", {})
+            terminal = body.get("terminal", False)
             if not args:
                 self._json_response({"error": "No args provided"}, 400)
                 return
+            if not isinstance(env, dict):
+                self._json_response({"error": "env must be an object"}, 400)
+                return
+            env = {str(k): str(v) for k, v in env.items() if str(k)}
             # Resolve executable path
             exe_name = args[0]
             ext = ".exe" if platform.system() == "Windows" else ""
@@ -604,12 +842,18 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._json_response({"error": f"Executable not found: {exe_path}"}, 404)
                 return
             full_args = [exe_path] + args[1:]
-            ok, msg = pm.launch(full_args)
+            ok, msg = pm.launch(full_args, terminal=terminal, env_overrides=env)
             self._json_response({"ok": ok, "message": msg}, 200 if ok else 409)
             return
 
         if path == "/api/stop":
             ok, msg = pm.stop()
+            self._json_response({"ok": ok, "message": msg})
+            return
+
+        if path == "/api/stdin":
+            body = self._read_body()
+            ok, msg = pm.write_stdin(body.get("text", ""))
             self._json_response({"ok": ok, "message": msg})
             return
 
