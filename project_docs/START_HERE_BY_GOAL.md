@@ -223,16 +223,25 @@
 
 Читайте:
 
-1. `release/CURRENT_STATUS_2026-02-28.md`
-- текущее общее состояние
+1. `release/MILESTONE_SUMMARY_2026-03-01.md`
+- короткое описание того, что уже представляет собой текущий milestone
 
-2. `release/VALIDATED_SCOPE_2026-02-28.md`
+2. `release/RELEASE_FACING_CLAIMS_2026-03-01.md`
+- что уже можно утверждать публично, а что пока нельзя
+
+3. `release/SUPPORTED_VALIDATED_MATRIX_2026-03-01.md`
 - что уже входит в validated scope
 
-3. `release/STABLE_VS_EXPERIMENTAL_2026-02-28.md`
+4. `release/EXPERIMENTAL_MATRIX_2026-03-01.md`
+- что реально существует в коде, но пока не promoted в stable layer
+
+5. `release/KNOWN_LIMITS_AND_OPEN_QUESTIONS_2026-03-01.md`
+- что еще не закрыто
+
+6. `release/STABLE_VS_EXPERIMENTAL_2026-02-28.md`
 - что можно называть stable, а что пока нельзя
 
-4. `release/RELEASE_CANDIDATE_INVENTORY_2026-02-28.md`
+7. `release/RELEASE_CANDIDATE_INVENTORY_2026-02-28.md`
 - что уже готово для milestone
 - что еще блокирует красивую публикацию
 

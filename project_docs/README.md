@@ -22,14 +22,13 @@ This directory is the canonical location for project-specific documentation.
 - `llm/SESSION_BOOTSTRAP.md`
 - `llm/SOURCE_OF_TRUTH_MAP.md`
 - `release/README.md`
+- `release/MILESTONE_SUMMARY_2026-03-01.md`
+- `release/RELEASE_FACING_CLAIMS_2026-03-01.md`
+- `release/SUPPORTED_VALIDATED_MATRIX_2026-03-01.md`
+- `release/EXPERIMENTAL_MATRIX_2026-03-01.md`
+- `release/KNOWN_LIMITS_AND_OPEN_QUESTIONS_2026-03-01.md`
 - `release/CURRENT_STATUS_2026-02-28.md`
 - `release/CODEBASE_HEALTH_2026-03-01.md`
-- `release/LOGICAL_MILESTONE_SNAPSHOT_2026-03-01.md`
-- `release/CLEAN_MILESTONE_SNAPSHOT_PLAN_2026-03-01.md`
-- `release/MILESTONE_FILE_CLASSIFICATION_2026-03-01.md`
-- `release/MIXED_FILES_SUBSECTION_MAP_2026-03-01.md`
-- `release/COMMIT_SNAPSHOT_GROUPING_PLAN_2026-03-01.md`
-- `release/IMPLEMENTATION_CHECKLIST_2026-03-01.md`
 - `release/VALIDATED_SCOPE_2026-02-28.md`
 - `release/STABLE_VS_EXPERIMENTAL_2026-02-28.md`
 - `strategy/TASK.md`
@@ -61,6 +60,7 @@ This directory is the canonical location for project-specific documentation.
 - Narrative docs live in `project_docs/`.
 - Raw benchmark outputs stay in `ik_llama.cpp/bench_results/` (JSON/log artifacts).
 - Old document paths were removed in clean mode.
+- Internal snapshot-planning docs live in `project_docs/archive/release_snapshot/`.
 
 ## Recommended Entry Points
 - Humans: `START_HERE_BY_GOAL.md`

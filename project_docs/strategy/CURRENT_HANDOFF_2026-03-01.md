@@ -192,3 +192,40 @@ Source of truth:
 4. если такого времени нет:
 - не трогать MiniMax policy
 - переходить к следующей содержательной optimization line
+
+## Следующие architecture-specific линии
+
+### 2A. MiniMax: `off vs auto` benchmark closeout
+
+Это не новая optimization line в коде, а лучший следующий benchmark по ROI.
+
+Задача:
+
+1. `tg32`: `rtr=off` vs `rtr=auto`
+2. `pg32,4`: `rtr=off` vs `rtr=auto`
+3. runtime default hot-expert budget
+
+Смысл:
+
+- закрыть главный незавершенный practical policy question по huge `MiniMax`
+
+### 2B. MiniMax: next real optimization line
+
+Если `off vs auto` закрыт или не дает нового practical режима, следующий сильный кандидат для `MiniMax`:
+
+- expert locality
+- paging behavior
+- quality of hot-expert selection
+
+Это уже не про новый флаг, а про memory/runtime-side improvement.
+
+### 2C. `gpt-oss-20b`: decode-side architecture-specific line
+
+Если нужен следующий вероятный engine win вне `MiniMax` policy work, strongest candidate сейчас:
+
+- `gpt-oss-20b` decode-side mixed-path optimization
+
+Смысл:
+
+- это более compute-oriented и менее noisy target, чем huge `MiniMax`
+- у него уже есть signal, что следующий meaningful win лежит в decode-side path
