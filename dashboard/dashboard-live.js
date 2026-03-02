@@ -2,7 +2,18 @@
   const POLL_MS = 1200;
 
   let pollTimer = null;
+  let replayTimer = null;
   let bridge = null;
+
+  const replayState = {
+    mode: 'live',
+    runs: [],
+    selectedRun: '',
+    data: null,
+    frameIndex: 0,
+    playing: false,
+    speed: 1,
+  };
 
   function t(key) {
     if (bridge && typeof bridge.t === 'function') {
@@ -59,6 +70,140 @@
     return key;
   }
 
+  function setStatus(text, running) {
+    const el = document.getElementById('live-metrics-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('running', !!running);
+  }
+
+  function renderToolbar() {
+    const el = document.getElementById('live-metrics-toolbar');
+    if (!el) return;
+
+    const runOptions = replayState.runs.length
+      ? replayState.runs.map(run => `
+          <option value="${esc(run.id)}" ${run.id === replayState.selectedRun ? 'selected' : ''}>
+            ${esc(run.name)}${run.trace_like ? '' : ' · no-trace'}
+          </option>
+        `).join('')
+      : `<option value="">${esc(t('live_replay_no_runs'))}</option>`;
+
+    const frameCount = replayState.data && Array.isArray(replayState.data.frames)
+      ? replayState.data.frames.length
+      : 0;
+    const canReplay = replayState.mode === 'replay' && frameCount > 0;
+
+    el.innerHTML = `
+      <div class="live-toolbar-row">
+        <label class="live-toolbar-group">
+          <span>${esc(t('live_mode'))}</span>
+          <select id="live-mode-select" class="live-toolbar-select">
+            <option value="live" ${replayState.mode === 'live' ? 'selected' : ''}>${esc(t('live_mode_live'))}</option>
+            <option value="replay" ${replayState.mode === 'replay' ? 'selected' : ''}>${esc(t('live_mode_replay'))}</option>
+          </select>
+        </label>
+        <label class="live-toolbar-group live-toolbar-grow">
+          <span>${esc(t('live_replay_run'))}</span>
+          <select id="live-replay-run" class="live-toolbar-select" ${replayState.mode !== 'replay' ? 'disabled' : ''}>
+            ${runOptions}
+          </select>
+        </label>
+        <button class="btn-ghost live-toolbar-btn" id="live-replay-reload" ${replayState.mode !== 'replay' ? 'disabled' : ''}>
+          ${esc(t('live_replay_reload'))}
+        </button>
+      </div>
+      <div class="live-toolbar-row">
+        <button class="btn-ghost live-toolbar-btn" id="live-replay-play" ${canReplay ? '' : 'disabled'}>
+          ${esc(replayState.playing ? t('live_replay_pause') : t('live_replay_play'))}
+        </button>
+        <label class="live-toolbar-group live-toolbar-slider">
+          <span>${esc(t('live_replay_step'))}</span>
+          <input type="range" id="live-replay-slider" min="0" max="${Math.max(frameCount - 1, 0)}" value="${Math.min(replayState.frameIndex, Math.max(frameCount - 1, 0))}" ${canReplay ? '' : 'disabled'}>
+        </label>
+        <label class="live-toolbar-group">
+          <span>${esc(t('live_replay_speed'))}</span>
+          <select id="live-replay-speed" class="live-toolbar-select" ${replayState.mode !== 'replay' ? 'disabled' : ''}>
+            <option value="0.5" ${replayState.speed === 0.5 ? 'selected' : ''}>0.5x</option>
+            <option value="1" ${replayState.speed === 1 ? 'selected' : ''}>1x</option>
+            <option value="2" ${replayState.speed === 2 ? 'selected' : ''}>2x</option>
+            <option value="4" ${replayState.speed === 4 ? 'selected' : ''}>4x</option>
+          </select>
+        </label>
+        <div class="live-chip">
+          <span>${esc(t('live_replay_frames'))}</span>
+          <strong>${frameCount}</strong>
+        </div>
+      </div>
+    `;
+
+    const modeSelect = document.getElementById('live-mode-select');
+    const runSelect = document.getElementById('live-replay-run');
+    const reloadBtn = document.getElementById('live-replay-reload');
+    const playBtn = document.getElementById('live-replay-play');
+    const slider = document.getElementById('live-replay-slider');
+    const speedSelect = document.getElementById('live-replay-speed');
+
+    if (modeSelect) {
+      modeSelect.onchange = async (e) => {
+        replayState.mode = e.target.value || 'live';
+        stopReplay();
+        if (replayState.mode === 'replay') {
+          await ensureReplayRuns();
+          if (!replayState.selectedRun && replayState.runs.length) {
+            const preferred = replayState.runs.find(r => r.trace_like) || replayState.runs[0];
+            replayState.selectedRun = preferred.id;
+          }
+          if (replayState.selectedRun) {
+            await loadReplayData(replayState.selectedRun);
+          } else {
+            renderToolbar();
+            renderEmptyReplay();
+          }
+        } else {
+          renderToolbar();
+          await poll();
+        }
+      };
+    }
+
+    if (runSelect) {
+      runSelect.onchange = async (e) => {
+        replayState.selectedRun = e.target.value || '';
+        stopReplay();
+        await loadReplayData(replayState.selectedRun);
+      };
+    }
+
+    if (reloadBtn) {
+      reloadBtn.onclick = async () => {
+        await ensureReplayRuns(true);
+        renderToolbar();
+      };
+    }
+
+    if (playBtn) {
+      playBtn.onclick = () => toggleReplay();
+    }
+
+    if (slider) {
+      slider.oninput = (e) => {
+        stopReplay();
+        replayState.frameIndex = Number(e.target.value || 0);
+        renderReplayFrame();
+      };
+    }
+
+    if (speedSelect) {
+      speedSelect.onchange = (e) => {
+        replayState.speed = Number(e.target.value || 1) || 1;
+        if (replayState.playing) {
+          startReplay();
+        }
+      };
+    }
+  }
+
   function renderPhasePanel(phase, meta) {
     const timeline = Array.isArray(phase.timeline) ? phase.timeline : [];
     const hasTimeline = timeline.some(item => Number(item.ms || 0) > 0);
@@ -67,6 +212,13 @@
       { label: t('live_trace'), value: meta.traceSummary },
       { label: t('live_phase_current'), value: phase.current || 'idle' },
     ];
+
+    if (meta.source) {
+      summary.push({ label: t('live_replay_source'), value: meta.source });
+    }
+    if (meta.eventLabel) {
+      summary.push({ label: t('live_replay_event'), value: meta.eventLabel });
+    }
 
     const timelineHtml = hasTimeline
       ? timeline.map(item => {
@@ -327,26 +479,23 @@
     `;
   }
 
-  function setStatus(running) {
-    const el = document.getElementById('live-metrics-status');
-    if (!el) return;
-    el.textContent = running ? t('live_running') : t('live_idle');
-    el.classList.toggle('running', !!running);
-  }
-
-  function renderSnapshot(snapshot) {
+  function renderSnapshot(snapshot, options = {}) {
     const root = document.getElementById('live-metrics-root');
     const card = document.getElementById('live-metrics-card');
     if (!root || !card) return;
 
     card.classList.add('visible');
-    setStatus(snapshot.running);
 
     const state = getState();
-    if (!state.live_observability) {
+    const isReplay = options.mode === 'replay';
+
+    if (!isReplay && !state.live_observability) {
+      setStatus(t('live_idle'), false);
       root.innerHTML = `<div class="live-panel"><div class="live-empty">${esc(t('live_disabled'))}</div></div>`;
       return;
     }
+
+    setStatus(options.statusText || (snapshot.running ? t('live_running') : t('live_idle')), !!snapshot.running);
 
     const phase = snapshot.phase || {};
     const moe = snapshot.moe || {};
@@ -361,19 +510,150 @@
         ${renderPhasePanel(phase, {
           architecture: snapshot.architecture || '',
           traceSummary,
+          source: options.source || '',
+          eventLabel: options.eventLabel || '',
         })}
         ${renderMoePanel(moe)}
       </div>
     `;
   }
 
-  async function poll() {
-    try {
-      const snapshot = await apiGet('/api/live-metrics');
-      renderSnapshot(snapshot);
-    } catch (err) {
+  function renderEmptyReplay(messageKey = 'live_replay_no_runs') {
+    const root = document.getElementById('live-metrics-root');
+    if (!root) return;
+    setStatus(t('live_idle'), false);
+    root.innerHTML = `<div class="live-panel"><div class="live-empty">${esc(t(messageKey))}</div></div>`;
+  }
+
+  function frameEventLabel(frame) {
+    const event = frame && frame.event;
+    if (!event) return '';
+    if (event.kind === 'phase') return `${event.phase || 'phase'} · ${formatMs(event.total_ms)} ms`;
+    if (event.kind === 'moe_stage') return `${event.stage || 'moe'} · ${formatMs(event.locked_share)}%`;
+    if (event.kind === 'hot_selection') return `hot selection · budget ${event.budget || 0}`;
+    return event.kind || '';
+  }
+
+  function renderReplayFrame() {
+    renderToolbar();
+    if (!replayState.data) {
+      renderEmptyReplay();
+      return;
+    }
+
+    const frames = Array.isArray(replayState.data.frames) ? replayState.data.frames : [];
+    if (!frames.length) {
+      renderSnapshot(replayState.data.final_snapshot || {
+        running: false,
+        architecture: '',
+        trace: {},
+        phase: { current: 'idle', timeline: [] },
+        moe: {},
+      }, {
+        mode: 'replay',
+        statusText: t('live_mode_replay'),
+        source: replayState.selectedRun || t('live_replay_latest'),
+      });
       const root = document.getElementById('live-metrics-root');
       if (root) {
+        root.innerHTML += `<div class="live-panel"><div class="live-empty">${esc(t('live_replay_no_trace'))}</div></div>`;
+      }
+      return;
+    }
+
+    const idx = Math.max(0, Math.min(replayState.frameIndex, frames.length - 1));
+    const frame = frames[idx];
+    renderSnapshot(frame.snapshot, {
+      mode: 'replay',
+      statusText: replayState.playing ? `${t('live_mode_replay')} · ${t('live_running')}` : t('live_mode_replay'),
+      source: replayState.selectedRun || t('live_replay_latest'),
+      eventLabel: frameEventLabel(frame),
+    });
+  }
+
+  function stopReplay() {
+    if (replayTimer) {
+      window.clearInterval(replayTimer);
+      replayTimer = null;
+    }
+    replayState.playing = false;
+  }
+
+  function startReplay() {
+    stopReplay();
+    if (!replayState.data || !Array.isArray(replayState.data.frames) || !replayState.data.frames.length) {
+      renderReplayFrame();
+      return;
+    }
+    replayState.playing = true;
+    renderReplayFrame();
+    const interval = Math.max(180, Math.round(900 / Math.max(replayState.speed, 0.25)));
+    replayTimer = window.setInterval(() => {
+      const maxIndex = replayState.data.frames.length - 1;
+      if (replayState.frameIndex >= maxIndex) {
+        stopReplay();
+        renderSnapshot(replayState.data.frames[maxIndex].snapshot, {
+          mode: 'replay',
+          statusText: t('live_replay_finished'),
+          source: replayState.selectedRun || t('live_replay_latest'),
+          eventLabel: frameEventLabel(replayState.data.frames[maxIndex]),
+        });
+        renderToolbar();
+        return;
+      }
+      replayState.frameIndex += 1;
+      renderReplayFrame();
+    }, interval);
+  }
+
+  function toggleReplay() {
+    if (replayState.playing) {
+      stopReplay();
+      renderReplayFrame();
+    } else {
+      startReplay();
+    }
+  }
+
+  async function ensureReplayRuns(force = false) {
+    if (replayState.runs.length && !force) return replayState.runs;
+    const data = await apiGet('/api/replay-runs');
+    replayState.runs = Array.isArray(data.runs) ? data.runs : [];
+    if (!replayState.selectedRun && replayState.runs.length) {
+      const preferred = replayState.runs.find(r => r.trace_like) || replayState.runs[0];
+      replayState.selectedRun = preferred.id;
+    }
+    return replayState.runs;
+  }
+
+  async function loadReplayData(runId) {
+    replayState.data = null;
+    replayState.frameIndex = 0;
+    if (!runId) {
+      renderToolbar();
+      renderEmptyReplay();
+      return;
+    }
+    const data = await apiGet(`/api/replay-metrics?run=${encodeURIComponent(runId)}`);
+    replayState.data = data;
+    replayState.selectedRun = runId;
+    renderReplayFrame();
+  }
+
+  async function poll() {
+    if (replayState.mode === 'replay') return;
+    try {
+      const snapshot = await apiGet('/api/live-metrics');
+      renderToolbar();
+      renderSnapshot(snapshot, {
+        mode: 'live',
+        statusText: snapshot.running ? t('live_running') : t('live_idle'),
+      });
+    } catch (err) {
+      renderToolbar();
+      const root = document.getElementById('live-metrics-root');
+      if (root) {
+        setStatus(t('live_idle'), false);
         root.innerHTML = `<div class="live-panel"><div class="live-empty">${esc(t('live_waiting'))}</div></div>`;
       }
     }
@@ -387,19 +667,37 @@
 
   function init() {
     bridge = window.DashboardBridge || null;
+    renderToolbar();
     renderSnapshot({
       running: false,
       architecture: '',
       trace: {},
       phase: { current: 'idle', timeline: [] },
       moe: {},
+    }, {
+      mode: 'live',
+      statusText: t('live_idle'),
     });
     startPolling();
   }
 
   document.addEventListener('dashboard:bridge-ready', init, { once: true });
-  document.addEventListener('dashboard:state-changed', () => poll());
-  document.addEventListener('dashboard:lang-changed', () => poll());
+  document.addEventListener('dashboard:state-changed', () => {
+    if (replayState.mode === 'replay') {
+      renderToolbar();
+      renderReplayFrame();
+    } else {
+      poll();
+    }
+  });
+  document.addEventListener('dashboard:lang-changed', () => {
+    renderToolbar();
+    if (replayState.mode === 'replay') {
+      renderReplayFrame();
+    } else {
+      poll();
+    }
+  });
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     if (window.DashboardBridge) {

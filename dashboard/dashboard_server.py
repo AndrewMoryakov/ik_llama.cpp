@@ -18,6 +18,9 @@ Endpoints:
   POST /api/stop          — stop the running process
   POST /api/stdin         — write text to process stdin (interactive mode)
   GET  /api/output        — full stdout/stderr buffer
+  GET  /api/live-metrics  — current aggregated live observability snapshot
+  GET  /api/replay-runs   — list replay-capable benchmark run directories
+  GET  /api/replay-metrics — build replay frames from a stored run directory
 """
 
 import http.server
@@ -33,7 +36,7 @@ import time
 import ctypes
 from collections import deque
 from urllib.parse import urlparse, parse_qs
-from live_metrics import LiveMetricsAggregator
+from live_metrics import LiveMetricsAggregator, build_replay_from_run_dir, list_replay_runs
 
 # ── Config ──────────────────────────────────────────────────────
 HOST = "127.0.0.1"
@@ -42,6 +45,7 @@ DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(DASHBOARD_DIR)
 DASHBOARD_HTML = os.path.join(DASHBOARD_DIR, "dashboard.html")
 BUILD_BIN = os.path.join(REPO_ROOT, "build", "bin")
+BENCH_RESULTS_DIR = os.path.join(REPO_ROOT, "bench_results")
 
 # Static files allowed to be served (whitelist for security)
 STATIC_FILES = {
@@ -769,6 +773,22 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/live-metrics":
             self._json_response(pm.live_metrics.snapshot(pm.running))
+            return
+
+        if path == "/api/replay-runs":
+            self._json_response({"runs": list_replay_runs(BENCH_RESULTS_DIR)})
+            return
+
+        if path == "/api/replay-metrics":
+            qs = parse_qs(urlparse(self.path).query)
+            run_id = qs.get("run", [""])[0].strip()
+            if not run_id:
+                self._json_response({"error": "No run specified"}, 400)
+                return
+            run_dir = os.path.join(BENCH_RESULTS_DIR, run_id)
+            data = build_replay_from_run_dir(run_dir)
+            status = 200 if data.get("ok") else 404
+            self._json_response(data, status)
             return
 
         self.send_error(404)

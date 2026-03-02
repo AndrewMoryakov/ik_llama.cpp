@@ -1,3 +1,6 @@
+import copy
+import os
+import pathlib
 import re
 import time
 
@@ -61,6 +64,7 @@ class LiveMetricsAggregator:
             "ttft_ms": 0.0,
             "recent": [],
         }
+        self.phase_events = []
         self.moe = {
             "latest_stage": "",
             "latest_trace": None,
@@ -69,6 +73,7 @@ class LiveMetricsAggregator:
             "hot_selection": None,
             "top_experts": [],
         }
+        self.event_stream = []
 
     def start_session(self, env_overrides):
         self.reset()
@@ -83,10 +88,24 @@ class LiveMetricsAggregator:
     def _append_recent_phase(self, event):
         self.phase["recent"].append(event)
         self.phase["recent"] = self.phase["recent"][-16:]
+        self.phase_events.append(copy.deepcopy(event))
+        self.event_stream.append({
+            "kind": "phase",
+            "phase": event.get("phase"),
+            "tokens": event.get("tokens"),
+            "index": event.get("index"),
+            "total_ms": event.get("total_ms"),
+        })
 
     def _append_stage_history(self, trace):
         self.moe["stage_history"].append(trace)
         self.moe["stage_history"] = self.moe["stage_history"][-12:]
+        self.event_stream.append({
+            "kind": "moe_stage",
+            "stage": trace.get("stage"),
+            "locked_share": trace.get("locked_share"),
+            "budget": trace.get("budget"),
+        })
 
     def ingest_line(self, line):
         if not line:
@@ -170,6 +189,13 @@ class LiveMetricsAggregator:
                 "fails": int(m_selected.group("fails")),
                 "dispatches": int(m_selected.group("dispatches")),
             }
+            self.event_stream.append({
+                "kind": "hot_selection",
+                "locked": self.moe["hot_selection"]["locked"],
+                "total": self.moe["hot_selection"]["total"],
+                "budget": self.moe["hot_selection"]["budget"],
+                "top_experts": copy.deepcopy(top[:8]),
+            })
 
     def snapshot(self, running=False):
         timeline = [
@@ -202,3 +228,99 @@ class LiveMetricsAggregator:
             },
             "moe": self.moe,
         }
+
+
+def _iter_log_files(run_dir):
+    path = pathlib.Path(run_dir)
+    if not path.exists() or not path.is_dir():
+        return []
+    return sorted(
+        [p for p in path.iterdir() if p.is_file() and p.suffix.lower() == ".log"],
+        key=lambda p: (p.stat().st_mtime, p.name),
+    )
+
+
+def _file_has_trace_markers(path):
+    lower_name = path.name.lower()
+    if "trace" in lower_name:
+        return True
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if "pg-trace" in line or "hot experts trace" in line or "hot experts: locked" in line:
+                    return True
+                if i >= 2000:
+                    break
+    except Exception:
+        return False
+    return False
+
+
+def list_replay_runs(bench_root, limit=80):
+    root = pathlib.Path(bench_root)
+    if not root.exists() or not root.is_dir():
+        return []
+
+    runs = []
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+        logs = _iter_log_files(child)
+        if not logs:
+            continue
+        trace_like = any(_file_has_trace_markers(p) for p in logs[:4])
+        latest_mtime = max((p.stat().st_mtime for p in logs), default=child.stat().st_mtime)
+        runs.append({
+            "id": child.name,
+            "name": child.name,
+            "path": str(child),
+            "log_count": len(logs),
+            "trace_like": trace_like,
+            "last_modified_ts": latest_mtime,
+            "last_modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_mtime)),
+        })
+
+    runs.sort(key=lambda item: item["last_modified_ts"], reverse=True)
+    return runs[:limit]
+
+
+def build_replay_from_run_dir(run_dir):
+    logs = _iter_log_files(run_dir)
+    if not logs:
+        return {
+            "ok": False,
+            "error": f"No .log files found in {run_dir}",
+        }
+
+    agg = LiveMetricsAggregator()
+    agg.start_session({})
+    frames = []
+    frame_id = 0
+
+    for log_path in logs:
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    before = len(agg.event_stream)
+                    agg.ingest_line(line.rstrip("\n\r"))
+                    if len(agg.event_stream) > before:
+                        frame_id += 1
+                        frames.append({
+                            "id": frame_id,
+                            "event": copy.deepcopy(agg.event_stream[-1]),
+                            "snapshot": agg.snapshot(False),
+                        })
+        except Exception:
+            continue
+
+    final_snapshot = agg.snapshot(False)
+    return {
+        "ok": True,
+        "run_dir": str(run_dir),
+        "run_name": pathlib.Path(run_dir).name,
+        "log_count": len(logs),
+        "frame_count": len(frames),
+        "has_trace_data": bool(frames),
+        "frames": frames,
+        "final_snapshot": final_snapshot,
+    }

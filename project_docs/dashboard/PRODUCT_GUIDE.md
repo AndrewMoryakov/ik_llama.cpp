@@ -41,6 +41,9 @@
 10. показывать live inference view:
 - фазы `prompt -> first decode -> decode tail`
 - текущую активность `MoE` экспертов по trace-данным runtime
+11. показывать replay ранее сохраненных trace-run:
+- читать логи из `bench_results/`
+- пошагово проигрывать фазы и MoE activity без повторного запуска модели
 
 ## Из каких частей он состоит
 
@@ -118,6 +121,7 @@
 - summary по активности `MoE` экспертов
 - история последних фазовых событий
 - история стадий `hot experts`
+- replay mode по сохраненным benchmark/log run directories
 
 ### 6. `dashboard/dashboard-live.css`
 
@@ -132,6 +136,10 @@
 - `pg-trace`
 - `hot experts trace`
 - `hot experts: locked ... top-8 ...`
+
+И дополнительно:
+
+- строит replay frames из сохраненных `.log` файлов в `bench_results/`
 
 ## Как dashboard принимает решения
 

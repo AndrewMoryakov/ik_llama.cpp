@@ -41,6 +41,7 @@ Custom port:
 - live inference UI
 - phase timeline
 - MoE expert activity panels
+- replay mode for stored benchmark/log runs
 
 5. `dashboard-live.css`
 - styles for the live observability layer
@@ -48,11 +49,14 @@ Custom port:
 6. `live_metrics.py`
 - server-side parser/aggregator for runtime trace lines
 - converts `pg-trace` and `hot experts` logs into JSON snapshots
+- builds replay frames from stored run directories in `bench_results/`
 
 7. `dashboard_server.py`
 - local stdlib-only server
 - launch/status/output API
 - `/api/live-metrics`
+- `/api/replay-runs`
+- `/api/replay-metrics`
 
 8. `dashboard_server.sh`
 - Linux launcher
