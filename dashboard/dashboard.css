@@ -1181,28 +1181,42 @@ details[open] > summary::after {
   display: flex;
   gap: 10px;
   margin-bottom: 18px;
+  flex-wrap: wrap;
 }
 
 .opt-subtab-btn {
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
-  color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(10,14,22,0.92);
+  color: rgba(242, 247, 255, 0.92);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 11px 15px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .opt-subtab-btn:hover {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.18);
+  background: rgba(25,33,48,0.98);
+  border-color: rgba(255,255,255,0.24);
 }
 
 .opt-subtab-btn.active {
-  background: rgba(93, 173, 226, 0.16);
-  border-color: rgba(93, 173, 226, 0.45);
-  color: #eaf6ff;
+  background: linear-gradient(180deg, rgba(50, 82, 126, 0.96), rgba(35, 58, 94, 0.98));
+  border-color: rgba(139, 196, 255, 0.56);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+
+.opt-subtab-icon {
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  opacity: 0.95;
 }
 
 .opt-subpane {
@@ -1223,12 +1237,14 @@ details[open] > summary::after {
 
 .experimental-intro-title {
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  font-size: 15px;
 }
 
 .experimental-intro-body {
   color: var(--text-muted);
-  line-height: 1.45;
+  line-height: 1.4;
+  font-size: 13px;
 }
 
 .experimental-preset-note .model-badge {
@@ -1238,14 +1254,24 @@ details[open] > summary::after {
 .experimental-preset-workspace {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+  padding: 12px 14px;
 }
 
 .experimental-preset-head {
   display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.experimental-intro.card-subtle {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.experimental-preset-copy {
+  min-width: 0;
 }
 
 .experimental-link-card {
@@ -1253,43 +1279,65 @@ details[open] > summary::after {
   background: rgba(255,255,255,0.02);
   border-radius: 14px;
   padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .experimental-link-card .param-label {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .experimental-link-card .param-desc {
-  margin-top: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .experimental-preset-note {
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.02);
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 10px 12px;
 }
 
 .exp-preset-dropdown {
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 16px;
-  background: rgba(255,255,255,0.02);
+  background: rgba(18,22,31,0.88);
   overflow: hidden;
 }
 
 .exp-preset-dropdown summary {
   list-style: none;
   cursor: pointer;
-  padding: 16px 18px;
+  padding: 14px 46px 14px 16px;
+  position: relative;
 }
 
 .exp-preset-dropdown summary::-webkit-details-marker {
   display: none;
 }
 
+.exp-preset-dropdown summary::after {
+  content: '▾';
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-size: 16px;
+  transition: transform .18s ease, color .18s ease;
+}
+
+.exp-preset-dropdown[open] summary::after {
+  transform: translateY(-50%) rotate(180deg);
+  color: #eaf6ff;
+}
+
 .exp-preset-summary {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .exp-preset-summary-top {
@@ -1299,9 +1347,18 @@ details[open] > summary::after {
   gap: 12px;
 }
 
+.exp-preset-summary-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .exp-preset-summary-title {
   font-weight: 700;
   color: var(--text-primary);
+  font-size: 15px;
 }
 
 .exp-preset-summary-meta {
@@ -1312,16 +1369,18 @@ details[open] > summary::after {
 
 .exp-preset-summary-desc {
   color: var(--text-secondary);
-  line-height: 1.5;
-  font-size: 13px;
+  line-height: 1.4;
+  font-size: 12px;
 }
 
 .exp-preset-menu {
   border-top: 1px solid rgba(255,255,255,0.08);
   display: grid;
-  gap: 10px;
-  padding: 14px 16px 16px;
+  gap: 8px;
+  padding: 10px 12px 12px;
   background: rgba(255,255,255,0.01);
+  max-height: 360px;
+  overflow: auto;
 }
 
 .exp-preset-option {
@@ -1330,9 +1389,9 @@ details[open] > summary::after {
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
   background: rgba(255,255,255,0.02);
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease, transform .18s ease;
 }
@@ -1344,8 +1403,9 @@ details[open] > summary::after {
 }
 
 .exp-preset-option.active {
-  border-color: rgba(255,255,255,0.18);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
+  border-color: rgba(139, 196, 255, 0.42);
+  background: rgba(47, 72, 109, 0.26);
+  box-shadow: 0 0 0 1px rgba(139, 196, 255, 0.10) inset;
 }
 
 .exp-preset-option-title-row {
@@ -1358,12 +1418,13 @@ details[open] > summary::after {
 .exp-preset-option-title {
   font-weight: 700;
   color: var(--text-primary);
+  font-size: 14px;
 }
 
 .exp-preset-option-desc {
   color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .exp-preset-option-meta {
@@ -1414,6 +1475,13 @@ details[open] > summary::after {
 
 .preset-chip.scope-generic {
   color: var(--text-secondary);
+}
+
+.experimental-preset-hint-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .section-badge {

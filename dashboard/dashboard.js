@@ -91,15 +91,15 @@ const LANG = {
     p_ctk: 'Тип KV Cache K', d_ctk: 'Квантизация ключей в KV-кеше. q8_0 — текущий лучший baseline: сильно экономит память и в текущих validated профилях не показал заметимой деградации. Для макс. контекста можно q4_0',
     p_ctv: 'Тип KV Cache V', d_ctv: 'Квантизация значений в KV-кеше. Можно агрессивнее чем K — качество менее чувствительно. q4_0 для максимального контекстного окна',
     p_mla: 'Режим MLA', d_mla: 'Multi-head Latent Attention — режим работы KV-кеша для моделей, поддерживающих MLA (DeepSeek и т.п.). 3 = автовыбор оптимального',
-    p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная опция: роутер отбрасывает экспертов с весом ниже threshold, гарантируя минимум min_experts. Это promising для huge MoE, но пока не validated default',
-    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Экспериментальный env-knob для huge MoE: сколько hot experts пытаться держать залоченными после prompt. 0 = не задавать, оставить runtime default. Для MiniMax первый более длинный controlled run не подтвердил новый default выше legacy 16, поэтому начинайте с 0',
-    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'Как runtime выбирает hot experts после первого prompt. Для MiniMax locality-исследований режим tail-window смотрит только на хвост prompt вместо всего prompt.',
-    p_hot_tail: 'Tail Window', d_hot_tail: 'Если Hot Expert Selection = tail-window, использовать последние N prompt-токенов как прогноз для первых decode-шагов. Малое окно = более локальный прогноз, большое = ближе к full-prompt.',
+    p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная router-side опция: движок может отбросить очень слабых экспертов и не тратить на них память/доступ, сохранив минимум min_experts. Идея особенно интересна для huge swap-bound MoE, но это пока A/B-территория, не baseline.',
+    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Сколько «горячих» экспертов после prompt пытаться удерживать ближе к памяти. Это влияет не на качество модели, а на то, какие experts runtime старается не отпускать перед decode. Для обычного MiniMax запуска начинайте с 0: большие бюджеты пока не стали новым default.',
+    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'Как именно runtime решает, какие эксперты считать hot после prompt. full-prompt = смотреть на весь prompt. tail-window = смотреть только на конец prompt. Это меняет логику выбора experts для раннего decode: последние токены prompt могут лучше предсказывать первые ответы модели.',
+    p_hot_tail: 'Tail Window', d_hot_tail: 'Размер хвоста prompt для режима tail-window. Например, 16 означает: выбирать hot experts только по последним 16 токенам prompt, а не по всему prompt. Малое окно = более локальный и агрессивный прогноз; большое = ближе к full-prompt.',
     p_exp_preset: 'Экспериментальный пресет', d_exp_preset: 'Готовые наборы исследовательских ручек. Используйте их как старт для A/B, а не как validated default.',
     p_exp_link: 'Связывать пресет с проверенными настройками', d_exp_link: 'Если ON, выбор экспериментального пресета может также перестроить проверенные параметры, когда без этого bundle теряет смысл. Если OFF, меняются только экспериментальные ручки.',
-    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Экспериментальный prompt-only путь, который упаковывает split Q/K/V проекции в более локальный runtime layout. Может ускорять prompt-часть, но иногда стоит дополнительной RAM и времени загрузки.',
-    p_prompt_packed_preset: 'Preset Prompt Packed', d_prompt_packed_preset: 'Готовые диапазоны слоёв для Prompt Packed QKV. По текущим research-данным Qwen чаще тяготеет к front-half, а gpt-oss — к back-half.',
-    p_prompt_packed_range: 'Диапазон Prompt Packed', d_prompt_packed_range: 'Необязательный явный диапазон слоёв вида start:end. Если указан, он важнее preset и предназначен только для осознанного A/B.',
+    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Экспериментальный prompt-only режим: вместо обычных раздельных Q/K/V runtime пробует более локальный layout для prompt-фазы. Это может ускорять обработку prompt, но не обязано ускорять всю сессию и иногда стоит дополнительной RAM/времени загрузки.',
+    p_prompt_packed_preset: 'Preset Prompt Packed', d_prompt_packed_preset: 'Готовый способ сказать runtime, какие слои пробовать упаковывать. Это не «лучший режим вообще», а быстрый старт для A/B: у Qwen чаще смысл имеет front-half, у gpt-oss — back-half.',
+    p_prompt_packed_range: 'Диапазон Prompt Packed', d_prompt_packed_range: 'Ручной override для продвинутого A/B. Вы явно задаёте, на каких слоях включать Prompt Packed. Если не уверены, зачем вам свой диапазон, используйте preset.',
     opt_tab_validated: 'Проверено',
     opt_tab_experimental: 'Эксперименты',
     opt_exp_title: 'Экспериментальные параметры',
@@ -524,10 +524,10 @@ const LANG = {
     p_ctk: 'KV Cache K Type', d_ctk: 'Key quantization in KV cache. q8_0 is the current best baseline: it saves a lot of memory and showed no meaningful regression in the current validated profiles. For max context try q4_0',
     p_ctv: 'KV Cache V Type', d_ctv: 'Value quantization in KV cache. Can be more aggressive than K — quality is less sensitive. q4_0 for maximum context window',
     p_mla: 'MLA Mode', d_mla: 'Multi-head Latent Attention — KV cache mode for models supporting MLA (DeepSeek etc.). 3 = auto-select optimal',
-    p_ser: 'Smart Expert Reduction', d_ser: 'Experimental option: router drops experts below a threshold while guaranteeing min_experts. Promising for huge MoE, but not a validated default yet',
-    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Experimental env knob for huge MoE: how many hot experts to try to keep locked after prompt. 0 = do not set it, keep the runtime default. For MiniMax, the first longer controlled run did not justify promoting a larger default above legacy 16, so start with 0',
-    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'How the runtime chooses hot experts after the first prompt. For MiniMax locality research, tail-window looks only at the prompt tail instead of the whole prompt.',
-    p_hot_tail: 'Tail Window', d_hot_tail: 'If Hot Expert Selection = tail-window, use the last N prompt tokens as a predictor for the first decode steps. Smaller windows are more local; larger ones behave more like full-prompt.',
+    p_ser: 'Smart Expert Reduction', d_ser: 'Experimental router-side option: the engine may drop very weak experts and avoid spending memory/access on them while still keeping at least min_experts. This is most interesting for huge swap-bound MoE, but it is still A/B territory, not a baseline.',
+    p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'How many “hot” experts the runtime should try to keep closer to memory after the prompt. This does not change model quality directly; it changes which experts the engine tries to retain before decode. For normal MiniMax use, start with 0: larger budgets have not become a new default.',
+    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'How the runtime decides which experts become hot after the prompt. full-prompt = look at the whole prompt. tail-window = look only at the end of the prompt. This changes the expert-selection logic for early decode: the last prompt tokens may predict the first answer tokens better than the full prompt.',
+    p_hot_tail: 'Tail Window', d_hot_tail: 'How large the prompt tail is when tail-window mode is used. For example, 16 means: choose hot experts only from the last 16 prompt tokens, not from the whole prompt. Smaller windows are more local and aggressive; larger ones behave more like full-prompt.',
     opt_tab_validated: 'Validated',
     opt_tab_experimental: 'Experimental',
     opt_exp_title: 'Experimental knobs',
@@ -536,9 +536,9 @@ const LANG = {
     opt_exp_learn_body: 'These settings do not change model weights. They change runtime behavior: which experts are treated as hot, how much of the prompt is trusted as a predictor of early decode, and whether very weak experts may be dropped. Change one knob at a time and compare against the validated baseline.',
     p_exp_preset: 'Experimental preset', d_exp_preset: 'Ready-made research bundles. Use them as fast A/B starting points, not as validated defaults.',
     p_exp_link: 'Link preset to validated settings', d_exp_link: 'If ON, applying an experimental preset may also adjust validated knobs when the bundle depends on them. If OFF, only experimental controls change.',
-    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Experimental prompt-only path that packs split Q/K/V projections into a more locality-friendly runtime layout. It can help prompt-side work, but may cost extra RAM and load time.',
-    p_prompt_packed_preset: 'Prompt Packed preset', d_prompt_packed_preset: 'Predefined layer ranges for Prompt Packed QKV. Current research suggests Qwen tends to prefer front-half, while gpt-oss tends to prefer back-half.',
-    p_prompt_packed_range: 'Prompt Packed range', d_prompt_packed_range: 'Optional explicit layer range such as start:end. If set, it overrides the preset and should only be used for deliberate A/B checks.',
+    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Experimental prompt-only mode: instead of the usual split Q/K/V path, runtime tries a more locality-friendly layout for the prompt phase. This may speed up prompt processing, but it does not automatically speed up the full session and may cost extra RAM/load time.',
+    p_prompt_packed_preset: 'Prompt Packed preset', d_prompt_packed_preset: 'A ready-made way to tell runtime which layers to try packing. This is not “the best mode in general”; it is a fast A/B starting point. Current research suggests Qwen tends to like front-half, while gpt-oss tends to like back-half.',
+    p_prompt_packed_range: 'Prompt Packed range', d_prompt_packed_range: 'Manual override for advanced A/B. You explicitly choose which layers should use Prompt Packed. If you do not know why you need a custom range, use a preset instead.',
     p_live_obs: 'Live Observability', d_live_obs: 'Dashboard-only traces for interactive inference-phase and expert-activity visualization. Useful for learning and debugging; disable it for the cleanest benchmark runs.',
     ser_min: 'min experts:', ser_thresh: 'threshold:',
     p_gr: 'Graph Reuse', d_gr: 'Reuse compute graph between tokens. Saves graph construction time. Only disable for debugging',
@@ -2034,6 +2034,10 @@ function renderExperimentalPresetPicker() {
 
   const selectedId = state.experimental_preset || 'none';
   const selected = getExperimentalPresetConfig(selectedId, state);
+  const pickerKicker = currentLang === 'ru' ? 'Выбери исследовательский bundle' : 'Choose a research bundle';
+  const pickerHint = currentLang === 'ru'
+    ? 'Безопасный baseline не меняется сам по себе. Этот control только собирает воспроизводимый A/B-старт.'
+    : 'The safe baseline does not change by itself. This control only builds a reproducible A/B starting point.';
   const options = Object.entries(EXPERIMENTAL_PRESETS).map(([id, cfg]) => {
     const cfgResolved = getExperimentalPresetConfig(id, state);
     const active = id === selectedId ? 'active' : '';
@@ -2055,6 +2059,7 @@ function renderExperimentalPresetPicker() {
     <details class="exp-preset-dropdown">
       <summary>
         <div class="exp-preset-summary">
+          <div class="exp-preset-summary-kicker">${pickerKicker}</div>
           <div class="exp-preset-summary-top">
             <div class="exp-preset-summary-title">${selected.titleText}</div>
             <div class="exp-preset-summary-meta">
@@ -2063,6 +2068,7 @@ function renderExperimentalPresetPicker() {
             </div>
           </div>
           <div class="exp-preset-summary-desc">${selected.description}</div>
+          <div class="exp-preset-summary-desc">${pickerHint}</div>
         </div>
       </summary>
       <div class="exp-preset-menu">${options}</div>
@@ -2072,6 +2078,10 @@ function renderExperimentalPresetPicker() {
 
 function selectExperimentalPreset(preset) {
   applyExperimentalPreset(preset);
+  const details = document.querySelector('#experimental-preset-picker .exp-preset-dropdown');
+  if (details) {
+    details.open = false;
+  }
 }
 
 function renderExperimentalPresetHint() {
@@ -2085,7 +2095,7 @@ function renderExperimentalPresetHint() {
   el.innerHTML = `
     <div class="experimental-intro-title">${cfg.titleText}</div>
     <div class="experimental-intro-body">${cfg.description}${cfg.note}</div>
-    <div class="experimental-intro-body" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px">
+    <div class="experimental-preset-hint-line">
       <span class="preset-chip risk-${cfg.risk}">${experimentalPresetRiskLabel(cfg.risk)}</span>
       <span class="preset-chip scope-${cfg.scope}">${experimentalPresetScopeLabel(cfg.scope)}</span>
       <span class="model-badge family-generic">${linkLabel}</span>
@@ -3518,7 +3528,7 @@ const HELP = {
 <p>• Снижает потребление памяти с O(n²) до O(n)</p>
 <p>• Увеличивает скорость за счёт лучшей утилизации кеша</p>
 <p>• Позволяет работать с более длинным контекстом</p>
-<div class="tip">На текущем Zen4 профиле держите ON по умолчанию. Выключать стоит только для явной A/B-проверки, совместимости или диагностики.</div>
+<div class="tip">Что меняет: путь attention начинает тратить меньше памяти и делать меньше лишних проходов по данным. Где помогает: prompt и mixed path, длинный контекст, MoE на Zen4. Где может навредить: обычно нигде, кроме редкой диагностики backend-specific проблем. Когда трогать: почти никогда — держите ON.</div>
 <div class="see-also">См. также: <span>-ctk</span> (тип KV-кеша), <span>-c</span> (контекст)</div>`,
     en: `<h4>Flash Attention (-fa)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Attention is the core LLM mechanism: the model "looks at" all previous tokens to decide what to say next. Flash Attention is an optimized version — faster and uses less memory. Always enable it.</div>
@@ -3526,7 +3536,7 @@ const HELP = {
 <p>• Reduces memory from O(n²) to O(n)</p>
 <p>• Faster through better cache utilization</p>
 <p>• Enables longer context windows</p>
-<div class="tip">Keep it ON by default on the current Zen4 profile. Only disable it for explicit A/B checks, compatibility work, or debugging.</div>
+<div class="tip">What it changes: the attention path uses less memory and fewer wasteful passes over data. Where it helps: prompt and mixed path, long context, Zen4 MoE. Where it can hurt: usually nowhere except rare backend-specific debugging. When to touch it: almost never — keep it ON.</div>
 <div class="see-also">See also: <span>-ctk</span> (KV cache type), <span>-c</span> (context)</div>`,
   },
   repack_tensors: {
@@ -3540,8 +3550,9 @@ const HELP = {
 <div class="bench">Почему это важно:
 • in-RAM модель: repack может помочь CPU locality
 • swap-bound модель: принудительный ON может отключить mmap и увеличить working set
-• mixed path (prompt+generation) нельзя оценивать только по TG</div>
-<div class="tip">Простое правило для новичка: <b>MoE на Zen4</b> — начните с <span class="hl">rtr=auto</span>. Если это MiniMax или очень большая swap-bound модель — для <span class="hl">TG-only</span> начните с <span class="hl">off</span>, а для <span class="hl">mixed path</span> обязательно сравните <span class="hl">off</span> и <span class="hl">auto</span>.</div>
+• mixed path (prompt+generation) нельзя оценивать только по TG
+• этот параметр меняет не математику модели, а runtime-layout весов и поведение памяти</div>
+<div class="tip">Простое правило для новичка: <b>MoE на Zen4</b> — начните с <span class="hl">rtr=auto</span>. Если это MiniMax или очень большая swap-bound модель — для <span class="hl">TG-only</span> начните с <span class="hl">off</span>, а для <span class="hl">mixed path</span> обязательно сравните <span class="hl">off</span> и <span class="hl">auto</span>. Трогать <span class="hl">on</span> без отдельного основания обычно не нужно.</div>
 <div class="see-also">См. также: <span>-muge</span> (merge экспертов), <span>mmap</span></div>`,
     en: `<h4>Runtime Repack (-rtr)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Repack rearranges model weights into a CPU-friendlier layout. That can speed up compute, but it also changes memory and loading behavior. The fork now has three modes: <span class="hl">off</span>, <span class="hl">on</span>, <span class="hl">auto</span>.</div>
@@ -3553,8 +3564,9 @@ const HELP = {
 <div class="bench">Why it matters:
 • in-RAM model: repack can help CPU locality
 • swap-bound model: forced ON can disable mmap and increase working set
-• mixed path (prompt+generation) must not be judged from TG alone</div>
-<div class="tip">Simple beginner rule: for <b>MoE on Zen4</b>, start with <span class="hl">rtr=auto</span>. If the model is MiniMax or another huge swap-bound case, start <span class="hl">TG-only</span> with <span class="hl">off</span>, and for <span class="hl">mixed path</span> explicitly compare <span class="hl">off</span> and <span class="hl">auto</span>.</div>
+• mixed path (prompt+generation) must not be judged from TG alone
+• this knob changes not the model math but the runtime layout of weights and memory behavior</div>
+<div class="tip">Simple beginner rule: for <b>MoE on Zen4</b>, start with <span class="hl">rtr=auto</span>. If the model is MiniMax or another huge swap-bound case, start <span class="hl">TG-only</span> with <span class="hl">off</span>, and for <span class="hl">mixed path</span> explicitly compare <span class="hl">off</span> and <span class="hl">auto</span>. Touch <span class="hl">on</span> only if you have a specific reason.</div>
 <div class="see-also">See also: <span>-muge</span> (merge experts), <span>mmap</span></div>`,
   },
   merge_up_gate_exps: {
@@ -3563,14 +3575,14 @@ const HELP = {
 <p>Объединяет два экспертных тензора (ffn_up_exps и ffn_gate_exps) в один непрерывный тензор. Потенциально лучше утилизирует кеш при последовательном доступе.</p>
 <p><b>Только MoE:</b> на dense моделях эффекта нет.</p>
 <p><b>Для swap-bound MoE:</b> высокий риск деградации — растут непрерывные выделения и page faults.</p>
-<div class="tip">Текущий практический вывод: сильного стабильного выигрыша не подтверждено даже для in-RAM MoE. Безопаснее держать OFF и включать только для отдельных проверок.</div>
+<div class="tip">Что меняет: layout expert-тензоров и характер доступа к ним. Где может помочь: отдельные in-RAM MoE A/B. Где может навредить: huge swap-bound MoE из-за больших непрерывных выделений и page faults. Когда трогать: редко, только в целевых тестах.</div>
 <div class="see-also">См. также: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
     en: `<h4>Merge Up+Gate Experts (-muge)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In MoE models each "expert" consists of two parts (up and gate). This option glues them into one so the CPU reads them in a single pass. Only works for MoE models. For large swap-bound models the regression risk is high.</div>
 <p>Merges two expert tensors (ffn_up_exps and ffn_gate_exps) into one contiguous tensor. Potentially better cache utilization for sequential access.</p>
 <p><b>MoE only:</b> no effect on dense models.</p>
 <p><b>For swap-bound MoE:</b> regression risk is high — larger contiguous allocations and more page-fault pressure.</p>
-<div class="tip">Current practical takeaway: no strong stable win is confirmed even for in-RAM MoE. Safer to keep it OFF and only enable for targeted testing.</div>
+<div class="tip">What it changes: the layout of expert tensors and the way they are accessed. Where it may help: targeted in-RAM MoE A/B checks. Where it can hurt: huge swap-bound MoE because of larger contiguous allocations and page-fault pressure. When to touch it: rarely, only in targeted tests.</div>
 <div class="see-also">See also: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
   },
   cache_type_k: {
@@ -3582,7 +3594,7 @@ const HELP = {
 • <span class="good">q8_0:  1 байт/элемент — 50% экономии, текущий безопасный baseline</span>
 • q4_0:  0.5 байт/элемент — 75% экономии, минимальные потери
 • f32:   4 байта — перерасход, не рекомендуется</div>
-<div class="tip"><b>q8_0 — текущий лучший baseline.</b> Он резко экономит память KV-кеша и в текущих validated профилях не показал значимой деградации.</div>
+<div class="tip"><b>q8_0 — текущий лучший baseline.</b> Что меняет этот параметр: размер и точность KV-кеша. Где помогает: длинный контекст и нехватка RAM. Где может навредить: слишком агрессивные режимы вроде q4_0 могут ухудшать качество на длинных сессиях. Когда трогать: когда реальный bottleneck — память или контекст, а не просто «хочется покрутить цифры».</div>
 <div class="see-also">См. также: <span>-ctv</span> (тип V-кеша), <span>-khad</span> (Hadamard), <span>-c</span> (контекст)</div>`,
     en: `<h4>KV Cache K Type (-ctk)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>As the model generates text, it memorizes "keys" and "values" for each previous token — that's the KV cache. The longer the conversation, the more memory it uses. Quantization (q8_0) compresses this data by half with no quality loss — like lossless ZIP for photos.</div>
@@ -3592,7 +3604,7 @@ const HELP = {
 • <span class="good">q8_0:  1 byte/element — 50% savings, current safe baseline</span>
 • q4_0:  0.5 bytes/element — 75% savings, minimal loss
 • f32:   4 bytes — wasteful, not recommended</div>
-<div class="tip"><b>q8_0 is the current best baseline.</b> It saves a lot of KV memory and showed no meaningful regression in the current validated profiles.</div>
+<div class="tip"><b>q8_0 is the current best baseline.</b> What this changes: the size and precision of the KV cache. Where it helps: long context and RAM pressure. Where it can hurt: very aggressive modes such as q4_0 may reduce quality on long sessions. When to touch it: when memory or context length is the real bottleneck, not just because the number looks smaller.</div>
 <div class="see-also">See also: <span>-ctv</span> (V-cache type), <span>-khad</span> (Hadamard), <span>-c</span> (context)</div>`,
   },
   cache_type_v: {
@@ -3604,7 +3616,7 @@ const HELP = {
 • q8_0:  <span class="good">безопасный выбор</span> — 50% экономии
 • q4_0:  75% экономии — для максимального контекста
 • Для swap-bound: q8_0 (экономим RAM для весов)</div>
-<div class="tip">Для большинства случаев ставьте как -ctk (q8_0). Для контекста 128K+ можно q4_0.</div>
+<div class="tip">Что меняет: объем и точность V-части KV-кеша. Где помогает: очень длинный контекст и дефицит RAM. Где может навредить: слишком агрессивное сжатие может снижать устойчивость long-context reasoning. Когда трогать: если реально боретесь за память, а не просто хотите «самую агрессивную» настройку.</div>
 <div class="see-also">См. также: <span>-ctk</span> (тип K-кеша), <span>-c</span> (контекст)</div>`,
     en: `<h4>KV Cache V Type (-ctv)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Same as -ctk but for "values" (V). V-cache is less sensitive to compression, so you can quantize it more aggressively (q4_0), especially if you need a huge context window.</div>
@@ -3614,7 +3626,7 @@ const HELP = {
 • q8_0:  <span class="good">safe choice</span> — 50% savings
 • q4_0:  75% savings — for maximum context
 • For swap-bound: q8_0 (save RAM for weights)</div>
-<div class="tip">For most cases set same as -ctk (q8_0). For 128K+ context try q4_0.</div>
+<div class="tip">What this changes: the size and precision of the V-side of KV cache. Where it helps: very long context and RAM pressure. Where it can hurt: overly aggressive compression may reduce long-context stability. When to touch it: when you are genuinely fighting for memory, not just chasing the most aggressive setting.</div>
 <div class="see-also">See also: <span>-ctk</span> (K-cache type), <span>-c</span> (context)</div>`,
   },
   ser: {
@@ -3627,7 +3639,7 @@ const HELP = {
 • Без SER: роутер всегда тащит полный top-K
 • С SER: часть слабых экспертов может быть отброшена
 • Это потенциально уменьшает swap I/O, но эффект и цена по качеству пока нужно проверять отдельно</div>
-<div class="tip">SER пока держите как experimental knob. Если проверяете, начните с <span class="hl">-ser 4,0.05</span> и обязательно делайте A/B по качеству и скорости.</div>
+<div class="tip">Что меняет: runtime начинает пропускать часть слабых experts вместо полного top-K. Где помогает: huge swap-bound MoE, где дорог не compute, а доступ к expert weights. Где может навредить: качество и устойчивость reasoning. Когда трогать: только как controlled A/B, не как «включу на всякий случай».</div>
 <div class="see-also">См. также: <span>тип модели</span> (Dense vs MoE)</div>`,
     en: `<h4>Smart Expert Reduction (-ser)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In MoE models, experts "vote" on each token and usually the top 8 are selected. But sometimes 2-3 of them barely contribute (very low "vote"). SER filters out these weak experts, saving time loading them from disk. It's like not inviting people who have nothing to say to a meeting.</div>
@@ -3638,7 +3650,7 @@ const HELP = {
 • Without SER: the router always keeps the full top-K
 • With SER: some weak experts may be dropped
 • That can reduce swap I/O, but both the speed effect and the quality cost still need separate validation</div>
-<div class="tip">Treat SER as an experimental knob for now. If you test it, start with <span class="hl">-ser 4,0.05</span> and always do quality and speed A/B checks.</div>
+<div class="tip">What this changes: runtime begins skipping some weak experts instead of always keeping the full top-K. Where it helps: huge swap-bound MoE where expert-weight access is the real cost. Where it can hurt: quality and reasoning stability. When to touch it: only as a controlled A/B, not as a casual “maybe faster” switch.</div>
 <div class="see-also">See also: <span>model type</span> (Dense vs MoE)</div>`,
   },
   hot_expert_budget: {
@@ -3650,7 +3662,7 @@ const HELP = {
 • слишком маленький budget — полезные эксперты не помещаются в hot-набор
 • слишком большой budget — растёт давление на RAM без гарантии выигрыша
 • короткий quick check когда-то подсветил большие бюджеты, но первый более длинный controlled MiniMax run не оправдал новый default выше legacy 16</div>
-<div class="tip">Трогайте этот параметр только для huge swap-bound MoE, прежде всего MiniMax. Для обычного запуска MiniMax безопаснее оставить 0. Для Qwen3MoE, gpt-oss и неизвестных моделей тоже лучше оставить 0.</div>
+<div class="tip">Что меняет: сколько experts runtime пытается держать «теплыми» после prompt. Где помогает: huge swap-bound MoE, если ранний decode переиспользует узкий hot set. Где может навредить: лишнее давление на RAM и удержание неправильных experts. Когда трогать: в первую очередь для MiniMax-класса и только как controlled test.</div>
 <div class="see-also">См. также: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>тип модели</span> (Dense vs MoE)</div>`,
     en: `<h4>Hot Expert Budget (IK_LLAMA_HOT_EXPERT_BUDGET)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In huge MoE models such as MiniMax, not all experts are equally useful right after the prompt. The fork can remember "hot" experts from the prompt phase and try to keep them resident for the first decode tokens. This parameter sets how many experts are allowed in that hot set.</div>
@@ -3660,7 +3672,7 @@ const HELP = {
 • too small a budget — useful experts do not fit into the hot set
 • too large a budget — RAM pressure increases without a guaranteed win
 • a short quick check once highlighted larger budgets, but the first longer controlled MiniMax run did not justify a new default above the legacy 16 budget</div>
-<div class="tip">Only touch this for huge swap-bound MoE, primarily MiniMax. For normal MiniMax use, leaving it at 0 is safer. For Qwen3MoE, gpt-oss, and unknown families, leaving it at 0 is also the safer choice.</div>
+<div class="tip">What this changes: how many experts runtime tries to keep “warm” after the prompt. Where it helps: huge swap-bound MoE if early decode reuses a narrow hot set. Where it can hurt: extra RAM pressure and retention of the wrong experts. When to touch it: mainly for MiniMax-class tests and only as a controlled experiment.</div>
 <div class="see-also">See also: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>model type</span> (Dense vs MoE)</div>`,
   },
   hot_expert_selection: {
@@ -3672,7 +3684,9 @@ const HELP = {
 <div class="bench">Практический смысл:
 • full-prompt — более общий и консервативный выбор
 • tail-window — более локальный прогноз для первых decode-шагов
-• это не меняет веса модели, а только меняет runtime-логику выбора hot experts</div>
+• это не меняет веса модели и не «переучивает» router
+• меняется именно runtime-логика: какие experts fork считает приоритетными для раннего decode
+• то есть вы меняете не саму модель, а способ использовать prompt как прогноз для ближайших токенов ответа</div>
 <div class="tip">Сейчас это имеет смысл прежде всего для huge MiniMax. Для обычного запуска других MoE-моделей не включайте это без отдельного A/B.</div>
 <div class="see-also">См. также: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
     en: `<h4>Hot Expert Selection (IK_LLAMA_HOT_EXPERT_SELECTION)</h4>
@@ -3683,7 +3697,9 @@ const HELP = {
 <div class="bench">Practical meaning:
 • full-prompt — more general and conservative selection
 • tail-window — more local prediction for the first decode steps
-• this does not change model weights, only the runtime logic used to choose hot experts</div>
+• this does not change model weights and does not “retrain” the router
+• it changes the runtime logic: which experts the fork treats as priority candidates for early decode
+• in other words, you are not changing the model itself; you are changing how prompt information is used as a predictor for the first answer tokens</div>
 <div class="tip">Right now this mainly makes sense for huge MiniMax. Do not enable it for other MoE families without a separate A/B check.</div>
 <div class="see-also">See also: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
   },
@@ -3692,14 +3708,16 @@ const HELP = {
 <div class="beginner-section"><div class="label">Для новичков</div>Если выбор hot experts идет по хвосту prompt, нужно указать размер этого хвоста. Например, 16 означает: смотреть только на последние 16 токенов prompt.</div>
 <p><b>Малое окно</b> — агрессивный локальный прогноз. Лучше ловит совсем ранний decode, но может пропустить более широкий контекст.</p>
 <p><b>Большое окно</b> — ближе к поведению full-prompt, но эффект locality может стать слабее.</p>
-<div class="bench">Текущий рабочий research-кандидат для MiniMax mixed-path: <span class="hl">16</span>. Это не validated default, а лишь первый promising A/B-результат.</div>
+<div class="bench">Текущий рабочий research-кандидат для MiniMax mixed-path: <span class="hl">16</span>. Это не validated default, а лишь первый promising A/B-результат.
+<br>Интуитивно: вместо вопроса «какие experts были важны для всего prompt?» runtime задаёт более узкий вопрос: «какие experts были важны для самого конца prompt, из которого сейчас начнётся ответ?»</div>
 <div class="tip">Используйте только вместе с Hot Expert Selection = tail-window. Если не тестируете MiniMax locality специально, оставьте как есть.</div>
 <div class="see-also">См. также: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
     en: `<h4>Tail Window (IK_LLAMA_HOT_EXPERT_TAIL_WINDOW)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>If hot experts are chosen from the prompt tail, you must specify how large that tail is. For example, 16 means: look only at the last 16 prompt tokens.</div>
 <p><b>Small window</b> — aggressive local prediction. Better for very early decode, but may miss wider context.</p>
 <p><b>Large window</b> — closer to full-prompt behavior, but the locality effect may become weaker.</p>
-<div class="bench">Current working research candidate for MiniMax mixed-path: <span class="hl">16</span>. This is not a validated default, only the first promising A/B result.</div>
+<div class="bench">Current working research candidate for MiniMax mixed-path: <span class="hl">16</span>. This is not a validated default, only the first promising A/B result.
+<br>Intuitively: instead of asking “which experts mattered for the whole prompt?”, runtime asks the narrower question “which experts mattered for the very end of the prompt, where the answer is about to begin?”</div>
 <div class="tip">Use this only together with Hot Expert Selection = tail-window. If you are not testing MiniMax locality on purpose, leave it alone.</div>
     <div class="see-also">See also: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
   },
@@ -3741,7 +3759,7 @@ const HELP = {
 • может ускорять prompt-часть
 • эффект на полный mixed path обычно меньше
 • иногда стоит дополнительной RAM и времени загрузки</div>
-<div class="tip">Это не универсальная кнопка “сделать быстрее”. Используйте как research-only knob для Qwen3MoE и gpt-oss.</div>
+<div class="tip">Что меняет: только prompt-path layout, а не всю модель. Где помогает: prompt-heavy и mixed-path A/B на split-QKV семьях. Где может навредить: RAM, load time и общая простота baseline. Когда трогать: Qwen3MoE / gpt-oss prompt-path experiments, а не общий baseline-тюнинг.</div>
 <div class="see-also">См. также: <span>Preset Prompt Packed</span>, <span>Диапазон Prompt Packed</span>, <span>Flash Attention</span></div>`,
     en: `<h4>Prompt Packed QKV</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Some models keep Q, K, and V projections split. This research path tries to pack them into a more CPU-friendly layout during the prompt phase so attention can run with better data locality.</div>
@@ -3750,7 +3768,7 @@ const HELP = {
 • can improve the prompt side
 • the effect on full mixed path is usually smaller
 • may cost extra RAM and load time</div>
-<div class="tip">This is not a universal “go faster” switch. Use it as a research-only knob for Qwen3MoE and gpt-oss.</div>
+<div class="tip">What this changes: only the prompt-path layout, not the whole model. Where it helps: prompt-heavy and mixed-path A/B on split-QKV families. Where it can hurt: RAM, load time, and baseline simplicity. When to touch it: Qwen3MoE / gpt-oss prompt-path experiments, not general baseline tuning.</div>
 <div class="see-also">See also: <span>Prompt Packed preset</span>, <span>Prompt Packed range</span>, <span>Flash Attention</span></div>`,
   },
   prompt_packed_qkv_preset: {
@@ -3865,12 +3883,12 @@ const HELP = {
     ru: `<h4>Merge QKV (-mqkv)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>В механизме внимания используются три матрицы: Q (запрос), K (ключ), V (значение). Эта опция объединяет их в одну, чтобы CPU мог загрузить все три за один проход памяти вместо трёх отдельных.</div>
 <p>Слияние Q, K, V проекций в один непрерывный тензор для attention. Улучшает локальность данных при вычислениях внимания.</p>
-<div class="tip">Экспериментальная опция. Может дать небольшой прирост на некоторых моделях.</div>
+<div class="tip">Что меняет: layout attention-тензоров и число memory passes в attention path. Где помогает: attention-heavy модели и prompt-side locality tests. Где может навредить: path model-sensitive, выигрыш не универсален. Когда трогать: как мягкий attention-side эксперимент, а не как baseline для всех моделей.</div>
 <div class="see-also">См. также: <span>-fa</span> (Flash Attention), <span>-ctk</span>/<span>-ctv</span> (KV cache)</div>`,
     en: `<h4>Merge QKV (-mqkv)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>The attention mechanism uses three matrices: Q (query), K (key), V (value). This option merges them into one so the CPU can load all three in a single memory pass instead of three separate ones.</div>
 <p>Merge Q, K, V projections into one contiguous tensor for attention. Improves data locality during attention computation.</p>
-<div class="tip">Experimental option. May give a small boost on some models.</div>
+<div class="tip">What this changes: the layout of attention tensors and the number of memory passes in the attention path. Where it helps: attention-heavy models and prompt-side locality tests. Where it can hurt: this path is model-sensitive and the win is not universal. When to touch it: as a mild attention-side experiment, not as a baseline for every model.</div>
 <div class="see-also">See also: <span>-fa</span> (Flash Attention), <span>-ctk</span>/<span>-ctv</span> (KV cache)</div>`,
   },
   fused_moe_up_gate: {
