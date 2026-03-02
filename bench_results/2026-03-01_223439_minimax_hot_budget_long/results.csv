@@ -1,0 +1,4 @@
+﻿"scenario","scenario_kind","bench_test","bench_n_prompt","bench_n_gen","rtr","budget","budget_env","avg_ts","avg_ns","exit_code","ok","started","finished","elapsed_s","log"
+"pg32,4","pg","pp512","512","0","off","default","","6.607347","77489500900","0","True","2026-03-01T22:34:39","2026-03-01T22:43:46","547.4","pg32_4_off_budget_default.log"
+"pg32,4","pg","tg128","0","128","off","default","","1.178502","108612417600","0","True","2026-03-01T22:34:39","2026-03-01T22:43:46","547.4","pg32_4_off_budget_default.log"
+"pg32,4","pg","pp32+tg4","32","4","off","default","","1.277317","28184067800","0","True","2026-03-01T22:34:39","2026-03-01T22:43:46","547.4","pg32_4_off_budget_default.log"

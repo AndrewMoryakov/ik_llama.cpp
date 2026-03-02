@@ -45,12 +45,14 @@ Source of truth:
 - MiniMax-specific fix уже внесен: `auto` теперь отключает repack в huge-model case
 - `hot expert budget` действительно влияет на поведение
 - но первый более длинный controlled run **не подтвердил** повышение MiniMax default выше legacy `16`
+- узкий closeout `off vs auto` уже завершен на fixed tree
 
 Практический вывод на текущем дереве:
 
-1. safest baseline: `rtr=off`
-2. `IK_LLAMA_HOT_EXPERT_BUDGET` в обычном запуске не задавать
-3. большие бюджеты пока считать `research-only`
+1. `TG-only`: safest baseline все еще `rtr=off`
+2. mixed path: `rtr=auto` теперь уже валидная и лучшая в closeout ветка
+3. `IK_LLAMA_HOT_EXPERT_BUDGET` в обычном запуске не задавать
+4. большие бюджеты пока считать `research-only`
 
 Source of truth:
 
@@ -83,33 +85,25 @@ Source of truth:
 
 ## Какие бенчмарки сейчас реально имеют смысл
 
-Нужен **не большой matrix**, а один узкий MiniMax pass.
+Узкий MiniMax pass уже закрыт.
 
-### Следующий разумный pass
+### Результат закрытого pass
 
-1. `tg32`: `rtr=off` vs `rtr=auto`
-2. `pg32,4`: `rtr=off` vs `rtr=auto`
-3. `IK_LLAMA_HOT_EXPERT_BUDGET` не задавать
-4. `t16`, `fa1`, `muge0`, `ngl0`, `r=1`
+`tg32`
 
-### Зачем именно он
+- `off`: `0.618850 tok/s`
+- `auto`: `0.553629 tok/s`
 
-Этот pass отвечает на главный незакрытый вопрос:
+`pg32,4`
 
-- после фикса policy bug, жизнеспособен ли `rtr=auto` для huge `MiniMax` или нет
+- `off`: `1.277317`
+- `auto`: `1.316512`
 
-### Что будет считаться полезным результатом
+Практический смысл:
 
-Любой из двух исходов:
-
-1. `auto` оказался живым
-- тогда у MiniMax появляется новая реальная policy branch
-
-2. `auto` снова хуже `off`
-- тогда вопрос закрывается
-- и дальше уже не тратим время на `repack`, а идем в `expert locality / paging`
-
-Оба исхода полезны.
+1. `TG-only` все еще тяготеет к `off`
+2. mixed path уже нельзя сводить к `off`; `auto` теперь реальная MiniMax branch
+3. следующий шаг теперь не повторять этот policy question, а идти в `expert locality / paging`
 
 ## Какие бенчмарки сейчас не нужны
 
@@ -119,6 +113,7 @@ Source of truth:
 2. `rtr=on`
 3. `SER`
 4. новые многопараметрические комбинации
+5. повторное открытие уже закрытого MiniMax `off vs auto` вопроса без новой гипотезы
 
 Причина простая:
 
@@ -170,6 +165,9 @@ Source of truth:
 - `ik_llama.cpp/bench_results/2026-02-28_minimax_quick_verify`
 - `ik_llama.cpp/bench_results/2026-02-28_minimax_hot_budget_matrix`
 - `ik_llama.cpp/bench_results/2026-02-28_225841_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_221624_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_223439_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_224347_minimax_policy_closeout`
 
 ### Human tutorial + dashboard
 
@@ -181,13 +179,15 @@ Source of truth:
 ## Коротко: с чего продолжать в новой сессии
 
 1. считать текущим MiniMax baseline:
-- `rtr=off`
+- `TG-only`: `rtr=off`
+- mixed: сравнивать `rtr=off` и `rtr=auto`, причем `auto` теперь уже валидный кандидат
 - hot budget unset
 
 2. не возвращаться к идее нового MiniMax default `24/32`
 
 3. если есть время на дорогой прогон:
-- запускать только `MiniMax off vs auto` на runtime default
+- не переоткрывать `off vs auto` без новой гипотезы
+- идти в `expert locality / paging`
 
 4. если такого времени нет:
 - не трогать MiniMax policy
@@ -197,17 +197,13 @@ Source of truth:
 
 ### 2A. MiniMax: `off vs auto` benchmark closeout
 
-Это не новая optimization line в коде, а лучший следующий benchmark по ROI.
+Статус: `closed`.
 
-Задача:
+Итог:
 
-1. `tg32`: `rtr=off` vs `rtr=auto`
-2. `pg32,4`: `rtr=off` vs `rtr=auto`
-3. runtime default hot-expert budget
-
-Смысл:
-
-- закрыть главный незавершенный practical policy question по huge `MiniMax`
+1. `TG-only` favors `off`
+2. mixed path now has a real `auto` branch after the fix
+3. старый broken-policy `auto` result больше нельзя использовать как финальное summary
 
 ### 2B. MiniMax: next real optimization line
 

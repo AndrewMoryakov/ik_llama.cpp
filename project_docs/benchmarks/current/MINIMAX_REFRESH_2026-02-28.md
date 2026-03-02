@@ -104,7 +104,7 @@ What it does mean:
 1. MiniMax is still strongly swap-bound on this host.
 2. MiniMax absolute speed is highly sensitive to machine memory state.
 3. MiniMax public claims should not be built from a single lucky run.
-4. MiniMax should remain in research scope until a fresh controlled `off/on/auto` rerun is completed in one consistent pass.
+4. MiniMax should remain a careful huge-model target, but the narrow `off vs auto` closeout is now completed on the fixed tree.
 5. The earlier bad `auto` result turned out to be a real policy/reporting issue and not something we should keep as the current recommendation.
 6. For `TG-only`, `rtr=on` is close to `off`, but not better in the current local rerun.
 
@@ -118,7 +118,9 @@ Quick verification confirmed:
 2. `llama-bench` metadata now reports the effective state correctly
 3. short exploratory MiniMax runs can now be used to study `hot expert` behavior without the old `auto` policy bug
 
-This does **not** yet replace the need for a full fresh long MiniMax matrix.
+This no longer stands alone. The later fixed-tree closeout should now be read together with:
+
+- `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
 It does mean the current tree is in a better state for that next pass.
 
@@ -132,30 +134,20 @@ The fresh pass still supports the following statements:
 
 ## What This Refresh Does Not Yet Settle
 
-This partial rerun does not yet settle:
+This partial rerun does not by itself settle:
 
-1. fresh mixed-path `rtr on` versus `rtr off`
-2. fresh mixed-path `rtr auto` behavior
-3. final public runtime recommendation for MiniMax on the current tree
-4. final `hot expert` budget choice for long runs
+1. longer and heavier mixed-path `auto` behavior
+2. final `hot expert` budget choice for long runs
+3. whether locality-oriented work can move MiniMax more than policy did
 
 ## Recommended Next Step
 
-When time budget allows, rerun the following in one dedicated MiniMax-only pass:
+Read the closeout note for the newer practical answer:
 
-- `tg128`: `rtr off/on/auto`
-- `pg512,128`: `rtr off/on/auto`
-- identical host preparation before each run
+- `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
-Priority of interpretation for now:
+Current interpretation:
 
-1. `TG-only`: `off` is still the best current clean local rerun, `on` is close
-2. `rtr=auto` should now be re-evaluated with the MiniMax-specific fix in place, not judged only by the older broken-policy run
-3. `Mixed path`: keep treating `off` as the safer default until a fresh long `on/auto` rerun is completed
-
-Until then, MiniMax remains:
-
-- code-supported
-- partially refreshed
-- benchmark-relevant
-- not fully revalidated for current public release messaging
+1. `TG-only`: `off` still wins over `auto`
+2. mixed path: `auto` is now a real branch after the fix and slightly wins on the closeout row
+3. the next engineering step should move from policy into locality/paging behavior

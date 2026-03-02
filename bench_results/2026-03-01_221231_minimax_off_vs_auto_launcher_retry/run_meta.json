@@ -1,0 +1,25 @@
+{
+  "launcher_dir": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\bench_results\\2026-03-01_221231_minimax_off_vs_auto_launcher_retry",
+  "pid": 24112,
+  "started": "2026-03-01T22:12:31",
+  "script": "scripts/bench-minimax-hot-budget.ps1",
+  "budgets": [
+    "default"
+  ],
+  "rtr_modes": [
+    "off",
+    "auto"
+  ],
+  "scenarios": [
+    "tg:32",
+    "pg:32:4"
+  ],
+  "threads": 16,
+  "flash_attn": 1,
+  "merge_up_gate": 0,
+  "ngl": 0,
+  "reps": 1,
+  "warmup": 1,
+  "timeout_minutes": 240,
+  "command": "& 'Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\scripts\\bench-minimax-hot-budget.ps1' -Budgets 'default' -RtrModes 'off','auto' -Scenarios 'tg:32','pg:32:4' -Threads 16 -FlashAttn 1 -MergeUpGate 0 -Ngl 0 -Reps 1 -Warmup 1 -TimeoutMinutes 240"
+}

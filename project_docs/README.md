@@ -47,6 +47,7 @@ This directory is the canonical location for project-specific documentation.
 - `benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+- `benchmarks/current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 - `benchmarks/current/MINIMAX_REFRESH_2026-02-28.md`
 - `benchmarks/INDEX.md`
 - `models/MINIMAX_M2_5_RUNTIME.md`

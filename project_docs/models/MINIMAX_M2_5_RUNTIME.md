@@ -184,7 +184,7 @@
 - `rtr=off` сейчас лучший чисто подтвержденный baseline
 - `rtr=on` не выглядит катастрофическим и может быть близок к `off`
 - старый плохой результат `rtr=auto` оказался связан с policy/reporting problem
-- эта проблема уже исправлена и требует новой длинной перепроверки
+- эта проблема уже исправлена, и свежий closeout показал: `off` по-прежнему лучше на `TG-only`
 
 Это важное уточнение, потому что старое грубое утверждение:
 
@@ -196,18 +196,33 @@
 
 - `off` пока safer baseline
 - `on` нужно проверять измерением
-- `auto` для `MiniMax` нельзя оценивать по старому сломанному результату, нужен новый длинный rerun
+- `auto` для `MiniMax` нельзя оценивать по старому сломанному результату
+- на свежем fixed-tree closeout `auto` проиграл `off` на `TG-only`, но это уже не означает, что `auto` бесполезен вообще
 
 ### Mixed path
 
-Для mixed path картина строже:
+Для mixed path картина теперь уже не такая, как раньше.
 
-- безопаснее начинать с `rtr=off`
-- и только потом проверять альтернативы
+Свежий closeout `off vs auto` на fixed tree показал:
 
-Причина проста:
+- `pp32+tg4`
+  - `off`: `1.277317`
+  - `auto`: `1.316512`
 
-- в mixed path у huge swap-bound модели легко получить дополнительную деградацию не там, где ее ждешь
+Практический смысл:
+
+- `off` остается safest baseline
+- но `auto` уже стал реальным mixed-path кандидатом
+- старую формулу "`MiniMax = только off`" теперь нужно считать слишком грубой
+
+Правильнее так:
+
+- если нужен самый консервативный старт, начинайте с `off`
+- если вас интересует реальный mixed prompt+generation path, `auto` теперь обязательно стоит сравнивать
+
+Почему это важно:
+
+- у huge swap-bound модели `TG-only` и mixed path действительно могут оптимизироваться по-разному
 
 ## Что важно понимать новичку
 
@@ -238,10 +253,11 @@
 
 Следующие практические шаги для `MiniMax`:
 
-1. Довести корректную `rtr auto` policy именно для huge swap-bound MiniMax cases.
-2. Закрыть свежую controlled benchmark matrix:
-- `TG-only`: `off/on/auto`
-- `PG512,128`: `off/on/auto`
+1. Не возвращаться к старому сломанному выводу про `auto`; policy closeout уже закрыт.
+2. Следующим шагом идти в:
+- expert locality
+- paging behavior
+- качество hot-expert selection
 3. Отдельно перепроверить и при необходимости доработать:
 - hot expert policy
 - budget hot experts
@@ -267,6 +283,7 @@
 
 - `../benchmarks/current/MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
 - `../benchmarks/current/MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
+- `../benchmarks/current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
 - `../benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
@@ -274,6 +291,7 @@
 ## Связанные документы
 
 - `../benchmarks/current/MINIMAX_REFRESH_2026-02-28.md`
+- `../benchmarks/current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 - `../development/ARCHITECTURE_EXECUTION_MAPS_2026-02-28.md`
 - `../strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
 - `../runbooks/GUIDE.md`

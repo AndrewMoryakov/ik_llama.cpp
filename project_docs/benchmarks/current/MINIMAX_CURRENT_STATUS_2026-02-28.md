@@ -49,11 +49,17 @@ Latest relevant raw artifacts:
 5. First longer controlled `hot expert budget` run:
 - `ik_llama.cpp/bench_results/2026-02-28_225841_minimax_hot_budget_long`
 
+6. `off vs auto` closeout on the fixed tree:
+- `ik_llama.cpp/bench_results/2026-03-01_221624_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_223439_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_224347_minimax_policy_closeout`
+
 Supporting narrative documents:
 
 - `MINIMAX_REFRESH_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
+- `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 - `../../models/MINIMAX_M2_5_RUNTIME.md`
 
 ## What Is Confirmed Right Now
@@ -105,9 +111,28 @@ Quick verification on the current tree confirms:
 Implication:
 
 - MiniMax should no longer be judged using the older broken-policy `auto` result alone
-- `auto` now needs a fresh long rerun on the fixed tree
 
-### 5. `hot expert` budget is real, but the first long run rejected a higher default
+### 5. `rtr=off` vs `rtr=auto` is now closed on the fixed tree
+
+Fresh closeout results:
+
+`tg32`
+
+- `off`: `0.618850 tok/s`
+- `auto`: `0.553629 tok/s`
+
+`pg32,4`
+
+- `off`: `1.277317`
+- `auto`: `1.316512`
+
+Implication:
+
+- `off` remains the stronger `TG-only` baseline
+- `auto` is now a validated mixed-path branch after the fix
+- MiniMax guidance should no longer treat `auto` as automatically bad
+
+### 6. `hot expert` budget is real, but the first long run rejected a higher default
 
 Short exploratory `pg8,1` matrix showed that the knob is responsive.
 
@@ -146,17 +171,7 @@ What it does not mean:
 - they are a user-facing recommendation
 - they are the next default for MiniMax
 
-### 2. Current MiniMax `auto` may become acceptable after the fix
-
-This is plausible now.
-
-But it is still not yet confirmed by a proper long rerun with:
-
-- `tg128`
-- `pg512,128`
-- `off/on/auto`
-
-### 3. MiniMax-specific optimization should focus on memory behavior more than generic prompt tricks
+### 2. MiniMax-specific optimization should focus on memory behavior more than generic prompt tricks
 
 This is already a strong engineering direction, but not yet a closed measured result.
 
@@ -170,8 +185,8 @@ It follows from:
 
 These questions remain open:
 
-1. final `MiniMax` recommendation for `rtr off/on/auto` on the fixed tree
-2. final `hot expert` budget for realistic long runs
+1. whether `auto` remains better on longer and heavier mixed workloads
+2. final `hot expert` budget for realistic longer mixed runs
 3. whether `MiniMax auto + tuned hot expert budget` produces a stable long-run gain
 4. how much of MiniMax performance is still left in expert locality and paging behavior
 
@@ -188,18 +203,11 @@ MiniMax results now support the following development interpretation.
 
 ### Next high-value step
 
-The next expensive MiniMax validation pass should now be narrower than before:
+The next expensive MiniMax validation pass should now move past pure policy closeout and into a narrower optimization question:
 
-1. `rtr off` with runtime default budget
-2. `rtr auto` with runtime default budget
-3. optionally one larger budget only as a research comparison, not as a likely default candidate
-
-The goal is not a huge matrix.
-
-The goal is to decide:
-
-- whether fixed `auto` is now viable
-- whether any larger budget survives outside the already-tested `rtr=off` mixed pass
+1. `rtr=off` and `rtr=auto` already form the practical MiniMax policy pair
+2. further expensive runs should test locality-oriented hypotheses, not reopen the old broken-policy question
+3. any larger hot-expert budget should remain research-only until it survives a more realistic mixed run
 
 ### Broader strategy meaning
 
@@ -214,7 +222,7 @@ MiniMax currently reinforces the main fork direction:
 If someone needs a practical MiniMax answer **right now**:
 
 1. treat `rtr=off` as the safest current baseline
-2. do not use the old broken-policy `auto` result as the final word
+2. for mixed prompt+generation, also test `rtr=auto`; it is now a valid mixed-path branch on the fixed tree
 3. leave `IK_LLAMA_HOT_EXPERT_BUDGET` unset unless you are intentionally reproducing MiniMax-specific research
 4. treat larger budgets as research-only, not as defaults
 
@@ -223,5 +231,6 @@ If someone needs a practical MiniMax answer **right now**:
 - `MINIMAX_REFRESH_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
+- `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 - `../../models/MINIMAX_M2_5_RUNTIME.md`
 - `../../strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`

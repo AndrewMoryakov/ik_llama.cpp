@@ -28,6 +28,7 @@ Key points:
 Use:
 
 - `current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+- `current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
 Reason:
 
@@ -42,6 +43,7 @@ Use these as the active interpretation layer for each main target family:
 - `current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+- `current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
 ---
 
@@ -110,7 +112,7 @@ Use these as the active interpretation layer for each main target family:
 1. `llama-bench` output is not clean JSON (runtime logs interleave with JSON objects); parsing must be regex/robust parser.
 2. gpt-oss PP has high variance on this host; compare only with repeated runs and stddev control.
 3. Swap-bound MiniMax results are sensitive to OS memory state; run cleanup and consistent warmup before claims.
-4. For MiniMax, use `current/MINIMAX_CURRENT_STATUS_2026-02-28.md` as the active interpretation layer before quoting older notes.
+4. For MiniMax, use `current/MINIMAX_CURRENT_STATUS_2026-02-28.md` and `current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md` as the active interpretation layer before quoting older notes.
 5. For `Qwen3MoE` and `gpt-oss`, use the family-specific current-status notes before quoting isolated experimental docs.
 
 ## Resolved / Revalidated
