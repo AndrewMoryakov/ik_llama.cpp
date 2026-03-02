@@ -51,6 +51,43 @@
 - `Inspect`
 15. показывать replay/live traces на более легких MoE-моделях как быстрые demo-кейсы, не упираясь каждый раз в тяжелый `MiniMax` run
 
+## Как читать experimental knobs
+
+Для experimental-параметров dashboard теперь явно разводит три разные оси:
+
+1. `Applicability`
+- для какого класса моделей knob вообще имеет смысл по механике
+- пример:
+  - `MoE / huge-MoE`
+  - `Split-QKV`
+  - `MLA`
+
+2. `Runtime support`
+- где текущий код реально уже умеет этот knob включать не как пустой no-op, а как содержательный runtime path
+- пример:
+  - идея относится к классу `MoE / huge-MoE`,
+  - но текущий runtime-path fully wired сегодня прежде всего на `MiniMax`
+
+3. `Validation`
+- где уже есть benchmark-backed сигнал
+- это не то же самое, что applicability и не то же самое, что runtime support
+
+Ключевое правило для dashboard:
+
+- `applicability` не означает `validated`
+- `validated` не означает `universal`
+- `runtime support today` может быть уже, чем theoretical applicability
+
+Canonical matrix for this layer:
+
+- `../strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
+
+Именно поэтому `Tail Window` и похожие knobs теперь должны читаться так:
+
+- по механике это knob класса `MoE / huge-MoE locality`
+- по текущему runtime-path это сегодня `MiniMax-first`
+- по validation это сейчас подтверждено только на `MiniMax`
+
 ## Из каких частей он состоит
 
 ### 1. `dashboard/dashboard.html`

@@ -227,6 +227,124 @@ Source of truth:
 - не трогать MiniMax policy
 - переходить к следующей содержательной optimization line
 
+## Текущий фундаментальный приоритет: Phase 1
+
+Сейчас перед следующими runtime-generalization шагами есть один обязательный фундаментальный этап.
+
+Это `Phase 1`:
+
+1. для каждого experimental knob развести три разные оси:
+   - `applicability`
+   - `runtime support today`
+   - `validation`
+2. перестать путать:
+   - "подходит этому классу моделей по механике"
+   - "уже реально wired в текущем runtime"
+   - "уже подтверждено benchmark-ами"
+
+### Что уже сделано
+
+В `dashboard` уже начат и частично реализован этот слой:
+
+- class-based applicability labels
+- `--experimental` runtime-safe plumbing
+- более честная semantic model для `Tail Window`, `Hot Expert Selection`, `Prompt Packed QKV`
+
+### Статус Phase 1
+
+`Phase 1` теперь закрыта как semantic/product layer.
+
+Что это означает:
+
+1. three-axis model уже есть в dashboard:
+   - `applicability`
+   - `runtime support`
+   - `validation`
+2. canonical matrix зафиксирован отдельно:
+   - `project_docs/strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
+3. дальнейшие фазы теперь должны опираться на эту матрицу как на source of truth
+
+Что это не означает:
+
+- runtime generalization еще не сделана
+- class-wide support еще не расширен автоматически
+- дальше нужна уже `Phase 2`, а не новая semantic rework
+
+### Почему это важно
+
+Если перепрыгнуть дальше без этого, начнут смешиваться:
+
+- UI semantics
+- runtime support reality
+- validation truth
+
+А это особенно опасно именно для community testing и class-based rollout experimental knobs.
+
+### Что делать после закрытия Phase 1
+
+1. `Hot Expert Selection / Tail Window` generalization
+2. затем `Prompt Packed QKV` generalization
+
+## Полная фазная цепочка после текущего этапа
+
+Чтобы не терять нить, текущая последовательность фаз сейчас такая:
+
+1. `Phase 1`
+- semantic layer для experimental knobs
+- applicability / runtime support / validation
+
+2. `Phase 2`
+- runtime generalization
+- сначала `Hot Expert Selection / Tail Window`
+- потом `Prompt Packed QKV`
+
+3. `Phase 3`
+- targeted validation
+- короткие и длинные A/B для новых generalized paths
+
+4. `Phase 4`
+- architecture-specific optimization
+- `MiniMax locality`
+- `gpt-oss-20b decode-side`
+- split-QKV prompt/decode work
+
+5. `Phase 5`
+- productization layer
+- dashboard, presets, tutorial, replay/live demos
+
+6. `Phase 6`
+- release-facing stabilization
+- validated/experimental matrix
+- claims
+- clean milestone snapshots
+
+Это текущая рабочая дорожка к финальной цели.
+
+## Secondary research line: prompt-tail rewrite
+
+Отдельно от mainline фаз теперь зафиксирована еще одна исследовательская гипотеза:
+
+- `prompt-tail rewrite`
+
+Смысл:
+
+- использовать маленькую auxiliary-модель
+- не для генерации основного ответа
+- а для контролируемой переработки конца prompt
+- чтобы улучшить locality signal для early decode на huge MoE
+
+Это не mainline optimization line и не `Phase 2` blocker.
+
+Правильный статус:
+
+- `research/*`
+- secondary line
+- только с жесткими safety rules и честным cost accounting
+
+Source doc:
+
+- `project_docs/strategy/RESEARCH_PROMPT_TAIL_REWRITE_2026-03-02.md`
+
 ## Следующие architecture-specific линии
 
 ### 2A. MiniMax: `off vs auto` benchmark closeout
