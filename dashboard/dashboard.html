@@ -334,8 +334,14 @@
       </summary>
       <div class="section-body">
         <div class="opt-subtabs">
-          <button type="button" class="opt-subtab-btn active" data-opt-pane-btn="validated" onclick="setOptimizationPane('validated')" data-i18n="opt_tab_validated">Validated</button>
-          <button type="button" class="opt-subtab-btn" data-opt-pane-btn="experimental" onclick="setOptimizationPane('experimental')" data-i18n="opt_tab_experimental">Experimental</button>
+          <button type="button" class="opt-subtab-btn active" data-opt-pane-btn="validated" onclick="setOptimizationPane('validated')">
+            <span class="opt-subtab-icon" aria-hidden="true">✓</span>
+            <span data-i18n="opt_tab_validated">Validated</span>
+          </button>
+          <button type="button" class="opt-subtab-btn" data-opt-pane-btn="experimental" onclick="setOptimizationPane('experimental')">
+            <span class="opt-subtab-icon" aria-hidden="true">⚗</span>
+            <span data-i18n="opt_tab_experimental">Experimental</span>
+          </button>
         </div>
 
         <div class="opt-subpane active" data-opt-pane="validated">
