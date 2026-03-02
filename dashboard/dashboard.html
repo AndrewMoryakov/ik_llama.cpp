@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="dashboard.css">
+<link rel="stylesheet" href="dashboard-live.css">
 </head>
 <body>
 
@@ -384,6 +385,22 @@
 
         <div class="divider"></div>
 
+        <div class="param-row">
+          <div class="param-label">
+            <span class="cli-flag">ui</span>
+            <span data-i18n="p_live_obs">Live Observability</span>
+          </div>
+          <div class="param-control">
+            <div class="toggle-btn" onclick="toggleParam('live_observability')">
+              <div class="toggle-track on" id="tog-live_observability"></div>
+              <span id="tog-label-live_observability">ON</span>
+            </div>
+          </div>
+          <div class="param-desc" data-i18n="d_live_obs">Dashboard-only traces for live phase flow and MoE experts activity. Useful for learning and debugging; disable for the cleanest benchmark runs.</div>
+        </div>
+
+        <div class="divider"></div>
+
         <!-- Secondary toggles — compact 3-col -->
         <div class="param-grid cols-3">
           <!-- Graph Reuse -->
@@ -711,6 +728,17 @@
       </div>
     </div>
 
+    <div class="card live-metrics-card" id="live-metrics-card">
+      <div class="live-metrics-head">
+        <div>
+          <div class="live-metrics-title" data-i18n="live_title">Live Inference View</div>
+          <div class="live-metrics-subtitle" data-i18n="live_subtitle">Phase flow and MoE expert activity for the current run</div>
+        </div>
+        <div class="live-metrics-status" id="live-metrics-status"></div>
+      </div>
+      <div id="live-metrics-root"></div>
+    </div>
+
   </main>
 
 </div>
@@ -733,6 +761,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="dashboard.js"></script>
+<script src="dashboard-live.js"></script>
 
 </body>
 </html>

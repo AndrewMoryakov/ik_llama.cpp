@@ -37,11 +37,24 @@ Custom port:
 - warnings/badges
 - command/env builders
 
-4. `dashboard_server.py`
+4. `dashboard-live.js`
+- live inference UI
+- phase timeline
+- MoE expert activity panels
+
+5. `dashboard-live.css`
+- styles for the live observability layer
+
+6. `live_metrics.py`
+- server-side parser/aggregator for runtime trace lines
+- converts `pg-trace` and `hot experts` logs into JSON snapshots
+
+7. `dashboard_server.py`
 - local stdlib-only server
 - launch/status/output API
+- `/api/live-metrics`
 
-5. `dashboard_server.sh`
+8. `dashboard_server.sh`
 - Linux launcher
 
 ## What To Change Where
@@ -57,6 +70,12 @@ Custom port:
 ### Recommendations / logic / family behavior
 
 - `dashboard.js`
+
+### Live inference visualization
+
+- `dashboard-live.js`
+- `dashboard-live.css`
+- `live_metrics.py`
 
 ### Launch behavior / env plumbing / server API
 

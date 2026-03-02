@@ -33,6 +33,7 @@ import time
 import ctypes
 from collections import deque
 from urllib.parse import urlparse, parse_qs
+from live_metrics import LiveMetricsAggregator
 
 # ── Config ──────────────────────────────────────────────────────
 HOST = "127.0.0.1"
@@ -46,6 +47,8 @@ BUILD_BIN = os.path.join(REPO_ROOT, "build", "bin")
 STATIC_FILES = {
     "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
     "/dashboard.js":  ("dashboard.js",  "application/javascript; charset=utf-8"),
+    "/dashboard-live.css": ("dashboard-live.css", "text/css; charset=utf-8"),
+    "/dashboard-live.js":  ("dashboard-live.js",  "application/javascript; charset=utf-8"),
 }
 
 # ── Find terminal emulator (Linux) ──────────────────────────────
@@ -77,6 +80,7 @@ class ProcessManager:
         self._reader_thread = None
         self._lock = threading.Lock()
         self.terminal_mode = False  # True when running in external terminal (llama-cli)
+        self.live_metrics = LiveMetricsAggregator()
 
     @property
     def running(self):
@@ -88,6 +92,7 @@ class ProcessManager:
                 return False, "Process already running. Stop it first."
             self.output_buf.clear()
             env_overrides = env_overrides or {}
+            self.live_metrics.start_session(env_overrides)
             env_prefix = " ".join(f"{k}={v}" for k, v in env_overrides.items())
             self.cmd = (env_prefix + " " if env_prefix else "") + " ".join(args)
             self.terminal_mode = terminal
@@ -261,7 +266,9 @@ class ProcessManager:
     def _read_output(self, stream):
         try:
             for line in stream:
-                self.output_buf.append(line.rstrip("\n\r"))
+                clean = line.rstrip("\n\r")
+                self.output_buf.append(clean)
+                self.live_metrics.ingest_line(clean)
         except Exception:
             pass
 
@@ -277,12 +284,16 @@ class ProcessManager:
                 while self.running:
                     line = f.readline()
                     if line:
-                        self.output_buf.append(line.rstrip("\n\r"))
+                        clean = line.rstrip("\n\r")
+                        self.output_buf.append(clean)
+                        self.live_metrics.ingest_line(clean)
                     else:
                         time.sleep(0.3)
                 # Read remaining lines after process stops
                 for line in f:
-                    self.output_buf.append(line.rstrip("\n\r"))
+                    clean = line.rstrip("\n\r")
+                    self.output_buf.append(clean)
+                    self.live_metrics.ingest_line(clean)
         except Exception:
             pass
 
@@ -754,6 +765,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             offset = int(qs.get("offset", [0])[0])
             lines = pm.get_output(offset)
             self._json_response({"offset": offset, "lines": lines, "total": len(pm.output_buf)})
+            return
+
+        if path == "/api/live-metrics":
+            self._json_response(pm.live_metrics.snapshot(pm.running))
             return
 
         self.send_error(404)

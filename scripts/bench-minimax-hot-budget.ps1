@@ -81,50 +81,46 @@ function Invoke-BenchRun {
         [int]$TimeoutSec
     )
 
-    $job = Start-Job -ScriptBlock {
-        param($exe, $argArray, $envTable)
-        foreach ($kv in $envTable.GetEnumerator()) {
-            if ($null -eq $kv.Value -or $kv.Value -eq '') {
-                Remove-Item "Env:$($kv.Key)" -ErrorAction SilentlyContinue
-            } else {
-                Set-Item "Env:$($kv.Key)" ([string]$kv.Value)
-            }
+    foreach ($kv in $EnvOverrides.GetEnumerator()) {
+        if ($null -eq $kv.Value -or $kv.Value -eq '') {
+            Remove-Item "Env:$($kv.Key)" -ErrorAction SilentlyContinue
+        } else {
+            Set-Item "Env:$($kv.Key)" ([string]$kv.Value)
         }
+    }
 
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $exe
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-        foreach ($arg in $argArray) { [void]$psi.ArgumentList.Add([string]$arg) }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $BenchExe
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $psi.Arguments = (($BenchArgs | ForEach-Object {
+        $arg = [string]$_
+        if ($arg -match '\s') { '"' + $arg.Replace('"', '\"') + '"' } else { $arg }
+    }) -join ' ')
 
-        $proc = New-Object System.Diagnostics.Process
-        $proc.StartInfo = $psi
-        [void]$proc.Start()
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    [void]$proc.Start()
 
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $proc.StandardError.ReadToEndAsync()
-        $proc.WaitForExit()
-        [System.Threading.Tasks.Task]::WaitAll($stdoutTask, $stderrTask)
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
 
-        @{
-            ExitCode = $proc.ExitCode
-            Stdout = $stdoutTask.Result
-            Stderr = $stderrTask.Result
-        }
-    } -ArgumentList $BenchExe, $BenchArgs, $EnvOverrides
-
-    $null = Wait-Job $job -Timeout $TimeoutSec
-    if ($job.State -eq 'Running') {
-        Stop-Job $job | Out-Null
-        Remove-Job $job -Force | Out-Null
+    if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+        try { $proc.Kill($true) } catch {}
+        try { $proc.WaitForExit() } catch {}
         return @{ Ok = $false; ExitCode = -1; Stdout = ''; Stderr = 'timeout'; Reason = 'timeout' }
     }
 
-    $res = Receive-Job $job
-    Remove-Job $job -Force | Out-Null
-    return @{ Ok = $true; ExitCode = [int]$res.ExitCode; Stdout = [string]$res.Stdout; Stderr = [string]$res.Stderr; Reason = '' }
+    [System.Threading.Tasks.Task]::WaitAll($stdoutTask, $stderrTask)
+    return @{
+        Ok = $true
+        ExitCode = [int]$proc.ExitCode
+        Stdout = [string]$stdoutTask.Result
+        Stderr = [string]$stderrTask.Result
+        Reason = ''
+    }
 }
 
 if (-not (Test-Path $LlamaBench)) { throw "llama-bench not found: $LlamaBench" }

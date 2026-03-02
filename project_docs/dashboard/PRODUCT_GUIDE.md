@@ -38,6 +38,9 @@
 7. показывать предупреждения и подсказки по опасным комбинациям;
 8. различать validated baseline и experimental knobs;
 9. прокидывать часть runtime env overrides, включая experimental MiniMax knobs.
+10. показывать live inference view:
+- фазы `prompt -> first decode -> decode tail`
+- текущую активность `MoE` экспертов по trace-данным runtime
 
 ## Из каких частей он состоит
 
@@ -104,6 +107,32 @@
 
 Если меняется launch behavior, env plumbing или server-side API, менять нужно здесь.
 
+### 5. `dashboard/dashboard-live.js`
+
+Это отдельный UI-модуль live observability.
+
+Здесь живет:
+
+- polling `/api/live-metrics`
+- визуализация фаз inference
+- summary по активности `MoE` экспертов
+- история последних фазовых событий
+- история стадий `hot experts`
+
+### 6. `dashboard/dashboard-live.css`
+
+Содержит стили только для live observability слоя.
+
+### 7. `dashboard/live_metrics.py`
+
+Это server-side parser, который превращает runtime trace lines в компактный JSON snapshot для UI.
+
+Он парсит:
+
+- `pg-trace`
+- `hot experts trace`
+- `hot experts: locked ... top-8 ...`
+
 ## Как dashboard принимает решения
 
 Упрощенная схема такая:
@@ -161,6 +190,7 @@ Dashboard не должен жить своей жизнью.
 4. `MiniMax` сейчас должен подаваться как huge-model baseline case;
 5. `Hot Expert Budget` для обычного MiniMax запуска не должен продвигаться как validated default;
 6. `validated baseline` и `experimental knobs` должны быть видны явно.
+7. live observability должен оставаться отдельным UI/debug слоем, а не обязательным benchmark baseline.
 
 ## Где менять конкретные вещи
 

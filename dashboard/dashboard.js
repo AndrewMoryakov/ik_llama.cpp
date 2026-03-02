@@ -16,13 +16,14 @@ const LANG = {
     p_batch: 'Batch size', d_batch: 'Логический batch для PP. Больше = быстрее обработка промта, но больше памяти. По умолчанию 2048, минимум 32',
     p_ubatch: 'Micro-batch size', d_ubatch: 'Физический batch — сколько токенов реально обрабатываются за раз. Должен быть <= batch size. По умолчанию 512',
     p_fa: 'Flash Attention', d_fa: 'Оптимизированное ядро внимания. Для текущих Zen4 MoE сценариев особенно важно для mixed path (prompt+generation). Держите ON по умолчанию; выключайте только для явной A/B-проверки или диагностики',
-    p_rtr: 'Runtime Repack', d_rtr: 'Три режима: off, on, auto. AUTO — throughput-first старт для Qwen3MoE и gpt-oss на Zen4. Для MiniMax safer baseline пока OFF. rtr=on отключает mmap; при auto итог решает runtime policy',
+    p_rtr: 'Runtime Repack', d_rtr: 'Три режима: off, on, auto. AUTO — throughput-first старт для Qwen3MoE и gpt-oss на Zen4. Для MiniMax текущая practical картина уже разделяется: TG-only тяготеет к OFF, mixed path стоит сравнивать с AUTO. rtr=on отключает mmap; при auto итог решает runtime policy',
     p_muge: 'Merge Up+Gate Experts', d_muge: 'Слияние ffn_up + ffn_gate экспертов. Влияет только на MoE. Сильного стабильного выигрыша пока не подтверждено; для swap-bound риск деградации высокий, поэтому обычно держите OFF',
     p_ctk: 'Тип KV Cache K', d_ctk: 'Квантизация ключей в KV-кеше. q8_0 — текущий лучший baseline: сильно экономит память и в текущих validated профилях не показал заметимой деградации. Для макс. контекста можно q4_0',
     p_ctv: 'Тип KV Cache V', d_ctv: 'Квантизация значений в KV-кеше. Можно агрессивнее чем K — качество менее чувствительно. q4_0 для максимального контекстного окна',
     p_mla: 'Режим MLA', d_mla: 'Multi-head Latent Attention — режим работы KV-кеша для моделей, поддерживающих MLA (DeepSeek и т.п.). 3 = автовыбор оптимального',
     p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная опция: роутер отбрасывает экспертов с весом ниже threshold, гарантируя минимум min_experts. Это promising для huge MoE, но пока не validated default',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Экспериментальный env-knob для huge MoE: сколько hot experts пытаться держать залоченными после prompt. 0 = не задавать, оставить runtime default. Для MiniMax первый более длинный controlled run не подтвердил новый default выше legacy 16, поэтому начинайте с 0',
+    p_live_obs: 'Live Observability', d_live_obs: 'Dashboard-only traces для интерактивной визуализации фаз inference и активности экспертов. Полезно для обучения и диагностики; для максимально чистых бенчей можно выключить.',
     ser_min: 'мин. экспертов:', ser_thresh: 'порог:',
     p_gr: 'Graph Reuse', d_gr: 'Переиспользование графа вычислений между токенами. Экономит время на построение графа. Выключать только для отладки',
     p_mqkv: 'Merge QKV', d_mqkv: 'Слияние Q, K, V в один тензор для attention. Улучшает локальность данных при вычислениях внимания',
@@ -62,7 +63,7 @@ const LANG = {
     glossary_search: 'Поиск...',
     // warnings
     w_rtr_swap: 'Принудительный rtr=on на swap-bound модели рискован: растёт working set, отключается mmap и можно получить сильную просадку, особенно на mixed path.',
-    w_rtr_swap_fix: 'Для swap-bound не форсируйте ON. Для Qwen3MoE/gpt-oss начните с AUTO. Для MiniMax пока безопаснее OFF.',
+    w_rtr_swap_fix: 'Для swap-bound не форсируйте ON. Для Qwen3MoE/gpt-oss начните с AUTO. Для MiniMax: TG-only начните с OFF, а mixed path обязательно сравните с AUTO.',
     w_muge_swap: 'Merge Up+Gate на swap-bound MoE обычно вреден: растёт размер непрерывных выделений и усиливаются page faults.',
     w_muge_swap_fix: 'Отключите -muge для swap-bound моделей.',
     w_rtr_muge: 'rtr и muge включены одновременно. Это уже не аварийная комбинация, но для swap-bound MoE её лучше избегать.',
@@ -83,7 +84,7 @@ const LANG = {
     w_muge_dense: '-muge влияет только на MoE модели (ffn_up_exps + ffn_gate_exps). На dense модели эффекта нет.',
     w_khad_f16: 'K-Cache Hadamard полезен только с квантизированным KV cache (не f16/f32).',
     w_minimax_rtr_on: 'MiniMax M2.5 имеет свою attention/runtime специфику. Принудительный rtr=on для swap-bound MiniMax остаётся рискованным режимом.',
-    w_minimax_rtr_auto: 'Для MiniMax safer baseline пока rtr=off, но старый плохой auto-результат был связан с policy bug. AUTO теперь нужно перепроверять на длинном прогоне, а не считать заведомо плохим.',
+    w_minimax_rtr_auto: 'Для MiniMax старый плохой auto-результат был policy bug. На fixed tree TG-only всё ещё тяготеет к OFF, но mixed path уже дал небольшой выигрыш у AUTO.',
     w_minimax_hot_budget_hint: 'Для MiniMax короткий quick check когда-то подсветил 24/32, но первый более длинный controlled rtr=off run не подтвердил новый default выше legacy 16.',
     w_minimax_hot_budget_fix: 'Практический user-facing baseline сейчас простой: оставьте Hot Expert Budget = 0. Более крупные бюджеты пока research-only.',
     w_workload_mixed: 'Выбран mixed (PG) режим. Для текущего форка это основной пользовательский сценарий, и его нельзя оценивать только по TG.',
@@ -109,6 +110,44 @@ const LANG = {
     badge_status_unknown: 'unknown family',
     badge_status_exp_knobs: 'experimental knobs active',
     note_minimax_hot_budget: 'MiniMax advanced note: короткий quick check когда-то подсветил большие бюджеты, но первый более длинный controlled rtr=off run вернул нас к legacy default 16. Для обычного запуска оставляйте Hot Expert Budget = 0; большие бюджеты пока research-only.',
+    live_title: 'Живая схема inference',
+    live_subtitle: 'Поток по фазам и активность MoE-экспертов для текущего запуска',
+    live_waiting: 'Ожидание запуска модели',
+    live_disabled: 'Live Observability выключен. Включите его в Advanced, чтобы dashboard добавил trace-env переменные для фаз и экспертов.',
+    live_running: 'live',
+    live_idle: 'idle',
+    live_arch: 'Архитектура',
+    live_trace: 'Trace',
+    live_timeline: 'Фазы',
+    live_phase_prompt: 'Prompt',
+    live_phase_first_decode: 'First decode',
+    live_phase_decode_tail: 'Decode tail',
+    live_phase_current: 'Текущая фаза',
+    live_prompt_tokens: 'Prompt токены',
+    live_prompt_ms: 'Prompt ms',
+    live_ttft_ms: 'TTFT ms',
+    live_decode_tps: 'Decode tok/s',
+    live_last_token_ms: 'Последний токен ms',
+    live_decode_steps: 'Decode steps',
+    live_moe_title: 'MoE activity',
+    live_moe_stage: 'Этап',
+    live_moe_budget: 'Budget',
+    live_moe_locked_share: 'Locked share',
+    live_moe_dispatches: 'Dispatches',
+    live_moe_top_experts: 'Top experts',
+    live_moe_selection: 'Hot selection',
+    live_moe_locked_total: 'Locked/total',
+    live_moe_fails: 'Fails',
+    live_moe_stage_compare: 'Сравнение стадий',
+    live_recent_phases: 'Последние фазовые события',
+    live_recent_stage_history: 'История стадий hot experts',
+    live_phase_compare: 'Prompt vs decode',
+    live_phase_compare_note: 'Prompt и decode — разные режимы выполнения; не переносите выводы с одного на другой автоматически.',
+    live_recent_idx: 'Шаг',
+    live_recent_total_ms: 'Итого ms',
+    live_recent_locked_share: 'Locked %',
+    live_no_phase_data: 'Пока нет trace-данных по фазам.',
+    live_no_moe_data: 'Пока нет trace-данных по экспертам.',
   },
   en: {
     sec_model: 'Model', sec_perf: 'Performance', sec_opt: 'Optimization',
@@ -124,13 +163,14 @@ const LANG = {
     p_batch: 'Batch size', d_batch: 'Logical batch for PP. Larger = faster prompt processing but more memory. Default 2048, minimum 32',
     p_ubatch: 'Micro-batch size', d_ubatch: 'Physical batch — tokens actually processed at once. Must be <= batch size. Default 512',
     p_fa: 'Flash Attention', d_fa: 'Optimized attention kernel. For current Zen4 MoE work it matters especially for mixed path (prompt+generation). Keep it ON by default; only disable for explicit A/B checks or debugging',
-    p_rtr: 'Runtime Repack', d_rtr: 'Three modes: off, on, auto. AUTO is the current throughput-first starting point for Qwen3MoE and gpt-oss on Zen4. For MiniMax, OFF is still the safer baseline. rtr=on disables mmap; with auto the runtime policy decides the effective outcome',
+    p_rtr: 'Runtime Repack', d_rtr: 'Three modes: off, on, auto. AUTO is the current throughput-first starting point for Qwen3MoE and gpt-oss on Zen4. For MiniMax, the practical picture now splits: TG-only still leans to OFF, while mixed path is worth comparing against AUTO. rtr=on disables mmap; with auto the runtime policy decides the effective outcome',
     p_muge: 'Merge Up+Gate Experts', d_muge: 'Merge ffn_up + ffn_gate expert tensors. Only affects MoE. No strong stable win is confirmed yet; for swap-bound cases regression risk is high, so keep it OFF by default',
     p_ctk: 'KV Cache K Type', d_ctk: 'Key quantization in KV cache. q8_0 is the current best baseline: it saves a lot of memory and showed no meaningful regression in the current validated profiles. For max context try q4_0',
     p_ctv: 'KV Cache V Type', d_ctv: 'Value quantization in KV cache. Can be more aggressive than K — quality is less sensitive. q4_0 for maximum context window',
     p_mla: 'MLA Mode', d_mla: 'Multi-head Latent Attention — KV cache mode for models supporting MLA (DeepSeek etc.). 3 = auto-select optimal',
     p_ser: 'Smart Expert Reduction', d_ser: 'Experimental option: router drops experts below a threshold while guaranteeing min_experts. Promising for huge MoE, but not a validated default yet',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Experimental env knob for huge MoE: how many hot experts to try to keep locked after prompt. 0 = do not set it, keep the runtime default. For MiniMax, the first longer controlled run did not justify promoting a larger default above legacy 16, so start with 0',
+    p_live_obs: 'Live Observability', d_live_obs: 'Dashboard-only traces for interactive inference-phase and expert-activity visualization. Useful for learning and debugging; disable it for the cleanest benchmark runs.',
     ser_min: 'min experts:', ser_thresh: 'threshold:',
     p_gr: 'Graph Reuse', d_gr: 'Reuse compute graph between tokens. Saves graph construction time. Only disable for debugging',
     p_mqkv: 'Merge QKV', d_mqkv: 'Merge Q, K, V into one tensor for attention. Improves data locality during attention computation',
@@ -169,7 +209,7 @@ const LANG = {
     glossary_title: 'Glossary',
     glossary_search: 'Search...',
     w_rtr_swap: 'Forced rtr=on on a swap-bound model is risky: working set grows, mmap gets disabled, and the slowdown can become severe, especially on mixed path.',
-    w_rtr_swap_fix: 'Do not force ON for swap-bound models. Start with AUTO for Qwen3MoE/gpt-oss. For MiniMax, OFF is currently the safer baseline.',
+    w_rtr_swap_fix: 'Do not force ON for swap-bound models. Start with AUTO for Qwen3MoE/gpt-oss. For MiniMax: start TG-only with OFF, and explicitly compare mixed path against AUTO.',
     w_muge_swap: 'Merge Up+Gate on swap-bound MoE is usually harmful: contiguous allocations get larger and page-fault pressure rises.',
     w_muge_swap_fix: 'Disable -muge for swap-bound models.',
     w_rtr_muge: 'rtr and muge are both enabled. This is no longer a crash combo, but it is still best avoided for swap-bound MoE.',
@@ -190,7 +230,7 @@ const LANG = {
     w_muge_dense: '-muge only affects MoE models (ffn_up_exps + ffn_gate_exps). No effect on dense models.',
     w_khad_f16: 'K-Cache Hadamard only useful with quantized KV cache (not f16/f32).',
     w_minimax_rtr_on: 'MiniMax M2.5 has its own attention/runtime specifics. Forced rtr=on remains a risky mode for swap-bound MiniMax.',
-    w_minimax_rtr_auto: 'For MiniMax, rtr=off is still the safer baseline, but the old bad auto result came from a policy bug. AUTO now needs a fresh long rerun instead of being treated as automatically bad.',
+    w_minimax_rtr_auto: 'For MiniMax, the old bad auto result came from a policy bug. On the fixed tree TG-only still leans to OFF, but mixed path already showed a small AUTO win.',
     w_minimax_hot_budget_hint: 'For MiniMax, a short quick check once highlighted 24/32, but the first longer controlled rtr=off run did not confirm a new default above the legacy 16 budget.',
     w_minimax_hot_budget_fix: 'The current user-facing baseline is simple: leave Hot Expert Budget = 0. Larger budgets remain research-only for now.',
     w_workload_mixed: 'Mixed (PG) workload is selected. In the current fork this is the main user-facing scenario, and it must not be inferred from TG alone.',
@@ -216,6 +256,44 @@ const LANG = {
     badge_status_unknown: 'unknown family',
     badge_status_exp_knobs: 'experimental knobs active',
     note_minimax_hot_budget: 'MiniMax advanced note: a short quick check once pointed at larger budgets, but the first longer controlled rtr=off run brought the practical answer back to the legacy default 16. For normal launches leave Hot Expert Budget = 0; larger budgets remain research-only.',
+    live_title: 'Live Inference View',
+    live_subtitle: 'Phase flow and MoE expert activity for the current run',
+    live_waiting: 'Waiting for a model launch',
+    live_disabled: 'Live Observability is disabled. Enable it in Advanced so the dashboard adds phase and expert trace environment variables.',
+    live_running: 'live',
+    live_idle: 'idle',
+    live_arch: 'Architecture',
+    live_trace: 'Trace',
+    live_timeline: 'Phases',
+    live_phase_prompt: 'Prompt',
+    live_phase_first_decode: 'First decode',
+    live_phase_decode_tail: 'Decode tail',
+    live_phase_current: 'Current phase',
+    live_prompt_tokens: 'Prompt tokens',
+    live_prompt_ms: 'Prompt ms',
+    live_ttft_ms: 'TTFT ms',
+    live_decode_tps: 'Decode tok/s',
+    live_last_token_ms: 'Last token ms',
+    live_decode_steps: 'Decode steps',
+    live_moe_title: 'MoE activity',
+    live_moe_stage: 'Stage',
+    live_moe_budget: 'Budget',
+    live_moe_locked_share: 'Locked share',
+    live_moe_dispatches: 'Dispatches',
+    live_moe_top_experts: 'Top experts',
+    live_moe_selection: 'Hot selection',
+    live_moe_locked_total: 'Locked/total',
+    live_moe_fails: 'Fails',
+    live_moe_stage_compare: 'Stage comparison',
+    live_recent_phases: 'Recent phase events',
+    live_recent_stage_history: 'Hot-expert stage history',
+    live_phase_compare: 'Prompt vs decode',
+    live_phase_compare_note: 'Prompt and decode are different execution modes; do not transfer conclusions from one onto the other automatically.',
+    live_recent_idx: 'Step',
+    live_recent_total_ms: 'Total ms',
+    live_recent_locked_share: 'Locked %',
+    live_no_phase_data: 'No phase trace data yet.',
+    live_no_moe_data: 'No expert trace data yet.',
   }
 };
 
@@ -260,7 +338,7 @@ const PRESETS = {
   },
   'minimax_huge_safe': {
     name: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
-    desc: { ru: 'MiniMax M2.5: safer baseline для текущего дерева', en: 'MiniMax M2.5: safer baseline for current tree' },
+    desc: { ru: 'MiniMax M2.5: консервативный OFF-baseline; mixed path стоит сравнивать с AUTO', en: 'MiniMax M2.5: conservative OFF baseline; mixed path should be compared against AUTO' },
     values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false,
               cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' },
   },
@@ -465,6 +543,7 @@ const DEFAULTS = {
   cache_type_k: 'f16', cache_type_v: 'f16', mla_attn: 3,
   ser_enabled: false, ser_min: 4, ser_thresh: 0.05,
   hot_expert_budget: 0,
+  live_observability: true,
   graph_reuse: true, merge_qkv: false, k_cache_hadamard: false,
   fused_moe_up_gate: true, fused_up_gate: true,
   hostname: '127.0.0.1', port: 8080, n_parallel: 1, api_key: '', n_threads_http: -1,
@@ -495,6 +574,9 @@ const S = new Proxy(state, {
       evaluate();
       renderCommand();
       saveState();
+      document.dispatchEvent(new CustomEvent('dashboard:state-changed', {
+        detail: { key: k, value: v, state: { ...state } }
+      }));
     }
     return true;
   }
@@ -506,7 +588,7 @@ const S = new Proxy(state, {
 const TOGGLE_PARAMS = [
   'flash_attn', 'merge_up_gate_exps', 'graph_reuse',
   'merge_qkv', 'k_cache_hadamard', 'fused_moe_up_gate', 'fused_up_gate',
-  'use_mmap', 'use_mlock', 'ser_enabled',
+  'use_mmap', 'use_mlock', 'ser_enabled', 'live_observability',
 ];
 
 function syncToDOM(changedKey) {
@@ -713,6 +795,11 @@ function renderAdvancedHints() {
 
 function buildEnvOverrides(s = state) {
   const env = {};
+  if (s.live_observability) {
+    env.IK_LLAMA_PG_TRACE = '1';
+    env.IK_LLAMA_PG_TRACE_DECODE_WINDOW = '8';
+    env.IK_LLAMA_HOT_EXPERT_TRACE = '1';
+  }
   if ((s.hot_expert_budget || 0) > 0) {
     env.IK_LLAMA_HOT_EXPERT_BUDGET = String(s.hot_expert_budget);
   }
@@ -904,6 +991,9 @@ function setLang(lang) {
   evaluate();
   renderCommand();
   saveState();
+  document.dispatchEvent(new CustomEvent('dashboard:lang-changed', {
+    detail: { lang: currentLang }
+  }));
 }
 
 // ============================================================
@@ -1286,8 +1376,13 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
     params.repack_tensors = 'off';
     reasons.push({
       param: 'repack_tensors', value: 'OFF',
-      ru: 'rtr OFF: MiniMax в swap-bound режиме пока безопаснее держать в OFF, особенно для mixed path',
-      en: 'rtr OFF: MiniMax is currently safer with OFF in swap-bound mode, especially for mixed path',
+      ru: 'rtr OFF: MiniMax в swap-bound режиме всё ещё самый консервативный старт, особенно если вас интересует TG-only',
+      en: 'rtr OFF: MiniMax in swap-bound mode still has the most conservative starting point, especially if TG-only is what matters',
+    });
+    reasons.push({
+      param: 'repack_tensors', value: 'AUTO?',
+      ru: 'Свежий closeout уже показал, что для mixed path у MiniMax стоит отдельно сравнивать AUTO: после фикса policy bug он больше не считается заведомо плохим',
+      en: 'The fresh closeout already showed that MiniMax mixed path should compare against AUTO separately: after the policy fix it is no longer assumed bad',
     });
   } else if (family === 'gpt-oss' && isSwapBound) {
     params.repack_tensors = 'auto';
@@ -2077,12 +2172,12 @@ const HELP = {
 <p>• <b>off</b> — не перепаковывать, сохранить обычную mmap-загрузку</p>
 <p>• <b>on</b> — форсировать repack во что бы то ни стало</p>
 <p>• <b>auto</b> — дать runtime самому решить, стоит ли repack включать</p>
-<p><b>Текущий практический вывод:</b> для Qwen3MoE и gpt-oss на Zen4 лучший общий старт — <span class="good">auto</span>. Для swap-bound MiniMax пока безопаснее <span class="hl">off</span>.</p>
+<p><b>Текущий практический вывод:</b> для Qwen3MoE и gpt-oss на Zen4 лучший общий старт — <span class="good">auto</span>. Для MiniMax картина уже разделена: <span class="hl">TG-only</span> тяготеет к <span class="hl">off</span>, а в <span class="hl">mixed path</span> уже есть подтвержденный смысл сравнивать с <span class="good">auto</span>.</p>
 <div class="bench">Почему это важно:
 • in-RAM модель: repack может помочь CPU locality
 • swap-bound модель: принудительный ON может отключить mmap и увеличить working set
 • mixed path (prompt+generation) нельзя оценивать только по TG</div>
-<div class="tip">Простое правило для новичка: <b>MoE на Zen4</b> — начните с <span class="hl">rtr=auto</span>. Если это MiniMax или очень большая swap-bound модель — отдельно проверьте <span class="hl">rtr=off</span>.</div>
+<div class="tip">Простое правило для новичка: <b>MoE на Zen4</b> — начните с <span class="hl">rtr=auto</span>. Если это MiniMax или очень большая swap-bound модель — для <span class="hl">TG-only</span> начните с <span class="hl">off</span>, а для <span class="hl">mixed path</span> обязательно сравните <span class="hl">off</span> и <span class="hl">auto</span>.</div>
 <div class="see-also">См. также: <span>-muge</span> (merge экспертов), <span>mmap</span></div>`,
     en: `<h4>Runtime Repack (-rtr)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Repack rearranges model weights into a CPU-friendlier layout. That can speed up compute, but it also changes memory and loading behavior. The fork now has three modes: <span class="hl">off</span>, <span class="hl">on</span>, <span class="hl">auto</span>.</div>
@@ -2090,12 +2185,12 @@ const HELP = {
 <p>• <b>off</b> — no repack, keep normal mmap-style loading</p>
 <p>• <b>on</b> — force repack unconditionally</p>
 <p>• <b>auto</b> — let the runtime decide whether repack is worth it</p>
-<p><b>Current practical takeaway:</b> for Qwen3MoE and gpt-oss on Zen4, the best general starting point is <span class="good">auto</span>. For swap-bound MiniMax, <span class="hl">off</span> is still the safer baseline.</p>
+<p><b>Current practical takeaway:</b> for Qwen3MoE and gpt-oss on Zen4, the best general starting point is <span class="good">auto</span>. For MiniMax, the picture now splits: <span class="hl">TG-only</span> still leans to <span class="hl">off</span>, while <span class="hl">mixed path</span> now has a confirmed reason to compare against <span class="good">auto</span>.</p>
 <div class="bench">Why it matters:
 • in-RAM model: repack can help CPU locality
 • swap-bound model: forced ON can disable mmap and increase working set
 • mixed path (prompt+generation) must not be judged from TG alone</div>
-<div class="tip">Simple beginner rule: for <b>MoE on Zen4</b>, start with <span class="hl">rtr=auto</span>. If the model is MiniMax or another huge swap-bound case, also test <span class="hl">rtr=off</span>.</div>
+<div class="tip">Simple beginner rule: for <b>MoE on Zen4</b>, start with <span class="hl">rtr=auto</span>. If the model is MiniMax or another huge swap-bound case, start <span class="hl">TG-only</span> with <span class="hl">off</span>, and for <span class="hl">mixed path</span> explicitly compare <span class="hl">off</span> and <span class="hl">auto</span>.</div>
 <div class="see-also">See also: <span>-muge</span> (merge experts), <span>mmap</span></div>`,
   },
   merge_up_gate_exps: {
@@ -2211,7 +2306,7 @@ const HELP = {
 <p><b>Swap-bound порог:</b> модель > 90% от RAM вашего профиля.</p>
 <div class="bench">Пример: 96 ГБ RAM, порог = 86 ГБ
 • Qwen3-30B Q4_K_M (17 ГБ): <span class="good">in-RAM</span> — обычно rtr AUTO
-• MiniMax-M2.5 Q5_K (151 ГБ): <span class="bad">swap-bound</span> — пока безопаснее rtr OFF, muge OFF
+• MiniMax-M2.5 Q5_K (151 ГБ): <span class="bad">swap-bound</span> — TG-only чаще стартует с rtr OFF, но mixed path уже стоит сравнивать с AUTO; muge OFF
 • Для MiniMax-класса на этом хосте throughput часто оказывается около ~1 t/s, но это сильно зависит от memory state и не должно подаваться как жёсткий потолок</div>`,
     en: `<h4>Model Size</h4>
 <div class="beginner-section"><div class="label">For beginners</div>This is the total size of model files on disk. Key rule: if the model is larger than ~90% of your RAM — it's "swap-bound" (doesn't fit in memory, so the system constantly loads data from SSD). This fundamentally changes optimal settings.</div>
@@ -2219,7 +2314,7 @@ const HELP = {
 <p><b>Swap-bound threshold:</b> model > 90% of your profile's RAM.</p>
 <div class="bench">Example: 96 GB RAM, threshold = 86 GB
 • Qwen3-30B Q4_K_M (17 GB): <span class="good">in-RAM</span> — usually rtr AUTO
-• MiniMax-M2.5 Q5_K (151 GB): <span class="bad">swap-bound</span> — safer baseline is still rtr OFF, muge OFF
+• MiniMax-M2.5 Q5_K (151 GB): <span class="bad">swap-bound</span> — TG-only usually starts from rtr OFF, but mixed path is now worth comparing against AUTO; muge OFF
 • For MiniMax-class runs on this host throughput often lands around ~1 t/s, but this is strongly memory-state dependent and should not be treated as a hard ceiling</div>`,
   },
   model_type: {
@@ -3219,6 +3314,13 @@ function init() {
   checkServer();
   // Periodic server check
   setInterval(checkServer, 10000);
+  window.DashboardBridge = {
+    apiGet,
+    t,
+    getLang: () => currentLang,
+    getState: () => ({ ...state }),
+  };
+  document.dispatchEvent(new CustomEvent('dashboard:bridge-ready'));
 }
 
 document.addEventListener('DOMContentLoaded', init);
