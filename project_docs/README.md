@@ -20,6 +20,7 @@ This directory is the canonical location for project-specific documentation.
 - `strategy/CURRENT_HANDOFF_2026-03-01.md`
 - `strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
 - `strategy/RESEARCH_PROMPT_TAIL_REWRITE_2026-03-02.md`
+- `research/expert-selection/README.md`
 - `llm/README.md`
 - `llm/SESSION_BOOTSTRAP.md`
 - `llm/SOURCE_OF_TRUTH_MAP.md`
