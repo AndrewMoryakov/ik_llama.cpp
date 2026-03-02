@@ -143,6 +143,16 @@
   margin-top: 14px;
 }
 
+.replay-scenarios {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.replay-scenario-card {
+  background: linear-gradient(180deg, rgba(43,124,216,0.08), rgba(43,124,216,0.03));
+}
+
 .replay-overview-card {
   text-align: left;
   display: grid;

@@ -102,6 +102,39 @@
     return replayState.runs.filter(run => run.curated).slice(0, 6);
   }
 
+  function getReplayScenarios() {
+    const minimax = replayState.runs.find(run => run.id.includes('minimax_cli_layer_trace'))
+      || replayState.runs.find(run => run.family === 'minimax' && run.curated)
+      || null;
+    const qwen = replayState.runs.find(run => run.id.includes('qwen') && run.trace_like)
+      || replayState.runs.find(run => run.family === 'qwen' && run.curated)
+      || null;
+    const gptoss = replayState.runs.find(run => run.id.includes('gptoss') && run.trace_like)
+      || replayState.runs.find(run => run.family === 'gptoss' && run.curated)
+      || null;
+
+    return [
+      minimax ? {
+        key: 'minimax',
+        run: minimax,
+        title: t('live_scenario_minimax_title'),
+        body: t('live_scenario_minimax_body'),
+      } : null,
+      qwen ? {
+        key: 'qwen',
+        run: qwen,
+        title: t('live_scenario_qwen_title'),
+        body: t('live_scenario_qwen_body'),
+      } : null,
+      gptoss ? {
+        key: 'gptoss',
+        run: gptoss,
+        title: t('live_scenario_gptoss_title'),
+        body: t('live_scenario_gptoss_body'),
+      } : null,
+    ].filter(Boolean);
+  }
+
   function t(key) {
     if (bridge && typeof bridge.t === 'function') {
       return bridge.t(key);
@@ -1332,11 +1365,28 @@
     if (!root) return;
     setStatus(t('live_idle'), false);
     const quickPicks = getReplayQuickPicks();
+    const scenarios = getReplayScenarios();
     root.innerHTML = `
       <div class="live-panel">
         <div class="live-panel-title">${esc(t('live_replay_overview_title'))}</div>
         <div class="live-empty">${esc(t(messageKey))}</div>
         <div class="live-learn-note">${esc(t('live_replay_overview_note'))}</div>
+        ${scenarios.length ? `
+          <div class="replay-scenarios">
+            <div class="replay-quick-picks-label">${esc(t('live_replay_scenarios'))}</div>
+            <div class="replay-overview-grid">
+              ${scenarios.map(item => `
+                <button type="button" class="replay-overview-card replay-scenario-card" data-replay-pick="${esc(item.run.id)}">
+                  <div class="replay-overview-head">
+                    <span class="live-chip"><span>${esc(t(`live_family_${item.run.family}`))}</span><strong>${esc(item.run.demoType)}</strong></span>
+                  </div>
+                  <div class="replay-overview-title">${esc(item.title)}</div>
+                  <div class="replay-overview-text">${esc(item.body)}</div>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
         ${quickPicks.length ? `
           <div class="replay-overview-grid">
             ${quickPicks.map(item => {
