@@ -4,6 +4,8 @@ import pathlib
 import re
 import time
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
 
 class LiveMetricsAggregator:
     PG_TRACE_RE = re.compile(
@@ -35,6 +37,9 @@ class LiveMetricsAggregator:
     HOT_SELECTED_RE = re.compile(
         r"hot experts: locked (?P<locked>\d+)/(?P<total>\d+) "
         r"\(budget (?P<budget>\d+), fails (?P<fails>\d+), dispatches (?P<dispatches>\d+)\) \| top-8:(?P<top>.*)$"
+    )
+    HOT_LAYER_RE = re.compile(
+        r"hot experts layer \((?P<stage>[^)]+)\): layer=(?P<layer>\d+)(?P<top>.*)$"
     )
 
     TOP_EXPERT_RE = re.compile(r"e(?P<expert>\d+)=(?P<hits>\d+)")
@@ -72,8 +77,140 @@ class LiveMetricsAggregator:
             "stage_history": [],
             "hot_selection": None,
             "top_experts": [],
+            "top_expert_history": [],
+            "expert_totals": [],
+            "expert_stage_matrix": [],
+            "expert_layer_matrix": [],
+            "prompt_decode_compare": {
+                "prompt": [],
+                "decode": [],
+            },
+            "stability": {
+                "label": "n/a",
+                "score": 0.0,
+            },
         }
         self.event_stream = []
+
+    @staticmethod
+    def _stage_bucket(stage):
+        value = (stage or "").strip().lower()
+        if value in ("before-commit", "after-commit"):
+            return "prompt"
+        if value == "post-commit-decode":
+            return "decode"
+        return "other"
+
+    def _rebuild_expert_views(self):
+        history = self.moe["top_expert_history"]
+        selection_history = [item for item in history if item.get("layer") is None]
+        layer_history = [item for item in history if item.get("layer") is not None]
+        totals = {}
+        stage_matrix = {}
+        layer_matrix = {}
+        prompt_totals = {}
+        decode_totals = {}
+
+        for item in selection_history:
+            stage = item.get("stage") or "selection"
+            bucket = item.get("bucket") or self._stage_bucket(stage)
+            row = stage_matrix.setdefault(stage, {})
+            for expert_item in item.get("experts", []):
+                expert = int(expert_item.get("expert", -1))
+                hits = int(expert_item.get("hits", 0))
+                if expert < 0 or hits <= 0:
+                    continue
+                totals[expert] = totals.get(expert, 0) + hits
+                row[expert] = row.get(expert, 0) + hits
+                if bucket == "prompt":
+                    prompt_totals[expert] = prompt_totals.get(expert, 0) + hits
+                elif bucket == "decode":
+                    decode_totals[expert] = decode_totals.get(expert, 0) + hits
+
+        if layer_history:
+            totals = {}
+            prompt_totals = {}
+            decode_totals = {}
+
+        for item in layer_history:
+            layer = item.get("layer")
+            if layer is None:
+                continue
+            bucket = item.get("bucket") or self._stage_bucket(item.get("stage") or "")
+            row = layer_matrix.setdefault(int(layer), {})
+            for expert_item in item.get("experts", []):
+                expert = int(expert_item.get("expert", -1))
+                hits = int(expert_item.get("hits", 0))
+                if expert < 0 or hits <= 0:
+                    continue
+                row[expert] = max(row.get(expert, 0), hits)
+                totals[expert] = totals.get(expert, 0) + hits
+                if bucket == "prompt":
+                    prompt_totals[expert] = prompt_totals.get(expert, 0) + hits
+                elif bucket == "decode":
+                    decode_totals[expert] = decode_totals.get(expert, 0) + hits
+
+        self.moe["expert_totals"] = [
+            {"expert": expert, "hits": hits}
+            for expert, hits in sorted(totals.items(), key=lambda x: (-x[1], x[0]))
+        ]
+        self.moe["expert_stage_matrix"] = [
+            {
+                "stage": stage,
+                "experts": [
+                    {"expert": expert, "hits": hits}
+                    for expert, hits in sorted(experts.items(), key=lambda x: (-x[1], x[0]))
+                ],
+            }
+            for stage, experts in stage_matrix.items()
+        ]
+        self.moe["expert_layer_matrix"] = [
+            {
+                "layer": layer,
+                "experts": [
+                    {"expert": expert, "hits": hits}
+                    for expert, hits in sorted(experts.items(), key=lambda x: (-x[1], x[0]))
+                ],
+            }
+            for layer, experts in sorted(layer_matrix.items(), key=lambda x: x[0])
+        ]
+        self.moe["prompt_decode_compare"] = {
+            "prompt": [
+                {"expert": expert, "hits": hits}
+                for expert, hits in sorted(prompt_totals.items(), key=lambda x: (-x[1], x[0]))
+            ],
+            "decode": [
+                {"expert": expert, "hits": hits}
+                for expert, hits in sorted(decode_totals.items(), key=lambda x: (-x[1], x[0]))
+            ],
+        }
+
+    def _update_expert_stability(self):
+        history = [item for item in self.moe["top_expert_history"] if item.get("layer") is None]
+        if len(history) < 2:
+            self.moe["stability"] = {
+                "label": "n/a",
+                "score": 0.0,
+            }
+            return
+
+        current = {item["expert"] for item in history[-1].get("experts", [])}
+        previous = {item["expert"] for item in history[-2].get("experts", [])}
+        union = current | previous
+        overlap = current & previous
+        score = (len(overlap) / len(union)) if union else 0.0
+
+        if score >= 0.67:
+            label = "stable"
+        elif score >= 0.34:
+            label = "mixed"
+        else:
+            label = "volatile"
+
+        self.moe["stability"] = {
+            "label": label,
+            "score": round(score * 100.0, 1),
+        }
 
     def start_session(self, env_overrides):
         self.reset()
@@ -108,6 +245,10 @@ class LiveMetricsAggregator:
         })
 
     def ingest_line(self, line):
+        if not line:
+            return
+
+        line = ANSI_ESCAPE_RE.sub("", line).strip()
         if not line:
             return
 
@@ -189,11 +330,45 @@ class LiveMetricsAggregator:
                 "fails": int(m_selected.group("fails")),
                 "dispatches": int(m_selected.group("dispatches")),
             }
+            stage = self.moe["latest_stage"] or "selection"
+            self.moe["top_expert_history"].append({
+                "stage": stage,
+                "bucket": self._stage_bucket(stage),
+                "experts": copy.deepcopy(top[:8]),
+            })
+            self.moe["top_expert_history"] = self.moe["top_expert_history"][-16:]
+            self._rebuild_expert_views()
+            self._update_expert_stability()
             self.event_stream.append({
                 "kind": "hot_selection",
                 "locked": self.moe["hot_selection"]["locked"],
                 "total": self.moe["hot_selection"]["total"],
                 "budget": self.moe["hot_selection"]["budget"],
+                "top_experts": copy.deepcopy(top[:8]),
+            })
+            return
+
+        m_layer = self.HOT_LAYER_RE.search(line)
+        if m_layer:
+            top = []
+            for match in self.TOP_EXPERT_RE.finditer(m_layer.group("top")):
+                top.append({
+                    "expert": int(match.group("expert")),
+                    "hits": int(match.group("hits")),
+                })
+            self.moe["top_expert_history"].append({
+                "stage": m_layer.group("stage"),
+                "bucket": self._stage_bucket(m_layer.group("stage")),
+                "layer": int(m_layer.group("layer")),
+                "experts": copy.deepcopy(top[:8]),
+            })
+            self.moe["top_expert_history"] = self.moe["top_expert_history"][-96:]
+            self._rebuild_expert_views()
+            self._update_expert_stability()
+            self.event_stream.append({
+                "kind": "hot_layer",
+                "stage": m_layer.group("stage"),
+                "layer": int(m_layer.group("layer")),
                 "top_experts": copy.deepcopy(top[:8]),
             })
 

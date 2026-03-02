@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-03-02T11:45:27.2442327+03:00",
+  "model": "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+  "command": ".\\\\build\\\\bin\\\\llama-cli.exe -m Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf -t 16 -fa on --run-time-repack auto -n 8 -p \"Explain in 3 short points how a mixture-of-experts model routes tokens and why prompt and decode can behave differently.\" --no-display-prompt",
+  "env": {
+    "IK_LLAMA_PG_TRACE_DECODE_WINDOW": "8",
+    "IK_LLAMA_PG_TRACE": "1",
+    "IK_LLAMA_HOT_EXPERT_TRACE": "1"
+  }
+}

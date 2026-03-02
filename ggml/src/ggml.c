@@ -279,6 +279,7 @@ typedef pthread_t ggml_thread_t;
 // Hot expert tracking (PR04): per-expert dispatch hit counters.
 // Only accumulated when ggml_moe_vm_prefetch is enabled.
 static atomic_int ggml_moe_expert_hits[GGML_MOE_MAX_EXPERTS];
+static atomic_int ggml_moe_layer_expert_hits[GGML_MOE_MAX_LAYERS][GGML_MOE_MAX_EXPERTS];
 static atomic_int ggml_moe_dispatch_count_val;
 static int64_t ggml_moe_locked_rows_val;
 static int64_t ggml_moe_unlocked_rows_val;
@@ -295,6 +296,11 @@ GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts) {
 GGML_API void ggml_moe_reset_expert_hits(void) {
     for (int i = 0; i < GGML_MOE_MAX_EXPERTS; ++i) {
         atomic_store(&ggml_moe_expert_hits[i], 0);
+    }
+    for (int il = 0; il < GGML_MOE_MAX_LAYERS; ++il) {
+        for (int ie = 0; ie < GGML_MOE_MAX_EXPERTS; ++ie) {
+            atomic_store(&ggml_moe_layer_expert_hits[il][ie], 0);
+        }
     }
     atomic_store(&ggml_moe_dispatch_count_val, 0);
     ggml_moe_locked_rows_val = 0;
@@ -320,6 +326,32 @@ GGML_API void ggml_moe_get_locked_stats(int64_t * locked_rows, int64_t * unlocke
     if (unlocked_dispatches) {
         *unlocked_dispatches = ggml_moe_unlocked_dispatches_val;
     }
+}
+
+GGML_API void ggml_moe_get_layer_expert_hits(int * out, int max_layers, int max_experts) {
+    if (!out || max_layers <= 0 || max_experts <= 0) {
+        return;
+    }
+    const int n_layers = max_layers < GGML_MOE_MAX_LAYERS ? max_layers : GGML_MOE_MAX_LAYERS;
+    const int n_experts = max_experts < GGML_MOE_MAX_EXPERTS ? max_experts : GGML_MOE_MAX_EXPERTS;
+    for (int il = 0; il < n_layers; ++il) {
+        for (int ie = 0; ie < n_experts; ++ie) {
+            out[il*n_experts + ie] = (int) atomic_load(&ggml_moe_layer_expert_hits[il][ie]);
+        }
+    }
+}
+
+static int ggml_moe_parse_layer_id(const struct ggml_tensor * tensor) {
+    if (!tensor || !tensor->name[0]) {
+        return -1;
+    }
+    int layer_id = -1;
+    if (sscanf(tensor->name, "blk.%d.", &layer_id) == 1) {
+        if (layer_id >= 0 && layer_id < GGML_MOE_MAX_LAYERS) {
+            return layer_id;
+        }
+    }
+    return -1;
 }
 
 // Expert residency sorting (PR17): tracks which experts are VirtualLocked in RAM.
@@ -17242,6 +17274,7 @@ static void ggml_compute_forward_mul_mat_id(
     // row groups
     const int n_ids = ids->ne[0]; // n_expert_used
     const int n_as  = ne02;       // n_expert
+    const int layer_id = ggml_moe_parse_layer_id(src0);
 
     char * wdata_src1_end = (src1->type == vec_dot_type) ?
             (char *) params->wdata :
@@ -17312,6 +17345,9 @@ static void ggml_compute_forward_mul_mat_id(
             for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
                 if (matrix_row_counts[a] > 0) {
                     atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                    if (layer_id >= 0) {
+                        atomic_fetch_add(&ggml_moe_layer_expert_hits[layer_id][a], (int)matrix_row_counts[a]);
+                    }
                     if (ggml_moe_expert_locked_arr[a]) {
                         ggml_moe_locked_rows_val += (int64_t)matrix_row_counts[a];
                         ggml_moe_locked_dispatches_val += 1;
@@ -17584,6 +17620,7 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
     // row groups
     const int n_ids = ids->ne[0]; // n_expert_used
     const int n_as  = ne02;       // n_expert
+    const int layer_id = ggml_moe_parse_layer_id(src0);
 
     char * wdata_src1_end = (src1->type == vec_dot_type) ?
             (char *) params->wdata :
@@ -17657,6 +17694,9 @@ static void ggml_compute_forward_mul_mat_id_up_gate(
             for (int a = 0; a < n_as && a < GGML_MOE_MAX_EXPERTS; ++a) {
                 if (matrix_row_counts[a] > 0) {
                     atomic_fetch_add(&ggml_moe_expert_hits[a], (int)matrix_row_counts[a]);
+                    if (layer_id >= 0) {
+                        atomic_fetch_add(&ggml_moe_layer_expert_hits[layer_id][a], (int)matrix_row_counts[a]);
+                    }
                     if (ggml_moe_expert_locked_arr[a]) {
                         ggml_moe_locked_rows_val += (int64_t)matrix_row_counts[a];
                         ggml_moe_locked_dispatches_val += 1;

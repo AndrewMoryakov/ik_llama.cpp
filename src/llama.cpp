@@ -2123,7 +2123,7 @@ static int llama_hot_expert_budget_for_model(llm_arch arch, uint32_t n_expert, u
     return (int)(legacy < GGML_MOE_MAX_EXPERTS ? legacy : GGML_MOE_MAX_EXPERTS);
 }
 
-static void llama_hot_expert_log_locked_stats(const char * phase) {
+static void llama_hot_expert_log_locked_stats(const llama_model & model, const char * phase) {
     if (!llama_hot_expert_trace_enabled()) {
         return;
     }
@@ -2147,6 +2147,56 @@ static void llama_hot_expert_log_locked_stats(const char * phase) {
             unlocked_dispatches,
             total_dispatches,
             s_hot_max_locked);
+
+    const int n_layer = std::min<int>(model.hparams.n_layer, GGML_MOE_MAX_LAYERS);
+    const int n_expert = std::min<int>(s_hot_n_expert, GGML_MOE_MAX_EXPERTS);
+    if (n_layer <= 0 || n_expert <= 0) {
+        return;
+    }
+
+    std::vector<int> layer_hits((size_t)n_layer * (size_t)n_expert, 0);
+    ggml_moe_get_layer_expert_hits(layer_hits.data(), n_layer, n_expert);
+
+    for (int il = 0; il < n_layer; ++il) {
+        struct layer_hit {
+            int expert;
+            int hits;
+        };
+        layer_hit top[8];
+        int n_top = 0;
+        for (int ie = 0; ie < n_expert; ++ie) {
+            const int hits = layer_hits[(size_t)il * (size_t)n_expert + (size_t)ie];
+            if (hits <= 0) {
+                continue;
+            }
+            int pos = n_top;
+            if (pos < 8) {
+                top[pos++] = { ie, hits };
+                n_top = pos;
+            }
+            for (int j = pos - 1; j > 0; --j) {
+                if (top[j].hits > top[j - 1].hits) {
+                    std::swap(top[j], top[j - 1]);
+                }
+            }
+            if (n_top == 8 && hits > top[n_top - 1].hits) {
+                top[n_top - 1] = { ie, hits };
+                for (int j = n_top - 1; j > 0; --j) {
+                    if (top[j].hits > top[j - 1].hits) {
+                        std::swap(top[j], top[j - 1]);
+                    }
+                }
+            }
+        }
+        if (n_top == 0) {
+            continue;
+        }
+        LLAMA_LOG_INFO("hot experts layer (%s): layer=%d", phase ? phase : "unknown", il);
+        for (int i = 0; i < n_top; ++i) {
+            LLAMA_LOG_INFO(" e%d=%d", top[i].expert, top[i].hits);
+        }
+        LLAMA_LOG_INFO("\n");
+    }
 }
 
 // Lock a slice of a tensor corresponding to one expert.
@@ -2200,7 +2250,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
 
     int hits[GGML_MOE_MAX_EXPERTS] = {0};
     ggml_moe_get_expert_hits(hits, s_hot_n_expert);
-    llama_hot_expert_log_locked_stats("before-commit");
+    llama_hot_expert_log_locked_stats(model, "before-commit");
 
     // Sort experts by hits (descending) — insertion sort, n_expert <= 256
     int idx[GGML_MOE_MAX_EXPERTS];
@@ -2235,7 +2285,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
         LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
     }
     LLAMA_LOG_INFO("\n");
-    llama_hot_expert_log_locked_stats("after-commit");
+    llama_hot_expert_log_locked_stats(model, "after-commit");
 }
 
 // Returns false if cancelled by progress_callback
@@ -4542,7 +4592,7 @@ static int llama_decode_internal(
         llama_hot_expert_commit(model);
     } else if (n_tokens_all == 1 && s_hot_committed && llama_hot_expert_trace_enabled() && s_hot_trace_decode_calls < 8) {
         ++s_hot_trace_decode_calls;
-        llama_hot_expert_log_locked_stats("post-commit-decode");
+        llama_hot_expert_log_locked_stats(model, "post-commit-decode");
     }
 
     if (trace_this_call) {

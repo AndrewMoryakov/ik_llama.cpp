@@ -233,3 +233,19 @@ Source of truth:
 
 - это более compute-oriented и менее noisy target, чем huge `MiniMax`
 - у него уже есть signal, что следующий meaningful win лежит в decode-side path
+
+## Dashboard live / replay note
+
+Для следующих UX/live/replay итераций не использовать `MiniMax` как основной smoke-test по умолчанию.
+
+Предпочтительный быстрый demo-набор:
+
+1. `gpt-oss-20b`
+2. `Qwen3-30B-A3B`
+3. более легкие локальные `Qwen3 / Qwen3MoE` варианты
+
+Причина:
+
+- они быстрее дают trace-данные;
+- на них удобнее полировать `Learn / Inspect`, replay и heatmap;
+- `MiniMax` лучше оставлять для проверки huge-model behavior и swap-bound observability.

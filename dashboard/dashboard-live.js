@@ -4,17 +4,89 @@
   let pollTimer = null;
   let replayTimer = null;
   let bridge = null;
+  let toolbarSignature = '';
 
   const replayState = {
     mode: 'live',
     view: 'learn',
     runs: [],
+    replayFilter: 'curated',
     selectedRun: '',
     data: null,
     frameIndex: 0,
     playing: false,
     speed: 1,
   };
+
+  function classifyReplayRun(run) {
+    const id = String((run && (run.id || run.name)) || '').toLowerCase();
+    let family = 'generic';
+    if (id.includes('minimax')) family = 'minimax';
+    else if (id.includes('gptoss') || id.includes('gpt-oss')) family = 'gptoss';
+    else if (id.includes('qwen')) family = 'qwen';
+
+    const curated = /minimax_cli_layer_trace|pg_window_trace|minimax_quick_verify|qwen|gptoss|gpt-oss/.test(id);
+    const demoType = id.includes('layer_trace')
+      ? 'layer-trace'
+      : id.includes('window_trace')
+        ? 'window-trace'
+        : id.includes('quick_verify')
+          ? 'quick-check'
+          : 'trace';
+
+    return {
+      ...run,
+      family,
+      curated,
+      demoType,
+    };
+  }
+
+  function getFilteredRuns() {
+    const filter = replayState.replayFilter || 'curated';
+    if (filter === 'all') return replayState.runs;
+    if (filter === 'curated') return replayState.runs.filter(run => run.curated);
+    if (filter === 'trace') return replayState.runs.filter(run => run.trace_like);
+    return replayState.runs.filter(run => run.family === filter);
+  }
+
+  function getReplayRunDescription(run) {
+    if (!run) {
+      return {
+        title: t('live_replay_desc_none_title'),
+        body: t('live_replay_desc_none_body'),
+      };
+    }
+
+    const key = `${run.family}:${run.demoType}`;
+    const map = {
+      'minimax:layer-trace': {
+        title: t('live_replay_desc_minimax_layer_title'),
+        body: t('live_replay_desc_minimax_layer_body'),
+      },
+      'minimax:quick-check': {
+        title: t('live_replay_desc_minimax_quick_title'),
+        body: t('live_replay_desc_minimax_quick_body'),
+      },
+      'gptoss:trace': {
+        title: t('live_replay_desc_gptoss_title'),
+        body: t('live_replay_desc_gptoss_body'),
+      },
+      'qwen:trace': {
+        title: t('live_replay_desc_qwen_title'),
+        body: t('live_replay_desc_qwen_body'),
+      },
+      'qwen:window-trace': {
+        title: t('live_replay_desc_qwen_window_title'),
+        body: t('live_replay_desc_qwen_window_body'),
+      },
+    };
+
+    return map[key] || {
+      title: t('live_replay_desc_generic_title'),
+      body: t('live_replay_desc_generic_body'),
+    };
+  }
 
   function t(key) {
     if (bridge && typeof bridge.t === 'function') {
@@ -78,14 +150,95 @@
     el.classList.toggle('running', !!running);
   }
 
-  function renderToolbar() {
+  function getToolbarSignature() {
+    const frameCount = replayState.data && Array.isArray(replayState.data.frames)
+      ? replayState.data.frames.length
+      : 0;
+    const runsSig = replayState.runs.map(run => `${run.id}:${run.trace_like ? '1' : '0'}`).join('|');
+    const lang = bridge && typeof bridge.getLang === 'function' ? bridge.getLang() : '';
+    return [
+      lang,
+      replayState.mode,
+      replayState.view,
+      replayState.selectedRun,
+      replayState.playing ? '1' : '0',
+      String(replayState.speed),
+      String(frameCount),
+      runsSig,
+    ].join('::');
+  }
+
+  function syncToolbarState() {
+    const frameCount = replayState.data && Array.isArray(replayState.data.frames)
+      ? replayState.data.frames.length
+      : 0;
+    const canReplay = replayState.mode === 'replay' && frameCount > 0;
+    const maxIndex = Math.max(frameCount - 1, 0);
+    const currentIndex = Math.min(replayState.frameIndex, maxIndex);
+
+    const modeSelect = document.getElementById('live-mode-select');
+    const viewSelect = document.getElementById('live-view-select');
+    const runSelect = document.getElementById('live-replay-run');
+    const filterSelect = document.getElementById('live-replay-filter');
+    const reloadBtn = document.getElementById('live-replay-reload');
+    const playBtn = document.getElementById('live-replay-play');
+    const slider = document.getElementById('live-replay-slider');
+    const speedSelect = document.getElementById('live-replay-speed');
+    const framesValue = document.getElementById('live-replay-frames');
+    const demoChip = document.getElementById('live-replay-demo-chip');
+
+    if (modeSelect) modeSelect.value = replayState.mode;
+    if (viewSelect) viewSelect.value = replayState.view;
+    if (runSelect) {
+      runSelect.disabled = replayState.mode !== 'replay';
+      if (replayState.selectedRun) {
+        runSelect.value = replayState.selectedRun;
+      }
+    }
+    if (filterSelect) {
+      filterSelect.disabled = replayState.mode !== 'replay';
+      filterSelect.value = replayState.replayFilter || 'curated';
+    }
+    if (reloadBtn) reloadBtn.disabled = replayState.mode !== 'replay';
+    if (playBtn) {
+      playBtn.disabled = !canReplay;
+      playBtn.textContent = replayState.playing ? t('live_replay_pause') : t('live_replay_play');
+    }
+    if (slider) {
+      slider.disabled = !canReplay;
+      slider.max = String(maxIndex);
+      slider.value = String(currentIndex);
+    }
+    if (speedSelect) {
+      speedSelect.disabled = replayState.mode !== 'replay';
+      speedSelect.value = String(replayState.speed);
+    }
+    if (framesValue) {
+      framesValue.textContent = String(frameCount);
+    }
+    if (demoChip) {
+      const run = replayState.runs.find(item => item.id === replayState.selectedRun);
+      demoChip.innerHTML = run
+        ? `<span>${esc(t('live_replay_demo'))}</span><strong>${esc(run.curated ? `${t(`live_family_${run.family}`)} · ${run.demoType}` : t('live_replay_generic'))}</strong>`
+        : `<span>${esc(t('live_replay_demo'))}</span><strong>${esc(t('live_replay_generic'))}</strong>`;
+    }
+  }
+
+  function renderToolbar(force = false) {
     const el = document.getElementById('live-metrics-toolbar');
     if (!el) return;
 
-    const runOptions = replayState.runs.length
-      ? replayState.runs.map(run => `
+    const signature = getToolbarSignature();
+    if (!force && toolbarSignature === signature && el.childElementCount > 0) {
+      syncToolbarState();
+      return;
+    }
+
+    const visibleRuns = getFilteredRuns();
+    const runOptions = visibleRuns.length
+      ? visibleRuns.map(run => `
           <option value="${esc(run.id)}" ${run.id === replayState.selectedRun ? 'selected' : ''}>
-            ${esc(run.name)}${run.trace_like ? '' : ' · no-trace'}
+            ${esc(run.name)}${run.curated ? ' · curated' : ''}${run.trace_like ? '' : ' · no-trace'}
           </option>
         `).join('')
       : `<option value="">${esc(t('live_replay_no_runs'))}</option>`;
@@ -109,6 +262,17 @@
           <select id="live-view-select" class="live-toolbar-select">
             <option value="learn" ${replayState.view === 'learn' ? 'selected' : ''}>${esc(t('live_view_learn'))}</option>
             <option value="inspect" ${replayState.view === 'inspect' ? 'selected' : ''}>${esc(t('live_view_inspect'))}</option>
+          </select>
+        </label>
+        <label class="live-toolbar-group">
+          <span>${esc(t('live_replay_filter'))}</span>
+          <select id="live-replay-filter" class="live-toolbar-select" ${replayState.mode !== 'replay' ? 'disabled' : ''}>
+            <option value="curated" ${replayState.replayFilter === 'curated' ? 'selected' : ''}>${esc(t('live_replay_filter_curated'))}</option>
+            <option value="all" ${replayState.replayFilter === 'all' ? 'selected' : ''}>${esc(t('live_replay_filter_all'))}</option>
+            <option value="trace" ${replayState.replayFilter === 'trace' ? 'selected' : ''}>${esc(t('live_replay_filter_trace'))}</option>
+            <option value="minimax" ${replayState.replayFilter === 'minimax' ? 'selected' : ''}>${esc(t('live_family_minimax'))}</option>
+            <option value="gptoss" ${replayState.replayFilter === 'gptoss' ? 'selected' : ''}>${esc(t('live_family_gptoss'))}</option>
+            <option value="qwen" ${replayState.replayFilter === 'qwen' ? 'selected' : ''}>${esc(t('live_family_qwen'))}</option>
           </select>
         </label>
         <label class="live-toolbar-group live-toolbar-grow">
@@ -140,13 +304,17 @@
         </label>
         <div class="live-chip">
           <span>${esc(t('live_replay_frames'))}</span>
-          <strong>${frameCount}</strong>
+          <strong id="live-replay-frames">${frameCount}</strong>
         </div>
+        ${replayState.mode === 'replay' ? `<div class="live-chip" id="live-replay-demo-chip"></div>` : ''}
       </div>
     `;
 
+    toolbarSignature = signature;
+
     const modeSelect = document.getElementById('live-mode-select');
     const runSelect = document.getElementById('live-replay-run');
+    const filterSelect = document.getElementById('live-replay-filter');
     const viewSelect = document.getElementById('live-view-select');
     const reloadBtn = document.getElementById('live-replay-reload');
     const playBtn = document.getElementById('live-replay-play');
@@ -166,11 +334,11 @@
           if (replayState.selectedRun) {
             await loadReplayData(replayState.selectedRun);
           } else {
-            renderToolbar();
+            renderToolbar(true);
             renderEmptyReplay();
           }
         } else {
-          renderToolbar();
+          renderToolbar(true);
           await poll();
         }
       };
@@ -181,6 +349,24 @@
         replayState.selectedRun = e.target.value || '';
         stopReplay();
         await loadReplayData(replayState.selectedRun);
+      };
+    }
+
+    if (filterSelect) {
+      filterSelect.onchange = async (e) => {
+        replayState.replayFilter = e.target.value || 'curated';
+        const visible = getFilteredRuns();
+        if (!visible.find(run => run.id === replayState.selectedRun)) {
+          const preferred = visible.find(r => r.curated && r.trace_like) || visible.find(r => r.trace_like) || visible[0] || null;
+          replayState.selectedRun = preferred ? preferred.id : '';
+        }
+        stopReplay();
+        renderToolbar(true);
+        if (replayState.mode === 'replay' && replayState.selectedRun) {
+          await loadReplayData(replayState.selectedRun);
+        } else if (replayState.mode === 'replay') {
+          renderEmptyReplay();
+        }
       };
     }
 
@@ -198,7 +384,7 @@
     if (reloadBtn) {
       reloadBtn.onclick = async () => {
         await ensureReplayRuns(true);
-        renderToolbar();
+        renderToolbar(true);
       };
     }
 
@@ -222,6 +408,8 @@
         }
       };
     }
+
+    syncToolbarState();
   }
 
   function getLearnPhaseText(phase) {
@@ -235,11 +423,26 @@
   function renderLearnPanel(phase, moe) {
     const latestStage = moe && moe.latest_stage ? String(moe.latest_stage) : '';
     const topExperts = Array.isArray(moe && moe.top_experts) ? moe.top_experts : [];
+    const compare = moe && moe.prompt_decode_compare && typeof moe.prompt_decode_compare === 'object'
+      ? moe.prompt_decode_compare
+      : { prompt: [], decode: [] };
+    const stability = moe && moe.stability && typeof moe.stability === 'object'
+      ? moe.stability
+      : { label: 'n/a', score: 0 };
     const topText = topExperts.length
       ? topExperts.slice(0, 3).map(item => `e${item.expert}=${item.hits}`).join(', ')
       : '';
+    const promptSet = new Set((compare.prompt || []).map(item => Number(item.expert)));
+    const decodeSet = new Set((compare.decode || []).map(item => Number(item.expert)));
+    const overlap = Array.from(promptSet).filter(expert => decodeSet.has(expert)).slice(0, 4);
+    const overlapText = overlap.length
+      ? `${t('live_learn_overlap_prefix')} ${overlap.map(expert => `e${expert}`).join(', ')}.`
+      : t('live_learn_overlap_none');
+    const stabilityText = stability.label && stability.label !== 'n/a'
+      ? `${t('live_learn_stability_prefix')} ${t(`live_moe_stability_${stability.label}`)} (${formatMs(stability.score)}%).`
+      : t('live_learn_stability_none');
     const moeText = latestStage
-      ? `${t('live_learn_moe_text')} ${latestStage ? `Текущий stage: ${latestStage}.` : ''}${topText ? ` Top experts: ${topText}.` : ''}`
+      ? `${t('live_learn_moe_text')} ${latestStage ? `${t('live_learn_stage_prefix')} ${latestStage}.` : ''}${topText ? ` ${t('live_learn_top_prefix')} ${topText}.` : ''} ${overlapText} ${stabilityText}`
       : t('live_learn_moe_none');
 
     return `
@@ -252,6 +455,359 @@
         <div class="live-panel live-learn-panel">
           <div class="live-panel-title">${esc(t('live_learn_moe_title'))}</div>
           <div class="live-learn-text">${esc(moeText)}</div>
+          <div class="live-summary live-summary-tight">
+            <div class="live-chip">
+              <span>${esc(t('live_moe_stability_label'))}</span>
+              <strong>${esc(stability.label && stability.label !== 'n/a' ? t(`live_moe_stability_${stability.label}`) : 'n/a')}</strong>
+            </div>
+            <div class="live-chip">
+              <span>${esc(t('live_moe_stability_score'))}</span>
+              <strong>${esc(stability.label && stability.label !== 'n/a' ? `${formatMs(stability.score)}%` : 'n/a')}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function getExecutionFlowModel(phase, moe, meta) {
+    const current = String((phase && phase.current) || 'idle');
+    const latestStage = String((moe && moe.latest_stage) || '');
+    const hasMoe = !!(
+      (moe && moe.latest_trace) ||
+      (Array.isArray(moe && moe.top_experts) && moe.top_experts.length) ||
+      (Array.isArray(moe && moe.expert_layer_matrix) && moe.expert_layer_matrix.length) ||
+      (Array.isArray(moe && moe.expert_stage_matrix) && moe.expert_stage_matrix.length)
+    );
+
+    const nodes = [
+      { id: 'input', label: t('live_flow_node_input'), state: 'idle' },
+      { id: 'shared', label: t('live_flow_node_shared'), state: 'idle' },
+      { id: 'router', label: t('live_flow_node_router'), state: hasMoe ? 'idle' : 'disabled' },
+      { id: 'experts', label: t('live_flow_node_experts'), state: hasMoe ? 'idle' : 'disabled' },
+      { id: 'decode', label: t('live_flow_node_decode'), state: 'idle' },
+    ];
+
+    const active = new Set();
+    let pathLabel = t('live_flow_path_idle');
+    let note = t('live_flow_note_idle');
+
+    if (current === 'prompt') {
+      active.add('input');
+      active.add('shared');
+      if (hasMoe) {
+        active.add('router');
+        active.add('experts');
+      }
+      pathLabel = t('live_flow_path_prompt');
+      note = t('live_flow_note_prompt');
+    } else if (current === 'first_decode') {
+      active.add('shared');
+      if (hasMoe) {
+        active.add('router');
+        active.add('experts');
+      }
+      active.add('decode');
+      pathLabel = t('live_flow_path_first_decode');
+      note = t('live_flow_note_first_decode');
+    } else if (current === 'decode') {
+      active.add('shared');
+      if (hasMoe) {
+        active.add('router');
+        active.add('experts');
+      }
+      active.add('decode');
+      pathLabel = t('live_flow_path_decode');
+      note = t('live_flow_note_decode');
+    }
+
+    nodes.forEach((node) => {
+      if (node.state === 'disabled') return;
+      node.state = active.has(node.id) ? 'active' : 'inactive';
+    });
+
+    return {
+      nodes,
+      pathLabel,
+      note,
+      hasMoe,
+      latestStage,
+      architecture: String((meta && meta.architecture) || ''),
+    };
+  }
+
+  function renderExecutionFlow(phase, moe, meta) {
+    const model = getExecutionFlowModel(phase, moe, meta);
+    const nodesHtml = model.nodes.map((node, idx) => {
+      const nodeHtml = `
+        <div class="flow-node flow-node-${node.state}">
+          <div class="flow-node-label">${esc(node.label)}</div>
+        </div>
+      `;
+      if (idx === model.nodes.length - 1) {
+        return nodeHtml;
+      }
+      return `
+        ${nodeHtml}
+        <div class="flow-arrow ${node.state === 'active' ? 'flow-arrow-active' : ''}" aria-hidden="true">
+          <span></span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="live-panel flow-panel">
+        <div class="live-panel-title">${esc(t('live_flow_title'))}</div>
+        <div class="live-summary live-summary-tight">
+          <div class="live-chip">
+            <span>${esc(t('live_phase_current'))}</span>
+            <strong>${esc(phase && phase.current ? phase.current : 'idle')}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_flow_path'))}</span>
+            <strong>${esc(model.pathLabel)}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_arch'))}</span>
+            <strong>${esc(model.architecture || 'n/a')}</strong>
+          </div>
+          ${model.latestStage ? `
+            <div class="live-chip">
+              <span>${esc(t('live_moe_stage'))}</span>
+              <strong>${esc(model.latestStage)}</strong>
+            </div>
+          ` : ''}
+        </div>
+        <div class="live-empty">${esc(t('live_flow_note'))}</div>
+        <div class="flow-diagram">
+          ${nodesHtml}
+        </div>
+        <div class="live-learn-note">${esc(model.note)}</div>
+      </div>
+    `;
+  }
+
+  function renderTokenJourney(phase, moe) {
+    const current = String((phase && phase.current) || 'idle');
+    const latestStage = String((moe && moe.latest_stage) || '');
+    const recent = Array.isArray(phase && phase.recent_compact) ? phase.recent_compact : [];
+    const last = recent.length ? recent[recent.length - 1] : null;
+    const tokenLabel = current === 'prompt'
+      ? t('live_token_prompt_batch')
+      : current === 'first_decode'
+        ? t('live_token_first')
+        : current === 'decode'
+          ? t('live_token_decode')
+          : t('live_token_idle');
+    const position = current === 'prompt' ? '12%' : current === 'first_decode' ? '72%' : current === 'decode' ? '92%' : '2%';
+    const note = current === 'prompt'
+      ? t('live_token_note_prompt')
+      : current === 'first_decode'
+        ? t('live_token_note_first')
+        : current === 'decode'
+          ? t('live_token_note_decode')
+          : t('live_token_note_idle');
+
+    return `
+      <div class="live-panel">
+        <div class="live-panel-title">${esc(t('live_token_title'))}</div>
+        <div class="live-summary live-summary-tight">
+          <div class="live-chip">
+            <span>${esc(t('live_token_kind'))}</span>
+            <strong>${esc(tokenLabel)}</strong>
+          </div>
+          ${last ? `
+            <div class="live-chip">
+              <span>${esc(t('live_replay_event'))}</span>
+              <strong>${esc(last.phase || current || 'idle')}</strong>
+            </div>
+          ` : ''}
+          ${latestStage ? `
+            <div class="live-chip">
+              <span>${esc(t('live_moe_stage'))}</span>
+              <strong>${esc(latestStage)}</strong>
+            </div>
+          ` : ''}
+        </div>
+        <div class="token-journey-track">
+          <div class="token-journey-line"></div>
+          <div class="token-journey-stops">
+            <span>Input</span>
+            <span>Router</span>
+            <span>Experts</span>
+            <span>Decode</span>
+          </div>
+          <div class="token-journey-token" style="left:${position}">
+            <span>${esc(t('live_token_chip'))}</span>
+          </div>
+        </div>
+        <div class="live-learn-note">${esc(note)}</div>
+      </div>
+    `;
+  }
+
+  function getMemoryRegime(state, snapshot, moe) {
+    const profile = state && state.__profile ? state.__profile : null;
+    const system = state && state.__system ? state.__system : null;
+    const modelSize = Number(state && state.model_size_gb || 0);
+    const totalRam = Number(
+      (profile && profile.totalRamGb) ||
+      (system && system.total_ram_gb) ||
+      0
+    );
+    const availableRam = Number((system && system.available_ram_gb) || 0);
+    const ratio = totalRam > 0 && modelSize > 0 ? modelSize / totalRam : 0;
+
+    let regime = 'unknown';
+    if (ratio > 0) {
+      if (ratio > 0.9) regime = 'swap_bound';
+      else if (ratio > 0.7) regime = 'near_ram';
+      else regime = 'in_ram';
+    }
+
+    const latestTrace = moe && moe.latest_trace ? moe.latest_trace : null;
+    const selection = moe && moe.hot_selection ? moe.hot_selection : null;
+    const latestStage = String((moe && moe.latest_stage) || '');
+    const latestLockedShare = latestTrace ? Number(latestTrace.locked_share || 0) : null;
+
+    let note = t('live_mem_note_unknown');
+    if (regime === 'swap_bound') {
+      note = t('live_mem_note_swap');
+    } else if (regime === 'near_ram') {
+      note = t('live_mem_note_near');
+    } else if (regime === 'in_ram') {
+      note = t('live_mem_note_inram');
+    }
+
+    if (selection && selection.budget > 0) {
+      note += ` ${t('live_mem_note_hot_budget')} ${selection.budget}.`;
+    }
+    if (latestStage) {
+      note += ` ${t('live_mem_note_stage')} ${latestStage}.`;
+    }
+    if (latestLockedShare !== null) {
+      note += ` ${t('live_mem_note_locked_share')} ${formatMs(latestLockedShare)}%.`;
+    }
+
+    return {
+      regime,
+      modelSize,
+      totalRam,
+      availableRam,
+      ratio,
+      latestStage,
+      latestLockedShare,
+      hotBudget: selection ? Number(selection.budget || 0) : 0,
+      note,
+    };
+  }
+
+  function renderMemoryPanel(state, snapshot, moe) {
+    const mem = getMemoryRegime(state, snapshot, moe);
+    const ratioPct = mem.ratio > 0 ? `${formatMs(mem.ratio * 100)}%` : 'n/a';
+    const regimeLabel = mem.regime === 'swap_bound'
+      ? t('live_mem_regime_swap')
+      : mem.regime === 'near_ram'
+        ? t('live_mem_regime_near')
+        : mem.regime === 'in_ram'
+          ? t('live_mem_regime_inram')
+          : t('live_mem_regime_unknown');
+
+    return `
+      <div class="live-panel memory-panel">
+        <div class="live-panel-title">${esc(t('live_mem_title'))}</div>
+        <div class="live-summary live-summary-tight">
+          <div class="live-chip">
+            <span>${esc(t('live_mem_regime'))}</span>
+            <strong>${esc(regimeLabel)}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_mem_model'))}</span>
+            <strong>${esc(mem.modelSize > 0 ? `${formatMs(mem.modelSize)} GB` : 'n/a')}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_mem_ram'))}</span>
+            <strong>${esc(mem.totalRam > 0 ? `${formatMs(mem.totalRam)} GB` : 'n/a')}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_mem_ratio'))}</span>
+            <strong>${esc(ratioPct)}</strong>
+          </div>
+          ${mem.availableRam > 0 ? `
+            <div class="live-chip">
+              <span>${esc(t('live_mem_available'))}</span>
+              <strong>${esc(`${formatMs(mem.availableRam)} GB`)}</strong>
+            </div>
+          ` : ''}
+        </div>
+        <div class="memory-meter">
+          <div class="memory-meter-bar">
+            <div class="memory-meter-fill memory-meter-${esc(mem.regime)}" style="width:${mem.ratio > 0 ? Math.min(mem.ratio * 100, 100) : 0}%"></div>
+          </div>
+          <div class="memory-meter-labels">
+            <span>0%</span>
+            <span>70%</span>
+            <span>90%</span>
+            <span>100%+</span>
+          </div>
+        </div>
+        <div class="live-summary live-summary-tight">
+          ${mem.hotBudget > 0 ? `
+            <div class="live-chip">
+              <span>${esc(t('live_moe_budget'))}</span>
+              <strong>${esc(String(mem.hotBudget))}</strong>
+            </div>
+          ` : ''}
+          ${mem.latestLockedShare !== null ? `
+            <div class="live-chip">
+              <span>${esc(t('live_moe_locked_share'))}</span>
+              <strong>${esc(`${formatMs(mem.latestLockedShare)}%`)}</strong>
+            </div>
+          ` : ''}
+          ${mem.latestStage ? `
+            <div class="live-chip">
+              <span>${esc(t('live_moe_stage'))}</span>
+              <strong>${esc(mem.latestStage)}</strong>
+            </div>
+          ` : ''}
+        </div>
+        <div class="live-learn-note">${esc(mem.note)}</div>
+      </div>
+    `;
+  }
+
+  function renderMinimaxMemoryStory(state, snapshot, moe) {
+    const arch = String((snapshot && snapshot.architecture) || '');
+    if (!/minimax/i.test(arch)) {
+      return '';
+    }
+
+    const mem = getMemoryRegime(state, snapshot, moe);
+    const latestTrace = moe && moe.latest_trace ? moe.latest_trace : null;
+    const lockedShare = latestTrace ? Number(latestTrace.locked_share || 0) : 0;
+    const sharedState = mem.regime === 'swap_bound' ? 'active' : mem.regime === 'near_ram' ? 'warm' : 'steady';
+    const hotState = mem.hotBudget > 0 || lockedShare > 0 ? 'active' : 'warm';
+    const coldState = mem.regime === 'swap_bound' ? 'active' : 'inactive';
+
+    return `
+      <div class="live-panel memory-story-panel">
+        <div class="live-panel-title">${esc(t('live_minimax_story_title'))}</div>
+        <div class="live-empty">${esc(t('live_minimax_story_note'))}</div>
+        <div class="memory-story-grid">
+          <div class="memory-story-node memory-story-${sharedState}">
+            <div class="memory-story-label">${esc(t('live_minimax_story_shared'))}</div>
+            <div class="memory-story-text">${esc(t('live_minimax_story_shared_note'))}</div>
+          </div>
+          <div class="memory-story-arrow"></div>
+          <div class="memory-story-node memory-story-${hotState}">
+            <div class="memory-story-label">${esc(t('live_minimax_story_hot'))}</div>
+            <div class="memory-story-text">${esc(mem.hotBudget > 0 ? `${t('live_moe_budget')}: ${mem.hotBudget}. ${t('live_moe_locked_share')}: ${formatMs(lockedShare)}%.` : t('live_minimax_story_hot_note'))}</div>
+          </div>
+          <div class="memory-story-arrow"></div>
+          <div class="memory-story-node memory-story-${coldState}">
+            <div class="memory-story-label">${esc(t('live_minimax_story_cold'))}</div>
+            <div class="memory-story-text">${esc(t('live_minimax_story_cold_note'))}</div>
+          </div>
         </div>
       </div>
     `;
@@ -396,6 +952,18 @@
     const selection = moe.hot_selection;
     const topExperts = Array.isArray(moe.top_experts) ? moe.top_experts : [];
     const stages = moe.stages && typeof moe.stages === 'object' ? Object.values(moe.stages) : [];
+    const stageMatrix = Array.isArray(moe.expert_stage_matrix) ? moe.expert_stage_matrix : [];
+    const layerMatrix = Array.isArray(moe.expert_layer_matrix) ? moe.expert_layer_matrix : [];
+    const expertTotals = Array.isArray(moe.expert_totals) ? moe.expert_totals : [];
+    const compare = moe.prompt_decode_compare && typeof moe.prompt_decode_compare === 'object'
+      ? moe.prompt_decode_compare
+      : { prompt: [], decode: [] };
+    const stability = moe.stability && typeof moe.stability === 'object'
+      ? moe.stability
+      : { label: 'n/a', score: 0 };
+    const promptExpertsSet = new Set((compare.prompt || []).map(item => Number(item.expert)));
+    const decodeExpertsSet = new Set((compare.decode || []).map(item => Number(item.expert)));
+    const compareOverlapCount = Array.from(promptExpertsSet).filter(expert => decodeExpertsSet.has(expert)).length;
 
     let traceHtml = `<div class="live-empty">${esc(t('live_no_moe_data'))}</div>`;
     if (trace || selection) {
@@ -514,6 +1082,142 @@
         `
       : '';
 
+    const heatmapExperts = expertTotals.slice(0, 8);
+    const heatmapRows = layerMatrix.length
+      ? layerMatrix.map(row => ({ label: `L${row.layer}`, experts: row.experts || [], title: `layer ${row.layer}` }))
+      : stageMatrix.map(row => ({ label: row.stage || '', experts: row.experts || [], title: row.stage || '' }));
+    const heatmapMax = Math.max(
+      ...heatmapRows.flatMap(row => (row.experts || []).map(item => Number(item.hits || 0))),
+      0
+    );
+    const heatmapHtml = showInspect && heatmapRows.length && heatmapExperts.length
+      ? `
+          <div class="live-history">
+            <div class="live-panel-title">${esc(t('live_moe_heatmap'))}</div>
+            <div class="live-empty">${esc(t('live_moe_heatmap_note'))}</div>
+            <div class="live-summary live-summary-tight">
+              <div class="live-chip">
+                <span>${esc(t('live_moe_heatmap_rows'))}</span>
+                <strong>${esc(String(heatmapRows.length))}</strong>
+              </div>
+              <div class="live-chip">
+                <span>${esc(t('live_moe_heatmap_cols'))}</span>
+                <strong>${esc(String(heatmapExperts.length))}</strong>
+              </div>
+              <div class="live-chip">
+                <span>${esc(t('live_moe_heatmap_peak'))}</span>
+                <strong>${esc(heatmapExperts[0] ? `e${heatmapExperts[0].expert}` : 'n/a')}</strong>
+              </div>
+              <div class="live-chip">
+                <span>${esc(t('live_moe_heatmap_axis'))}</span>
+                <strong>${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</strong>
+              </div>
+            </div>
+            <div class="heatmap-legend">
+              <span class="heatmap-legend-label">${esc(t('live_moe_heatmap_legend'))}</span>
+              <div class="heatmap-legend-bar" aria-hidden="true"></div>
+              <div class="heatmap-legend-scale">
+                <span>${esc(t('live_moe_heatmap_low'))}</span>
+                <span>${esc(t('live_moe_heatmap_high'))}</span>
+              </div>
+            </div>
+            <div class="expert-heatmap">
+              <div class="expert-heatmap-header">
+                <div class="expert-heatmap-corner">${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</div>
+                ${heatmapExperts.map(item => `<div class="expert-heatmap-col">e${esc(String(item.expert))}</div>`).join('')}
+              </div>
+              ${heatmapRows.map(row => {
+                const rowMap = new Map((row.experts || []).map(item => [Number(item.expert), Number(item.hits || 0)]));
+                return `
+                  <div class="expert-heatmap-row">
+                    <div class="expert-heatmap-stage">${esc(row.label || '')}</div>
+                    ${heatmapExperts.map(item => {
+                      const hits = rowMap.get(Number(item.expert)) || 0;
+                      const intensity = heatmapMax > 0 ? Math.max((hits / heatmapMax) * 100, hits > 0 ? 12 : 0) : 0;
+                      return `
+                        <div class="expert-heatmap-cell" title="${esc(`${row.title || row.label || ''} / e${item.expert} = ${hits}`)}">
+                          <div class="expert-heatmap-fill" style="opacity:${(intensity / 100).toFixed(3)}"></div>
+                          <span>${hits > 0 ? esc(String(hits)) : ''}</span>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `
+      : '';
+
+    const renderExpertCompareList = (items) => {
+      const top = Array.isArray(items) ? items.slice(0, 5) : [];
+      if (!top.length) {
+        return `<div class="live-empty">${esc(t('live_no_moe_data'))}</div>`;
+      }
+      const maxHits = Math.max(...top.map(item => Number(item.hits || 0)), 0);
+      return `
+        <div class="top-experts-list">
+          ${top.map(item => {
+            const share = maxHits > 0 ? Math.max((Number(item.hits || 0) / maxHits) * 100, 4) : 0;
+            return `
+              <div class="top-expert-row">
+                <div class="top-expert-id">e${esc(String(item.expert))}</div>
+                <div class="top-expert-bar"><div class="top-expert-fill" style="width:${share}%"></div></div>
+                <div class="top-expert-hits">${esc(String(item.hits))}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    };
+
+    const compareHtml = showInspect && ((compare.prompt && compare.prompt.length) || (compare.decode && compare.decode.length))
+      ? `
+          <div class="live-history">
+            <div class="live-panel-title">${esc(t('live_moe_prompt_decode_compare'))}</div>
+            <div class="live-summary live-summary-tight">
+              <div class="live-chip">
+                <span>${esc(t('live_moe_overlap_count'))}</span>
+                <strong>${esc(String(compareOverlapCount))}</strong>
+              </div>
+              <div class="live-chip">
+                <span>${esc(t('live_moe_overlap_hint'))}</span>
+                <strong>${esc(stability.label && stability.label !== 'n/a' ? t(`live_moe_stability_${stability.label}`) : 'n/a')}</strong>
+              </div>
+            </div>
+            <div class="expert-compare-grid">
+              <div>
+                <div class="live-panel-title">${esc(t('live_phase_prompt'))}</div>
+                ${renderExpertCompareList(compare.prompt)}
+              </div>
+              <div>
+                <div class="live-panel-title">${esc(t('live_phase_decode_tail'))}</div>
+                ${renderExpertCompareList(compare.decode)}
+              </div>
+            </div>
+          </div>
+        `
+      : '';
+
+    const stabilityHtml = showInspect && stability.label && stability.label !== 'n/a'
+      ? `
+          <div class="live-history">
+            <div class="live-panel-title">${esc(t('live_moe_stability'))}</div>
+            <div class="live-empty">${esc(t('live_moe_stability_note'))}</div>
+            <div class="live-summary">
+              <div class="live-chip">
+                <span>${esc(t('live_moe_stability_label'))}</span>
+                <strong>${esc(t(`live_moe_stability_${stability.label}`))}</strong>
+              </div>
+              <div class="live-chip">
+                <span>${esc(t('live_moe_stability_score'))}</span>
+                <strong>${esc(formatMs(stability.score))}%</strong>
+              </div>
+            </div>
+          </div>
+        `
+      : '';
+
     return `
       <div class="live-panel">
         <div class="live-panel-title">${esc(t('live_moe_title'))}</div>
@@ -528,6 +1232,9 @@
             ${topHtml}
           </div>
           ${stageCompareHtml}
+          ${heatmapHtml}
+          ${compareHtml}
+          ${stabilityHtml}
           ${stageHistoryHtml}
         </div>
       </div>
@@ -561,6 +1268,13 @@
     ].filter(Boolean).join(' + ') || 'off';
 
     root.innerHTML = `
+      ${renderReplayDescription()}
+      ${renderExecutionFlow(phase, moe, {
+        architecture: snapshot.architecture || '',
+      })}
+      ${renderTokenJourney(phase, moe)}
+      ${renderMemoryPanel(state, snapshot, moe)}
+      ${renderMinimaxMemoryStory(state, snapshot, moe)}
       <div class="live-grid cols-2">
         ${renderPhasePanel(phase, {
           architecture: snapshot.architecture || '',
@@ -583,6 +1297,41 @@
     if (!root) return;
     setStatus(t('live_idle'), false);
     root.innerHTML = `<div class="live-panel"><div class="live-empty">${esc(t(messageKey))}</div></div>`;
+  }
+
+  function renderReplayDescription() {
+    if (replayState.mode !== 'replay') return '';
+    const run = replayState.runs.find(item => item.id === replayState.selectedRun);
+    const desc = getReplayRunDescription(run);
+    if (!run) {
+      return `
+        <div class="live-panel replay-desc-panel">
+          <div class="live-panel-title">${esc(desc.title)}</div>
+          <div class="live-empty">${esc(desc.body)}</div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="live-panel replay-desc-panel">
+        <div class="live-panel-title">${esc(desc.title)}</div>
+        <div class="live-summary live-summary-tight">
+          <div class="live-chip">
+            <span>${esc(t('live_replay_demo'))}</span>
+            <strong>${esc(run.curated ? t('live_replay_filter_curated') : t('live_replay_generic'))}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_family_label'))}</span>
+            <strong>${esc(t(`live_family_${run.family}`))}</strong>
+          </div>
+          <div class="live-chip">
+            <span>${esc(t('live_replay_type'))}</span>
+            <strong>${esc(run.demoType)}</strong>
+          </div>
+        </div>
+        <div class="live-learn-text">${esc(desc.body)}</div>
+      </div>
+    `;
   }
 
   function frameEventLabel(frame) {
@@ -678,9 +1427,14 @@
   async function ensureReplayRuns(force = false) {
     if (replayState.runs.length && !force) return replayState.runs;
     const data = await apiGet('/api/replay-runs');
-    replayState.runs = Array.isArray(data.runs) ? data.runs : [];
+    const runs = Array.isArray(data.runs) ? data.runs : [];
+    replayState.runs = runs.map(classifyReplayRun).sort((a, b) => {
+      if (a.curated !== b.curated) return a.curated ? -1 : 1;
+      if (a.trace_like !== b.trace_like) return a.trace_like ? -1 : 1;
+      return Number(b.last_modified_ts || 0) - Number(a.last_modified_ts || 0);
+    });
     if (!replayState.selectedRun && replayState.runs.length) {
-      const preferred = replayState.runs.find(r => r.trace_like) || replayState.runs[0];
+      const preferred = replayState.runs.find(r => r.curated && r.trace_like) || replayState.runs.find(r => r.trace_like) || replayState.runs[0];
       replayState.selectedRun = preferred.id;
     }
     return replayState.runs;
@@ -690,13 +1444,14 @@
     replayState.data = null;
     replayState.frameIndex = 0;
     if (!runId) {
-      renderToolbar();
+      renderToolbar(true);
       renderEmptyReplay();
       return;
     }
     const data = await apiGet(`/api/replay-metrics?run=${encodeURIComponent(runId)}`);
     replayState.data = data;
     replayState.selectedRun = runId;
+    renderToolbar(true);
     renderReplayFrame();
   }
 
@@ -727,7 +1482,7 @@
 
   function init() {
     bridge = window.DashboardBridge || null;
-    renderToolbar();
+    renderToolbar(true);
     renderSnapshot({
       running: false,
       architecture: '',
@@ -751,7 +1506,7 @@
     }
   });
   document.addEventListener('dashboard:lang-changed', () => {
-    renderToolbar();
+    renderToolbar(true);
     if (replayState.mode === 'replay') {
       renderReplayFrame();
     } else {

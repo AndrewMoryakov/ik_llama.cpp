@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-03-02T11:47:13.1098224+03:00",
+  "model": "Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf",
+  "command": ".\\\\build\\\\bin\\\\llama-cli.exe -m Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf -t 16 -fa on --run-time-repack auto -n 8 -p \"Explain in 3 short points how prompt processing differs from decode in a MoE model and why this matters for performance tuning.\" --no-display-prompt",
+  "env": {
+    "IK_LLAMA_PG_TRACE": "1",
+    "IK_LLAMA_HOT_EXPERT_TRACE": "1",
+    "IK_LLAMA_PG_TRACE_DECODE_WINDOW": "8"
+  }
+}
