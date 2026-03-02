@@ -322,6 +322,15 @@ const LANG = {
     live_onboard_step_replay_flow: 'Сначала просмотрите execution flow и token journey, чтобы понять общую логику запуска.',
     live_onboard_step_try_layer_demo: 'Если здесь только phase trace, откройте curated MiniMax layer-trace demo для глубокого expert view.',
     live_onboard_step_switch_inspect: 'Если сейчас Learn, переключитесь в Inspect после первого прохода — там больше полезных деталей.',
+    live_workspace_main: 'Главная сцена',
+    live_workspace_side: 'Инспектор',
+    live_workspace_stage_flow: 'Flow',
+    live_workspace_stage_heatmap: 'Heatmap',
+    live_workspace_stage_compare: 'Compare',
+    live_workspace_inspector_guide: 'Guide',
+    live_workspace_inspector_phase: 'Phase',
+    live_workspace_inspector_moe: 'MoE',
+    live_workspace_inspector_memory: 'Memory',
   },
   en: {
     sec_model: 'Model', sec_perf: 'Performance', sec_opt: 'Optimization',
@@ -642,6 +651,15 @@ const LANG = {
     live_onboard_step_replay_flow: 'Begin with execution flow and token journey to understand the overall run structure.',
     live_onboard_step_try_layer_demo: 'If this replay has only phase trace, open a curated MiniMax layer-trace demo for deeper expert inspection.',
     live_onboard_step_switch_inspect: 'If you are in Learn, switch to Inspect after the first pass to see more useful details.',
+    live_workspace_main: 'Main stage',
+    live_workspace_side: 'Inspector',
+    live_workspace_stage_flow: 'Flow',
+    live_workspace_stage_heatmap: 'Heatmap',
+    live_workspace_stage_compare: 'Compare',
+    live_workspace_inspector_guide: 'Guide',
+    live_workspace_inspector_phase: 'Phase',
+    live_workspace_inspector_moe: 'MoE',
+    live_workspace_inspector_memory: 'Memory',
   }
 };
 

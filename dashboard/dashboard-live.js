@@ -9,6 +9,8 @@
   const replayState = {
     mode: 'live',
     view: 'learn',
+    stage: 'flow',
+    inspector: 'guide',
     runs: [],
     replayFilter: 'curated',
     selectedRun: '',
@@ -207,6 +209,8 @@
       lang,
       replayState.mode,
       replayState.view,
+      replayState.stage,
+      replayState.inspector,
       replayState.selectedRun,
       replayState.playing ? '1' : '0',
       String(replayState.speed),
@@ -296,6 +300,7 @@
     const canReplay = replayState.mode === 'replay' && frameCount > 0;
 
     el.innerHTML = `
+      <div class="live-toolbar-shell ${replayState.mode === 'replay' ? 'replay-transport' : ''}">
       <div class="live-toolbar-row">
         <label class="live-toolbar-group">
           <span>${esc(t('live_mode'))}</span>
@@ -868,6 +873,7 @@
           </div>
         </div>
       </div>
+      </div>
     `;
   }
 
@@ -937,6 +943,112 @@
         </div>
       </div>
     `;
+  }
+
+  function renderWorkspaceShell(snapshot, phase, moe, options = {}) {
+    const stage = replayState.stage || 'flow';
+    const inspector = replayState.inspector || 'guide';
+    const meta = {
+      architecture: snapshot.architecture || '',
+      traceSummary: [
+        snapshot.trace && snapshot.trace.pg_enabled ? `PG/${snapshot.trace.pg_decode_window || 0}` : null,
+        snapshot.trace && snapshot.trace.hot_enabled ? 'HOT' : null,
+      ].filter(Boolean).join(' + ') || 'off',
+      source: options.source || '',
+      eventLabel: options.eventLabel || '',
+      view: replayState.view,
+    };
+
+    let mainHtml = '';
+    if (stage === 'heatmap') {
+      mainHtml = renderMoePanel(moe, 'heatmap');
+    } else if (stage === 'compare') {
+      mainHtml = renderMoePanel(moe, 'compare');
+    } else {
+      mainHtml = `
+        <div class="workspace-stack">
+          ${renderExecutionFlow(phase, moe, { architecture: snapshot.architecture || '' })}
+          ${renderTokenJourney(phase, moe)}
+        </div>
+      `;
+    }
+
+    let inspectorHtml = '';
+    if (inspector === 'memory') {
+      inspectorHtml = `
+        <div class="workspace-stack">
+          ${renderMemoryPanel(getState(), snapshot, moe)}
+          ${renderMinimaxMemoryStory(getState(), snapshot, moe)}
+        </div>
+      `;
+    } else if (inspector === 'phase') {
+      inspectorHtml = renderPhasePanel(phase, meta);
+    } else if (inspector === 'moe') {
+      inspectorHtml = renderMoePanel(moe, 'overview');
+    } else {
+      inspectorHtml = `
+        <div class="workspace-stack">
+          ${options.mode === 'replay' ? renderReplayDescription() : ''}
+          ${replayState.view === 'learn' ? renderLearnPanel(phase, moe) : renderPhasePanel(phase, meta)}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="workspace-shell">
+        <div class="workspace-nav">
+          <div class="workspace-nav-group">
+            <div class="workspace-nav-label">${esc(t('live_workspace_main'))}</div>
+            <div class="workspace-tabs">
+              <button type="button" class="workspace-tab ${stage === 'flow' ? 'active' : ''}" data-live-stage="flow">${esc(t('live_workspace_stage_flow'))}</button>
+              <button type="button" class="workspace-tab ${stage === 'heatmap' ? 'active' : ''}" data-live-stage="heatmap">${esc(t('live_workspace_stage_heatmap'))}</button>
+              <button type="button" class="workspace-tab ${stage === 'compare' ? 'active' : ''}" data-live-stage="compare">${esc(t('live_workspace_stage_compare'))}</button>
+            </div>
+          </div>
+          <div class="workspace-nav-group">
+            <div class="workspace-nav-label">${esc(t('live_workspace_side'))}</div>
+            <div class="workspace-tabs">
+              <button type="button" class="workspace-tab ${inspector === 'guide' ? 'active' : ''}" data-live-inspector="guide">${esc(t('live_workspace_inspector_guide'))}</button>
+              <button type="button" class="workspace-tab ${inspector === 'phase' ? 'active' : ''}" data-live-inspector="phase">${esc(t('live_workspace_inspector_phase'))}</button>
+              <button type="button" class="workspace-tab ${inspector === 'moe' ? 'active' : ''}" data-live-inspector="moe">${esc(t('live_workspace_inspector_moe'))}</button>
+              <button type="button" class="workspace-tab ${inspector === 'memory' ? 'active' : ''}" data-live-inspector="memory">${esc(t('live_workspace_inspector_memory'))}</button>
+            </div>
+          </div>
+        </div>
+        <div class="workspace-body">
+          <div class="workspace-main">
+            ${mainHtml}
+          </div>
+          <aside class="workspace-side">
+            ${inspectorHtml}
+          </aside>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindWorkspaceEvents() {
+    document.querySelectorAll('[data-live-stage]').forEach(btn => {
+      btn.onclick = () => {
+        replayState.stage = btn.getAttribute('data-live-stage') || 'flow';
+        if (replayState.mode === 'replay') {
+          renderReplayFrame();
+        } else {
+          poll();
+        }
+      };
+    });
+
+    document.querySelectorAll('[data-live-inspector]').forEach(btn => {
+      btn.onclick = () => {
+        replayState.inspector = btn.getAttribute('data-live-inspector') || 'guide';
+        if (replayState.mode === 'replay') {
+          renderReplayFrame();
+        } else {
+          poll();
+        }
+      };
+    });
   }
 
   function renderPhasePanel(phase, meta) {
@@ -1073,7 +1185,7 @@
     `;
   }
 
-  function renderMoePanel(moe) {
+  function renderMoePanel(moe, focus = 'all') {
     const trace = moe.latest_trace;
     const selection = moe.hot_selection;
     const topExperts = Array.isArray(moe.top_experts) ? moe.top_experts : [];
@@ -1354,6 +1466,24 @@
         `
       : '';
 
+    if (focus === 'heatmap') {
+      return `
+        <div class="workspace-stack">
+          ${heatmapHtml || `<div class="live-panel"><div class="live-empty">${esc(t('live_no_moe_data'))}</div></div>`}
+          ${stageCompareHtml}
+        </div>
+      `;
+    }
+
+    if (focus === 'compare') {
+      return `
+        <div class="workspace-stack">
+          ${compareHtml || `<div class="live-panel"><div class="live-empty">${esc(t('live_no_moe_data'))}</div></div>`}
+          ${stabilityHtml}
+        </div>
+      `;
+    }
+
     return `
       <div class="live-panel">
         <div class="live-panel-title">${esc(t('live_moe_title'))}</div>
@@ -1397,36 +1527,15 @@
 
     const phase = snapshot.phase || {};
     const moe = snapshot.moe || {};
-    const trace = snapshot.trace || {};
-    const traceSummary = [
-      trace.pg_enabled ? `PG/${trace.pg_decode_window || 0}` : null,
-      trace.hot_enabled ? 'HOT' : null,
-    ].filter(Boolean).join(' + ') || 'off';
-
     root.innerHTML = `
       ${renderOnboardingStrip(snapshot, options)}
-      ${renderReplayDescription()}
-      ${renderExecutionFlow(phase, moe, {
-        architecture: snapshot.architecture || '',
+      ${renderWorkspaceShell(snapshot, phase, moe, {
+        mode: options.mode || 'live',
+        source: options.source || '',
+        eventLabel: options.eventLabel || '',
       })}
-      ${renderTokenJourney(phase, moe)}
-      ${renderMemoryPanel(state, snapshot, moe)}
-      ${renderMinimaxMemoryStory(state, snapshot, moe)}
-      <div class="live-grid cols-2">
-        ${renderPhasePanel(phase, {
-          architecture: snapshot.architecture || '',
-          traceSummary,
-          source: options.source || '',
-          eventLabel: options.eventLabel || '',
-          view: replayState.view,
-        })}
-        ${renderMoePanel(moe)}
-      </div>
     `;
-
-    if (replayState.view === 'learn') {
-      root.innerHTML += renderLearnPanel(phase, moe);
-    }
+    bindWorkspaceEvents();
   }
 
   function renderEmptyReplay(messageKey = 'live_replay_no_runs') {

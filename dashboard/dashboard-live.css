@@ -5,6 +5,11 @@
 
 .live-metrics-card.visible {
   display: block;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1680px, calc(100vw - 40px));
+  max-width: none;
 }
 
 .live-metrics-head {
@@ -50,6 +55,18 @@
   margin-bottom: 16px;
 }
 
+.live-toolbar-shell.replay-transport {
+  position: sticky;
+  bottom: 12px;
+  z-index: 80;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: rgba(18,18,21,0.86);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-elevated);
+}
+
 .live-toolbar-row {
   display: flex;
   flex-wrap: wrap;
@@ -92,16 +109,79 @@
   gap: 16px;
 }
 
+.workspace-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.workspace-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.workspace-nav-group {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-nav-label {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workspace-tab {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.workspace-tab.active {
+  background: rgba(43,124,216,0.10);
+  border-color: rgba(43,124,216,0.30);
+  color: var(--text-primary);
+}
+
+.workspace-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+
+.workspace-main,
+.workspace-side {
+  min-width: 0;
+}
+
+.workspace-stack {
+  display: grid;
+  gap: 16px;
+}
+
 .flow-panel {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .memory-panel {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .replay-desc-panel {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .onboarding-strip {
@@ -237,6 +317,19 @@
   font-size: 0.78rem;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+@media (max-width: 1180px) {
+  .live-metrics-card.visible {
+    left: auto;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .workspace-body {
+    grid-template-columns: 1fr;
+  }
 }
 
 .token-journey-track {
