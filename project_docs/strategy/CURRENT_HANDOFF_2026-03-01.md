@@ -285,6 +285,34 @@ Source of truth:
 1. `Hot Expert Selection / Tail Window` generalization
 2. затем `Prompt Packed QKV` generalization
 
+### Текущий статус после закрытия Phase 1
+
+`Phase 2` уже начата.
+
+Текущая рабочая ветка:
+
+- `feature/runtime-generalization`
+
+Уже сделан первый bounded runtime-slice:
+
+- commit `b60461556`
+- `Runtime: add hot-expert selection capability logging`
+
+Что именно это дало:
+
+1. runtime теперь явно различает:
+   - `default`
+   - `full-prompt`
+   - `tail-window`
+2. `Tail Window` больше не выглядит как молчаливо универсальный path
+3. runtime честно логирует:
+   - где path реально активен
+   - где идет fallback
+   - где идея class-applicable, но current runtime support still limited
+
+Это еще не full generalization.
+Но это уже правильная база для нее.
+
 ## Полная фазная цепочка после текущего этапа
 
 Чтобы не терять нить, текущая последовательность фаз сейчас такая:
@@ -297,6 +325,18 @@ Source of truth:
 - runtime generalization
 - сначала `Hot Expert Selection / Tail Window`
 - потом `Prompt Packed QKV`
+
+### Текущий active Phase 2 slice
+
+Сейчас mainline работа идет именно по:
+
+- `Hot Expert Selection / Tail Window`
+
+В правильном порядке:
+
+1. capability logging и honest fallback behavior
+2. потом runtime widening from `MiniMax-first` toward class-based `MoE / huge-MoE`
+3. потом targeted short A/B
 
 3. `Phase 3`
 - targeted validation
