@@ -871,6 +871,74 @@
     `;
   }
 
+  function renderOnboardingStrip(snapshot, options = {}) {
+    const isReplay = options.mode === 'replay';
+    const learn = replayState.view === 'learn';
+    const arch = String((snapshot && snapshot.architecture) || '');
+    const isMiniMax = /minimax/i.test(arch);
+    const telemetryKind = getReplayTelemetryKind(replayState.data);
+
+    let title = t('live_onboard_title');
+    let body = t('live_onboard_body_live');
+    const chips = [];
+
+    if (isReplay) {
+      title = t('live_onboard_title_replay');
+      body = t('live_onboard_body_replay');
+      chips.push({ k: t('live_onboard_chip_mode'), v: t('live_mode_replay') });
+      chips.push({ k: t('live_onboard_chip_view'), v: learn ? t('live_view_learn') : t('live_view_inspect') });
+      chips.push({ k: t('live_onboard_chip_telemetry'), v: t(`live_replay_telemetry_${telemetryKind}`) });
+    } else {
+      chips.push({ k: t('live_onboard_chip_mode'), v: t('live_mode_live') });
+      chips.push({ k: t('live_onboard_chip_view'), v: learn ? t('live_view_learn') : t('live_view_inspect') });
+      chips.push({ k: t('live_onboard_chip_trace'), v: snapshot && snapshot.trace && (snapshot.trace.pg_enabled || snapshot.trace.hot_enabled) ? t('live_running') : t('live_idle') });
+    }
+
+    const steps = [];
+    if (isReplay && telemetryKind === 'layer_expert') {
+      steps.push(t('live_onboard_step_layer_heatmap'));
+      steps.push(t('live_onboard_step_prompt_decode'));
+      if (isMiniMax) steps.push(t('live_onboard_step_minimax_memory'));
+    } else if (isReplay) {
+      steps.push(t('live_onboard_step_replay_flow'));
+      steps.push(t('live_onboard_step_try_layer_demo'));
+      steps.push(t('live_onboard_step_switch_inspect'));
+    } else if (learn) {
+      steps.push(t('live_onboard_step_watch_flow'));
+      steps.push(t('live_onboard_step_compare_prompt_decode'));
+      steps.push(t('live_onboard_step_switch_replay'));
+    } else {
+      steps.push(t('live_onboard_step_inspect_heatmap'));
+      steps.push(t('live_onboard_step_inspect_stage'));
+      steps.push(t('live_onboard_step_use_curated_replay'));
+    }
+
+    return `
+      <div class="live-panel onboarding-strip">
+        <div class="onboarding-strip-head">
+          <div class="live-panel-title">${esc(title)}</div>
+          <div class="live-summary live-summary-tight">
+            ${chips.map(item => `
+              <div class="live-chip">
+                <span>${esc(item.k)}</span>
+                <strong>${esc(item.v)}</strong>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="live-learn-text">${esc(body)}</div>
+        <div class="onboarding-strip-steps">
+          ${steps.map((step, idx) => `
+            <div class="onboarding-step">
+              <div class="onboarding-step-num">${idx + 1}</div>
+              <div class="onboarding-step-text">${esc(step)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   function renderPhasePanel(phase, meta) {
     const timeline = Array.isArray(phase.timeline) ? phase.timeline : [];
     const hasTimeline = timeline.some(item => Number(item.ms || 0) > 0);
@@ -1336,6 +1404,7 @@
     ].filter(Boolean).join(' + ') || 'off';
 
     root.innerHTML = `
+      ${renderOnboardingStrip(snapshot, options)}
       ${renderReplayDescription()}
       ${renderExecutionFlow(phase, moe, {
         architecture: snapshot.architecture || '',
