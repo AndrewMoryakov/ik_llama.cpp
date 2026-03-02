@@ -223,25 +223,99 @@ static int llama_hot_expert_tail_window() {
     return value > 0 ? value : 0;
 }
 
-static bool llama_hot_expert_use_tail_window(llm_arch arch) {
-    if (arch != LLM_ARCH_MINIMAX_M2) {
-        return false;
-    }
+enum class llama_hot_expert_selection_mode {
+    DEFAULT,
+    FULL_PROMPT,
+    TAIL_WINDOW,
+};
 
-    if (llama_hot_expert_tail_window() <= 0) {
-        return false;
-    }
-
+static llama_hot_expert_selection_mode llama_hot_expert_selection_mode_current() {
     const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_SELECTION");
     if (!env || !env[0]) {
-        return true;
+        return llama_hot_expert_selection_mode::DEFAULT;
     }
 
     std::string mode(env);
     for (char & c : mode) {
         c = (char) std::tolower((unsigned char) c);
     }
-    return mode == "tail" || mode == "tail-window" || mode == "tail_window";
+
+    if (mode == "tail" || mode == "tail-window" || mode == "tail_window") {
+        return llama_hot_expert_selection_mode::TAIL_WINDOW;
+    }
+    if (mode == "full" || mode == "full-prompt" || mode == "full_prompt") {
+        return llama_hot_expert_selection_mode::FULL_PROMPT;
+    }
+    return llama_hot_expert_selection_mode::DEFAULT;
+}
+
+static const char * llama_hot_expert_selection_mode_name(llama_hot_expert_selection_mode mode) {
+    switch (mode) {
+        case llama_hot_expert_selection_mode::TAIL_WINDOW: return "tail-window";
+        case llama_hot_expert_selection_mode::FULL_PROMPT: return "full-prompt";
+        case llama_hot_expert_selection_mode::DEFAULT:     return "default";
+    }
+    return "default";
+}
+
+static bool llama_hot_expert_selection_supports_tail_window(llm_arch arch) {
+    return arch == LLM_ARCH_MINIMAX_M2;
+}
+
+static bool llama_hot_expert_use_tail_window(llm_arch arch) {
+    if (llama_hot_expert_tail_window() <= 0) {
+        return false;
+    }
+
+    const auto mode = llama_hot_expert_selection_mode_current();
+    if (mode != llama_hot_expert_selection_mode::DEFAULT &&
+        mode != llama_hot_expert_selection_mode::TAIL_WINDOW) {
+        return false;
+    }
+
+    if (!llama_hot_expert_selection_supports_tail_window(arch)) {
+        return false;
+    }
+
+    return true;
+}
+
+static void llama_hot_expert_log_selection_support(const llama_model & model) {
+    if (model.hparams.n_expert == 0 || model.hparams.n_expert_used == 0) {
+        return;
+    }
+
+    const auto mode = llama_hot_expert_selection_mode_current();
+    const int tail_window = llama_hot_expert_tail_window();
+
+    if (mode == llama_hot_expert_selection_mode::TAIL_WINDOW) {
+        if (tail_window <= 0) {
+            LLAMA_LOG_WARN("%s: hot expert selection requested 'tail-window' but IK_LLAMA_HOT_EXPERT_TAIL_WINDOW is not positive; falling back to full-prompt counting\n",
+                    __func__);
+            return;
+        }
+
+        if (!llama_hot_expert_selection_supports_tail_window(model.arch)) {
+            LLAMA_LOG_WARN("%s: hot expert selection 'tail-window[%d]' belongs to MoE / huge-MoE locality, but current runtime tail-window path is enabled only on MiniMax today; falling back to full-prompt counting for arch=%s\n",
+                    __func__, tail_window, llama_model_arch_name(model.arch));
+            return;
+        }
+
+        LLAMA_LOG_INFO("%s: hot expert selection '%s[%d]' is active for arch=%s\n",
+                __func__, llama_hot_expert_selection_mode_name(mode), tail_window, llama_model_arch_name(model.arch));
+        return;
+    }
+
+    if (mode == llama_hot_expert_selection_mode::FULL_PROMPT) {
+        LLAMA_LOG_INFO("%s: hot expert selection explicitly set to full-prompt for arch=%s\n",
+                __func__, llama_model_arch_name(model.arch));
+        return;
+    }
+
+    if (tail_window > 0 && !llama_hot_expert_selection_supports_tail_window(model.arch)) {
+        LLAMA_LOG_INFO("%s: IK_LLAMA_HOT_EXPERT_TAIL_WINDOW=%d is set, but the current runtime tail-window path is not active for arch=%s; using default full-prompt counting\n",
+                __func__, tail_window, llama_model_arch_name(model.arch));
+    }
 }
 
 static std::string llama_prompt_packed_qkv_preset() {
@@ -2137,6 +2211,7 @@ static bool s_hot_committed;      // true after one-time lock has been applied
 static int  s_hot_trace_decode_calls;
 static bool s_hot_tail_window_active;
 static int  s_hot_tail_window_size;
+static llama_hot_expert_selection_mode s_hot_selection_mode;
 
 static std::string llama_hot_expert_selection_label() {
     if (s_hot_tail_window_active && s_hot_tail_window_size > 0) {
@@ -2144,6 +2219,9 @@ static std::string llama_hot_expert_selection_label() {
     }
     if (s_hot_tail_window_size > 0) {
         return "full-prompt (tail-window[" + std::to_string(s_hot_tail_window_size) + "] inactive)";
+    }
+    if (s_hot_selection_mode == llama_hot_expert_selection_mode::FULL_PROMPT) {
+        return "full-prompt (explicit)";
     }
     return "full-prompt";
 }
@@ -2805,11 +2883,13 @@ static bool llm_load_tensors(
             s_hot_max_locked = llama_hot_expert_budget_for_model(model.arch, n_expert, n_expert_used);
             s_hot_committed = false;
             s_hot_trace_decode_calls = 0;
+            s_hot_selection_mode = llama_hot_expert_selection_mode_current();
             s_hot_tail_window_active = false;
             s_hot_tail_window_size = llama_hot_expert_use_tail_window(model.arch) ? llama_hot_expert_tail_window() : 0;
             memset(s_hot_locked, 0, sizeof(s_hot_locked));
             ggml_moe_reset_expert_locked();
             ggml_moe_reset_expert_hits();
+            llama_hot_expert_log_selection_support(model);
 
 #if defined(_WIN32)
             // Expand working set to accommodate hot expert locks.
