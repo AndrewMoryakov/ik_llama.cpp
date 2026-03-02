@@ -214,6 +214,36 @@ static double llama_hot_expert_budget_multiplier() {
     return value;
 }
 
+static int llama_hot_expert_tail_window() {
+    static int value = INT_MIN;
+    if (value == INT_MIN) {
+        const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_TAIL_WINDOW");
+        value = (env && env[0]) ? std::atoi(env) : 0;
+    }
+    return value > 0 ? value : 0;
+}
+
+static bool llama_hot_expert_use_tail_window(llm_arch arch) {
+    if (arch != LLM_ARCH_MINIMAX_M2) {
+        return false;
+    }
+
+    if (llama_hot_expert_tail_window() <= 0) {
+        return false;
+    }
+
+    const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_SELECTION");
+    if (!env || !env[0]) {
+        return true;
+    }
+
+    std::string mode(env);
+    for (char & c : mode) {
+        c = (char) std::tolower((unsigned char) c);
+    }
+    return mode == "tail" || mode == "tail-window" || mode == "tail_window";
+}
+
 static std::string llama_prompt_packed_qkv_preset() {
     const char * env = std::getenv("IK_LLAMA_PROMPT_PACKED_QKV_PRESET");
     return env ? trim(env) : std::string();
@@ -2105,6 +2135,18 @@ static int  s_hot_max_locked;     // budget: how many experts we can lock (2 * n
 static int  s_hot_n_expert;       // total experts in model
 static bool s_hot_committed;      // true after one-time lock has been applied
 static int  s_hot_trace_decode_calls;
+static bool s_hot_tail_window_active;
+static int  s_hot_tail_window_size;
+
+static std::string llama_hot_expert_selection_label() {
+    if (s_hot_tail_window_active && s_hot_tail_window_size > 0) {
+        return "tail-window[" + std::to_string(s_hot_tail_window_size) + "]";
+    }
+    if (s_hot_tail_window_size > 0) {
+        return "full-prompt (tail-window[" + std::to_string(s_hot_tail_window_size) + "] inactive)";
+    }
+    return "full-prompt";
+}
 
 static int llama_hot_expert_budget_for_model(llm_arch arch, uint32_t n_expert, uint32_t n_expert_used) {
     const int hard_cap = (int)(n_expert < GGML_MOE_MAX_EXPERTS ? n_expert : GGML_MOE_MAX_EXPERTS);
@@ -2279,8 +2321,10 @@ static void llama_hot_expert_commit(const llama_model & model) {
         }
     }
 
-    LLAMA_LOG_INFO("hot experts: locked %d/%d (budget %d, fails %d, dispatches %d) | top-8:",
-            locked, s_hot_n_expert, s_hot_max_locked, lock_fails, dispatch_count);
+    const std::string selection_label = llama_hot_expert_selection_label();
+    LLAMA_LOG_INFO("hot experts: locked %d/%d (budget %d, fails %d, dispatches %d, selection=%s) | top-8:",
+            locked, s_hot_n_expert, s_hot_max_locked, lock_fails, dispatch_count,
+            selection_label.c_str());
     for (int i = 0; i < 8 && i < s_hot_n_expert; ++i) {
         LLAMA_LOG_INFO(" e%d=%d", idx[i], hits[idx[i]]);
     }
@@ -2761,6 +2805,8 @@ static bool llm_load_tensors(
             s_hot_max_locked = llama_hot_expert_budget_for_model(model.arch, n_expert, n_expert_used);
             s_hot_committed = false;
             s_hot_trace_decode_calls = 0;
+            s_hot_tail_window_active = false;
+            s_hot_tail_window_size = llama_hot_expert_use_tail_window(model.arch) ? llama_hot_expert_tail_window() : 0;
             memset(s_hot_locked, 0, sizeof(s_hot_locked));
             ggml_moe_reset_expert_locked();
             ggml_moe_reset_expert_hits();
@@ -2794,8 +2840,10 @@ static bool llm_load_tensors(
                 }
             }
 #endif
-            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable (after first prompt)%s%s\n",
+            const std::string selection_label = llama_hot_expert_selection_label();
+            LLAMA_LOG_INFO("%s: hot expert tracking: up to %d/%d experts lockable (after first prompt, selection=%s)%s%s\n",
                     __func__, s_hot_max_locked, s_hot_n_expert,
+                    selection_label.c_str(),
                     llama_hot_expert_budget_override() >= 0 ? " [IK_LLAMA_HOT_EXPERT_BUDGET]" : "",
                     llama_hot_expert_budget_multiplier() > 0.0 ? " [IK_LLAMA_HOT_EXPERT_BUDGET_MULT]" : "");
         }
@@ -4196,6 +4244,11 @@ static int llama_decode_internal(
     }
 
     bool warned_qnext_mixed_repeat = false;
+    bool hot_tail_window_reset = false;
+    const bool use_hot_tail_window = !s_hot_committed && llama_hot_expert_use_tail_window(model.arch);
+    const uint32_t hot_tail_window = use_hot_tail_window ? (uint32_t) llama_hot_expert_tail_window() : 0;
+    s_hot_tail_window_active = false;
+    s_hot_tail_window_size = use_hot_tail_window ? (int) hot_tail_window : 0;
     for (uint32_t cur_token = 0; cur_token < n_tokens_all; ) {
         trace_ubatches++;
 #if IK_PRINT_TIMING
@@ -4237,6 +4290,19 @@ static int llama_decode_internal(
                 if (!warned_qnext_mixed_repeat) {
                     LLAMA_LOG_WARN("%s: qwen3next mixed-sequence batch contains repeated seq_id values; falling back to single-token chunking\n", __func__);
                     warned_qnext_mixed_repeat = true;
+                }
+            }
+        }
+
+        if (use_hot_tail_window && !hot_tail_window_reset && n_tokens_all > hot_tail_window) {
+            const uint32_t tail_start = n_tokens_all - hot_tail_window;
+            if (cur_token < tail_start && cur_token + n_tokens >= tail_start) {
+                ggml_moe_reset_expert_hits();
+                hot_tail_window_reset = true;
+                s_hot_tail_window_active = true;
+                if (llama_hot_expert_trace_enabled()) {
+                    LLAMA_LOG_INFO("%s: hot experts selection switched to tail-window[%u] at prompt token %u/%u\n",
+                            __func__, hot_tail_window, tail_start, n_tokens_all);
                 }
             }
         }

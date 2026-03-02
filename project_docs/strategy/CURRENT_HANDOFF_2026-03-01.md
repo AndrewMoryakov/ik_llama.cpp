@@ -58,6 +58,7 @@ Source of truth:
 
 - `project_docs/benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
 - `project_docs/benchmarks/current/MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
+- `project_docs/benchmarks/current/MINIMAX_LOCALITY_TAIL_WINDOW_2026-03-02.md`
 - `project_docs/models/MINIMAX_M2_5_RUNTIME.md`
 
 ## Что уже отброшено
@@ -104,6 +105,31 @@ Source of truth:
 1. `TG-only` все еще тяготеет к `off`
 2. mixed path уже нельзя сводить к `off`; `auto` теперь реальная MiniMax branch
 3. следующий шаг теперь не повторять этот policy question, а идти в `expert locality / paging`
+
+### Первый locality сигнал
+
+На ветке `feature/minimax-locality` уже есть первый узкий A/B:
+
+- baseline `full-prompt`
+- `tail-window=16`
+
+Короткий результат на `PG32,4`:
+
+- `baseline`: `1.244988`
+- `tail-window=16`: `1.260103`
+- delta: `+1.21%`
+
+Короткий результат на `TG128`:
+
+- `baseline`: `1.160309`
+- `tail-window=16`: `1.141644`
+- delta: `-1.61%`
+
+Практический смысл:
+
+1. `tail-window=16` выглядит как живая mixed-path гипотеза
+2. поддержки для `TG-only` пока нет
+3. это все еще `research-only`, не новый default
 
 ## Какие бенчмарки сейчас не нужны
 
