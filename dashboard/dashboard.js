@@ -93,6 +93,24 @@ const LANG = {
     p_mla: 'Режим MLA', d_mla: 'Multi-head Latent Attention — режим работы KV-кеша для моделей, поддерживающих MLA (DeepSeek и т.п.). 3 = автовыбор оптимального',
     p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная опция: роутер отбрасывает экспертов с весом ниже threshold, гарантируя минимум min_experts. Это promising для huge MoE, но пока не validated default',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Экспериментальный env-knob для huge MoE: сколько hot experts пытаться держать залоченными после prompt. 0 = не задавать, оставить runtime default. Для MiniMax первый более длинный controlled run не подтвердил новый default выше legacy 16, поэтому начинайте с 0',
+    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'Как runtime выбирает hot experts после первого prompt. Для MiniMax locality-исследований режим tail-window смотрит только на хвост prompt вместо всего prompt.',
+    p_hot_tail: 'Tail Window', d_hot_tail: 'Если Hot Expert Selection = tail-window, использовать последние N prompt-токенов как прогноз для первых decode-шагов. Малое окно = более локальный прогноз, большое = ближе к full-prompt.',
+    p_exp_preset: 'Экспериментальный пресет', d_exp_preset: 'Готовые наборы исследовательских ручек. Используйте их как старт для A/B, а не как validated default.',
+    p_exp_link: 'Связывать пресет с проверенными настройками', d_exp_link: 'Если ON, выбор экспериментального пресета может также перестроить проверенные параметры, когда без этого bundle теряет смысл. Если OFF, меняются только экспериментальные ручки.',
+    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Экспериментальный prompt-only путь, который упаковывает split Q/K/V проекции в более локальный runtime layout. Может ускорять prompt-часть, но иногда стоит дополнительной RAM и времени загрузки.',
+    p_prompt_packed_preset: 'Preset Prompt Packed', d_prompt_packed_preset: 'Готовые диапазоны слоёв для Prompt Packed QKV. По текущим research-данным Qwen чаще тяготеет к front-half, а gpt-oss — к back-half.',
+    p_prompt_packed_range: 'Диапазон Prompt Packed', d_prompt_packed_range: 'Необязательный явный диапазон слоёв вида start:end. Если указан, он важнее preset и предназначен только для осознанного A/B.',
+    opt_tab_validated: 'Проверено',
+    opt_tab_experimental: 'Эксперименты',
+    opt_exp_title: 'Экспериментальные параметры',
+    opt_exp_intro: 'Эти ручки не входят в validated baseline. Они нужны для целевых A/B-проверок и runtime-исследований, а не как рекомендации по умолчанию.',
+    opt_exp_learn_title: 'Что они меняют в исполнении',
+    opt_exp_learn_body: 'Эти параметры не меняют веса модели. Они меняют runtime-поведение: какие эксперты считаются горячими, насколько prompt используется как прогноз для раннего decode, и можно ли отбрасывать очень слабых экспертов. Меняйте по одному параметру за раз и сравнивайте с validated baseline.',
+    exp_preset_none: 'Ручной режим: dashboard ничего сам не подбирает, вы вручную управляете исследовательскими ручками.',
+    exp_preset_minimax: 'MiniMax mixed locality: включает tail-window selection для hot experts. При связке с проверенными настройками удерживает mixed-friendly baseline вокруг Flash Attention + RTR auto + muge OFF.',
+    exp_preset_qwen: 'Qwen prompt-packed: включает Prompt Packed QKV с профилем front-half. Это исследование prompt-path locality, а не validated рекомендация.',
+    exp_preset_gptoss: 'gpt-oss prompt-packed: включает Prompt Packed QKV с профилем back-half. Это исследование prompt-path locality, а не validated рекомендация.',
+    exp_preset_merge_qkv: 'Attention merge-qkv: включает Merge QKV как мягкий attention-side эксперимент. При связке дополнительно фиксирует Flash Attention и Graph Reuse.',
     p_live_obs: 'Live Observability', d_live_obs: 'Dashboard-only traces для интерактивной визуализации фаз inference и активности экспертов. Полезно для обучения и диагностики; для максимально чистых бенчей можно выключить.',
     ser_min: 'мин. экспертов:', ser_thresh: 'порог:',
     p_gr: 'Graph Reuse', d_gr: 'Переиспользование графа вычислений между токенами. Экономит время на построение графа. Выключать только для отладки',
@@ -163,6 +181,12 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV — экспериментальная опция. Она model-sensitive и не является validated default для текущего релизного слоя.',
     w_hot_budget_experimental: 'Hot Expert Budget — экспериментальный env-knob. Для обычного MiniMax запуска оставляйте 0; более крупные бюджеты пока не стали validated default.',
     w_hot_budget_family: 'Hot Expert Budget сейчас имеет практический смысл прежде всего для huge MiniMax / huge MoE исследований. Не переносите его как готовое правило на другие семьи моделей.',
+    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная locality-ветка для MiniMax. Она не меняет веса модели, а только меняет то, по какой части prompt выбираются hot experts.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window сейчас имеет смысл прежде всего для huge MiniMax исследований. Не переносите эту настройку как готовое правило на Qwen3MoE, gpt-oss или неизвестные модели.',
+    w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
+    w_prompt_packed_family: 'Prompt Packed QKV сейчас имеет смысл прежде всего для Qwen3MoE и gpt-oss. Для MiniMax и неизвестных семейств не переносите его как готовое правило.',
+    w_prompt_packed_range: 'Задан явный Prompt Packed range. Это advanced override поверх preset и его стоит включать только для осознанного A/B.',
+    w_exp_preset_link: 'Связка экспериментального пресета с проверенными настройками включена. При выборе preset dashboard может менять Flash Attention, RTR, Graph Reuse и другие validated knobs.',
     badge_family: 'Семейство',
     badge_path: 'Путь',
     badge_status: 'Статус',
@@ -502,6 +526,19 @@ const LANG = {
     p_mla: 'MLA Mode', d_mla: 'Multi-head Latent Attention — KV cache mode for models supporting MLA (DeepSeek etc.). 3 = auto-select optimal',
     p_ser: 'Smart Expert Reduction', d_ser: 'Experimental option: router drops experts below a threshold while guaranteeing min_experts. Promising for huge MoE, but not a validated default yet',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Experimental env knob for huge MoE: how many hot experts to try to keep locked after prompt. 0 = do not set it, keep the runtime default. For MiniMax, the first longer controlled run did not justify promoting a larger default above legacy 16, so start with 0',
+    p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'How the runtime chooses hot experts after the first prompt. For MiniMax locality research, tail-window looks only at the prompt tail instead of the whole prompt.',
+    p_hot_tail: 'Tail Window', d_hot_tail: 'If Hot Expert Selection = tail-window, use the last N prompt tokens as a predictor for the first decode steps. Smaller windows are more local; larger ones behave more like full-prompt.',
+    opt_tab_validated: 'Validated',
+    opt_tab_experimental: 'Experimental',
+    opt_exp_title: 'Experimental knobs',
+    opt_exp_intro: 'These controls are outside the validated baseline. They are for targeted A/B checks and runtime research, not default recommendations.',
+    opt_exp_learn_title: 'How these change execution',
+    opt_exp_learn_body: 'These settings do not change model weights. They change runtime behavior: which experts are treated as hot, how much of the prompt is trusted as a predictor of early decode, and whether very weak experts may be dropped. Change one knob at a time and compare against the validated baseline.',
+    p_exp_preset: 'Experimental preset', d_exp_preset: 'Ready-made research bundles. Use them as fast A/B starting points, not as validated defaults.',
+    p_exp_link: 'Link preset to validated settings', d_exp_link: 'If ON, applying an experimental preset may also adjust validated knobs when the bundle depends on them. If OFF, only experimental controls change.',
+    p_prompt_packed: 'Prompt Packed QKV', d_prompt_packed: 'Experimental prompt-only path that packs split Q/K/V projections into a more locality-friendly runtime layout. It can help prompt-side work, but may cost extra RAM and load time.',
+    p_prompt_packed_preset: 'Prompt Packed preset', d_prompt_packed_preset: 'Predefined layer ranges for Prompt Packed QKV. Current research suggests Qwen tends to prefer front-half, while gpt-oss tends to prefer back-half.',
+    p_prompt_packed_range: 'Prompt Packed range', d_prompt_packed_range: 'Optional explicit layer range such as start:end. If set, it overrides the preset and should only be used for deliberate A/B checks.',
     p_live_obs: 'Live Observability', d_live_obs: 'Dashboard-only traces for interactive inference-phase and expert-activity visualization. Useful for learning and debugging; disable it for the cleanest benchmark runs.',
     ser_min: 'min experts:', ser_thresh: 'threshold:',
     p_gr: 'Graph Reuse', d_gr: 'Reuse compute graph between tokens. Saves graph construction time. Only disable for debugging',
@@ -509,6 +546,11 @@ const LANG = {
     p_khad: 'K-Cache Hadamard', d_khad: 'Hadamard transform for K-cache. Reduces quantization error. Only useful with quantized cache (q8_0, q4_0). Pointless with f16/f32',
     p_fmoe: 'Fused MoE', d_fmoe: 'Fused up*gate op for MoE models. Fewer kernel launches. Default ON — not recommended to disable',
     p_fug: 'Fused Up*Gate', d_fug: 'Fused up*unary(gate) for FFN. Fewer kernel calls = faster. Default ON',
+    exp_preset_none: 'Manual mode: the dashboard does not auto-apply a research bundle. You control experimental knobs directly.',
+    exp_preset_minimax: 'MiniMax mixed locality: enables tail-window hot-expert selection and, when linked, keeps a mixed-friendly baseline around Flash Attention + RTR auto + muge OFF.',
+    exp_preset_qwen: 'Qwen prompt-packed: enables Prompt Packed QKV with a front-half profile. This is prompt-path locality research, not a validated recommendation.',
+    exp_preset_gptoss: 'gpt-oss prompt-packed: enables Prompt Packed QKV with a back-half profile. This is prompt-path locality research, not a validated recommendation.',
+    exp_preset_merge_qkv: 'Attention merge-qkv: enables Merge QKV as a mild attention-side experiment. When linked, it also fixes Flash Attention and Graph Reuse.',
     p_host: 'Host', p_port: 'Port', p_np: 'Parallel sequences', d_np: 'Concurrent request slots. Each slot = separate KV cache, uses extra memory',
     p_apikey: 'API Key', p_thttp: 'HTTP threads', d_thttp: 'Threads for HTTP request processing (not compute). -1 = auto. Rarely needs changing',
     p_seed: 'Seed', d_seed: 'Random number generator seed. -1 = random. Fixed seed for reproducible results',
@@ -571,6 +613,12 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV is experimental. It is model-sensitive and not part of the validated default layer.',
     w_hot_budget_experimental: 'Hot Expert Budget is an experimental env knob. For normal MiniMax use, leave it at 0; larger budgets have not become a validated default.',
     w_hot_budget_family: 'Right now Hot Expert Budget is mainly meaningful for huge MiniMax / huge MoE research. Do not carry it over as a ready-made rule to other model families.',
+    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MiniMax locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window is currently meaningful mainly for huge MiniMax research. Do not treat it as a ready-made rule for Qwen3MoE, gpt-oss, or unknown families.',
+    w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
+    w_prompt_packed_family: 'Prompt Packed QKV currently makes sense mainly for Qwen3MoE and gpt-oss. Do not treat it as a ready-made rule for MiniMax or unknown families.',
+    w_prompt_packed_range: 'An explicit Prompt Packed range is set. This is an advanced override on top of the preset and should only be used for deliberate A/B checks.',
+    w_exp_preset_link: 'The experimental preset is linked to validated settings. Selecting a preset may change Flash Attention, RTR, Graph Reuse, or other validated knobs.',
     badge_family: 'Family',
     badge_path: 'Path',
     badge_status: 'Status',
@@ -927,7 +975,15 @@ function getFamilyValidationStatus(s = state, meta = lastModelMeta) {
 }
 
 function hasExperimentalKnobs(s = state) {
-  return !!(s.ser_enabled || s.merge_qkv || (s.hot_expert_budget || 0) > 0);
+  return !!(
+    s.ser_enabled ||
+    s.merge_qkv ||
+    s.prompt_packed_qkv ||
+    (s.experimental_preset && s.experimental_preset !== 'none') ||
+    (s.hot_expert_budget || 0) > 0 ||
+    (s.hot_expert_selection && s.hot_expert_selection !== 'default') ||
+    (s.hot_expert_selection === 'tail-window' && (s.hot_expert_tail_window || 0) > 0)
+  );
 }
 
 const RULES = [
@@ -990,6 +1046,36 @@ const RULES = [
     id: 'hot_budget_family', severity: 'info', params: ['hot_expert_budget'],
     test: (s, p) => (s.hot_expert_budget || 0) > 0 && !(detectModelFamily(s) === 'minimax' && isSwapBound(s, p)),
     msg: 'w_hot_budget_family',
+  },
+  {
+    id: 'hot_selection_experimental', severity: 'info', params: ['hot_expert_selection', 'hot_expert_tail_window'],
+    test: (s) => !!(s.hot_expert_selection && s.hot_expert_selection !== 'default'),
+    msg: 'w_hot_selection_experimental',
+  },
+  {
+    id: 'hot_selection_family', severity: 'warning', params: ['hot_expert_selection', 'hot_expert_tail_window'],
+    test: (s, p) => !!(s.hot_expert_selection && s.hot_expert_selection !== 'default') && !(detectModelFamily(s) === 'minimax' && isSwapBound(s, p)),
+    msg: 'w_hot_selection_family',
+  },
+  {
+    id: 'prompt_packed_experimental', severity: 'info', params: ['prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range'],
+    test: (s) => !!s.prompt_packed_qkv,
+    msg: 'w_prompt_packed_experimental',
+  },
+  {
+    id: 'prompt_packed_family', severity: 'warning', params: ['prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range'],
+    test: (s) => !!s.prompt_packed_qkv && !['qwen3moe', 'gpt-oss'].includes(detectModelFamily(s)),
+    msg: 'w_prompt_packed_family',
+  },
+  {
+    id: 'prompt_packed_range', severity: 'info', params: ['prompt_packed_qkv_range'],
+    test: (s) => !!s.prompt_packed_qkv && !!String(s.prompt_packed_qkv_range || '').trim(),
+    msg: 'w_prompt_packed_range',
+  },
+  {
+    id: 'exp_preset_link', severity: 'info', params: ['experimental_preset', 'experimental_preset_link_validated'],
+    test: (s) => !!(s.experimental_preset && s.experimental_preset !== 'none' && s.experimental_preset_link_validated),
+    msg: 'w_exp_preset_link',
   },
   {
     id: 'swap_bound', severity: 'warning', params: ['model_size_gb'],
@@ -1060,6 +1146,7 @@ let currentLang = 'ru';
 let currentProfile = null;
 let suppressUpdate = false;
 let currentWorkspacePane = 'overview';
+let currentOptimizationPane = 'validated';
 
 const DEFAULTS = {
   model: '', model_size_gb: 0, model_type: 'dense', n_gpu_layers: -1,
@@ -1068,6 +1155,13 @@ const DEFAULTS = {
   cache_type_k: 'f16', cache_type_v: 'f16', mla_attn: 3,
   ser_enabled: false, ser_min: 4, ser_thresh: 0.05,
   hot_expert_budget: 0,
+  hot_expert_selection: 'default',
+  hot_expert_tail_window: 16,
+  experimental_preset: 'none',
+  experimental_preset_link_validated: true,
+  prompt_packed_qkv: false,
+  prompt_packed_qkv_preset: 'auto',
+  prompt_packed_qkv_range: '',
   live_observability: true,
   graph_reuse: true, merge_qkv: false, k_cache_hadamard: false,
   fused_moe_up_gate: true, fused_up_gate: true,
@@ -1114,6 +1208,7 @@ const TOGGLE_PARAMS = [
   'flash_attn', 'merge_up_gate_exps', 'graph_reuse',
   'merge_qkv', 'k_cache_hadamard', 'fused_moe_up_gate', 'fused_up_gate',
   'use_mmap', 'use_mlock', 'ser_enabled', 'live_observability',
+  'experimental_preset_link_validated', 'prompt_packed_qkv',
 ];
 
 function syncToDOM(changedKey) {
@@ -1138,11 +1233,14 @@ function syncToDOM(changedKey) {
     rtrSel.value = getRtrMode(state);
   }
   if (changedKey && PARAM_CONTROL_MAP[changedKey] && !String(PARAM_CONTROL_MAP[changedKey]).startsWith('tog-')) {
-    const el = document.getElementById(PARAM_CONTROL_MAP[changedKey]);
-    if (el && el !== document.activeElement) el.value = state[changedKey];
+    if (changedKey !== 'experimental_preset') {
+      const el = document.getElementById(PARAM_CONTROL_MAP[changedKey]);
+      if (el && el !== document.activeElement) el.value = state[changedKey];
+    }
   } else {
     for (const [k, id] of Object.entries(PARAM_CONTROL_MAP)) {
       if (String(id).startsWith('tog-')) continue;
+      if (k === 'experimental_preset') continue;
       const el = document.getElementById(id);
       if (el && el !== document.activeElement) el.value = state[k];
     }
@@ -1150,6 +1248,20 @@ function syncToDOM(changedKey) {
   // SER inputs enable/disable
   document.getElementById('p-ser_min').disabled = !state.ser_enabled;
   document.getElementById('p-ser_thresh').disabled = !state.ser_enabled;
+  const tailWindowInput = document.getElementById('p-hot_expert_tail_window');
+  if (tailWindowInput) {
+    tailWindowInput.disabled = state.hot_expert_selection !== 'tail-window';
+  }
+  const packedPresetSelect = document.getElementById('p-prompt_packed_qkv_preset');
+  if (packedPresetSelect) {
+    packedPresetSelect.disabled = !state.prompt_packed_qkv;
+  }
+  const packedRangeInput = document.getElementById('p-prompt_packed_qkv_range');
+  if (packedRangeInput) {
+    packedRangeInput.disabled = !state.prompt_packed_qkv;
+  }
+  renderExperimentalPresetPicker();
+  renderExperimentalPresetHint();
 }
 
 function syncAllToDOM() {
@@ -1160,6 +1272,9 @@ function syncAllToDOM() {
 function toggleParam(name) {
   if (name === 'use_mmap' && isRtrForcedOn(state)) return; // locked only for forced ON
   S[name] = !state[name];
+  if (name === 'experimental_preset_link_validated' && state.experimental_preset !== 'none' && state.experimental_preset_link_validated) {
+    applyExperimentalPreset(state.experimental_preset, { reapplyOnly: true });
+  }
 }
 
 // ============================================================
@@ -1213,6 +1328,9 @@ const PARAM_CONTROL_MAP = {
   ser_min: 'p-ser_min',
   ser_thresh: 'p-ser_thresh',
   hot_expert_budget: 'p-hot_expert_budget',
+  hot_expert_selection: 'p-hot_expert_selection',
+  hot_expert_tail_window: 'p-hot_expert_tail_window',
+  experimental_preset: 'experimental-preset-picker',
   hostname: 'p-hostname',
   port: 'p-port',
   n_parallel: 'p-n_parallel',
@@ -1235,6 +1353,10 @@ const PARAM_CONTROL_MAP = {
   use_mlock: 'tog-use_mlock',
   ser_enabled: 'tog-ser_enabled',
   live_observability: 'tog-live_observability',
+  experimental_preset_link_validated: 'tog-experimental_preset_link_validated',
+  prompt_packed_qkv: 'tog-prompt_packed_qkv',
+  prompt_packed_qkv_preset: 'p-prompt_packed_qkv_preset',
+  prompt_packed_qkv_range: 'p-prompt_packed_qkv_range',
 };
 const WARNING_PARAM_TO_PANE = {
   model: 'model',
@@ -1256,11 +1378,18 @@ const WARNING_PARAM_TO_PANE = {
   ser_min: 'optimization',
   ser_thresh: 'optimization',
   hot_expert_budget: 'optimization',
+  hot_expert_selection: 'optimization',
+  hot_expert_tail_window: 'optimization',
+  experimental_preset: 'optimization',
+  experimental_preset_link_validated: 'optimization',
   graph_reuse: 'optimization',
   merge_qkv: 'optimization',
   k_cache_hadamard: 'optimization',
   fused_moe_up_gate: 'optimization',
   fused_up_gate: 'optimization',
+  prompt_packed_qkv: 'optimization',
+  prompt_packed_qkv_preset: 'optimization',
+  prompt_packed_qkv_range: 'optimization',
   hostname: 'server',
   port: 'server',
   n_parallel: 'server',
@@ -1313,6 +1442,15 @@ function jumpToParam(param, paneOverride = '') {
   if (pane) {
     setWorkspacePane(pane);
     highlightWorkspacePaneButton(pane);
+    if (pane === 'optimization') {
+      const experimentalParams = new Set([
+        'ser_enabled', 'ser_min', 'ser_thresh',
+        'hot_expert_budget', 'hot_expert_selection', 'hot_expert_tail_window',
+        'live_observability', 'experimental_preset', 'experimental_preset_link_validated',
+        'merge_qkv', 'prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range',
+      ]);
+      setOptimizationPane(experimentalParams.has(param) ? 'experimental' : 'validated');
+    }
   }
 
   const targetId = PARAM_CONTROL_MAP[param];
@@ -1641,6 +1779,339 @@ function renderDots(paramSeverity) {
   }
 }
 
+const EXPERIMENTAL_PRESETS = {
+  none: {
+    title: { ru: 'Manual / off', en: 'Manual / off' },
+    descKey: 'exp_preset_none',
+    risk: 'low',
+    scope: 'generic',
+    familyHint: [],
+    experimental: {},
+    validated: {},
+  },
+  'minimax-mixed-locality': {
+    title: { ru: 'MiniMax mixed locality', en: 'MiniMax mixed locality' },
+    descKey: 'exp_preset_minimax',
+    risk: 'medium',
+    scope: 'moe',
+    familyHint: ['minimax'],
+    experimental: {
+      hot_expert_budget: 0,
+      hot_expert_selection: 'tail-window',
+      hot_expert_tail_window: 16,
+      merge_qkv: false,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+      ser_enabled: false,
+    },
+    validated: {
+      workload_profile: 'mixed',
+      flash_attn: true,
+      repack_tensors: 'auto',
+      merge_up_gate_exps: false,
+    },
+  },
+  'minimax-locality-aggressive': {
+    title: { ru: 'MiniMax locality aggressive', en: 'MiniMax locality aggressive' },
+    descKey: '',
+    desc: {
+      ru: 'Более рискованный вариант для huge MiniMax: сохраняет tail-window selection, но дополнительно поднимает Hot Expert Budget до 24. Теоретически может лучше удерживать ранний decode, но длинные прогоны не подтвердили это как новый default.',
+      en: 'A riskier huge-MiniMax variant: keeps tail-window selection and also raises Hot Expert Budget to 24. It may hold early decode better in theory, but longer runs did not validate it as a new default.',
+    },
+    risk: 'high',
+    scope: 'moe',
+    familyHint: ['minimax'],
+    experimental: {
+      hot_expert_budget: 24,
+      hot_expert_selection: 'tail-window',
+      hot_expert_tail_window: 16,
+      merge_qkv: false,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+      ser_enabled: false,
+    },
+    validated: {
+      workload_profile: 'mixed',
+      flash_attn: true,
+      repack_tensors: 'auto',
+      merge_up_gate_exps: false,
+    },
+  },
+  'qwen-prompt-packed': {
+    title: { ru: 'Qwen prompt-packed', en: 'Qwen prompt-packed' },
+    descKey: 'exp_preset_qwen',
+    risk: 'high',
+    scope: 'moe',
+    familyHint: ['qwen3moe'],
+    experimental: {
+      hot_expert_budget: 0,
+      hot_expert_selection: 'default',
+      hot_expert_tail_window: 16,
+      merge_qkv: false,
+      prompt_packed_qkv: true,
+      prompt_packed_qkv_preset: 'front-half',
+      prompt_packed_qkv_range: '',
+      ser_enabled: false,
+    },
+    validated: {
+      flash_attn: true,
+      graph_reuse: true,
+      repack_tensors: 'auto',
+    },
+  },
+  'gptoss-prompt-packed': {
+    title: { ru: 'gpt-oss prompt-packed', en: 'gpt-oss prompt-packed' },
+    descKey: 'exp_preset_gptoss',
+    risk: 'high',
+    scope: 'moe',
+    familyHint: ['gpt-oss'],
+    experimental: {
+      hot_expert_budget: 0,
+      hot_expert_selection: 'default',
+      hot_expert_tail_window: 16,
+      merge_qkv: false,
+      prompt_packed_qkv: true,
+      prompt_packed_qkv_preset: 'back-half',
+      prompt_packed_qkv_range: '',
+      ser_enabled: false,
+    },
+    validated: {
+      flash_attn: true,
+      graph_reuse: true,
+      repack_tensors: 'auto',
+    },
+  },
+  'attention-merge-qkv': {
+    title: { ru: 'Attention merge-qkv', en: 'Attention merge-qkv' },
+    descKey: 'exp_preset_merge_qkv',
+    risk: 'medium',
+    scope: 'generic',
+    familyHint: ['qwen3moe', 'gpt-oss', 'other'],
+    experimental: {
+      merge_qkv: true,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+    },
+    validated: {
+      flash_attn: true,
+      graph_reuse: true,
+    },
+  },
+  'huge-moe-ser-light': {
+    title: { ru: 'Huge MoE SER light', en: 'Huge MoE SER light' },
+    desc: {
+      ru: 'Мягкий router-side эксперимент для больших MoE: включает SER с min=4 и threshold=0.05. Идея — отрезать очень слабых экспертов и уменьшить I/O, не делая pruning слишком агрессивным.',
+      en: 'A mild router-side experiment for large MoE: enables SER with min=4 and threshold=0.05. The goal is to prune very weak experts and reduce I/O without making pruning too aggressive.',
+    },
+    risk: 'medium',
+    scope: 'moe',
+    familyHint: ['minimax', 'qwen3moe', 'gpt-oss'],
+    experimental: {
+      ser_enabled: true,
+      ser_min: 4,
+      ser_thresh: 0.05,
+      hot_expert_budget: 0,
+      hot_expert_selection: 'default',
+      hot_expert_tail_window: 16,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+    },
+    validated: {
+      flash_attn: true,
+      merge_up_gate_exps: false,
+    },
+  },
+  'huge-moe-ser-aggressive': {
+    title: { ru: 'Huge MoE SER aggressive', en: 'Huge MoE SER aggressive' },
+    desc: {
+      ru: 'Более рискованный router-side bundle для больших MoE: SER с min=3 и threshold=0.10. Теоретически может сильнее разгрузить I/O, но риск потери качества и нестабильности решения роутера выше.',
+      en: 'A more aggressive router-side bundle for large MoE: SER with min=3 and threshold=0.10. It may reduce I/O further in theory, but quality loss and routing instability risk are higher.',
+    },
+    risk: 'high',
+    scope: 'moe',
+    familyHint: ['minimax', 'qwen3moe', 'gpt-oss'],
+    experimental: {
+      ser_enabled: true,
+      ser_min: 3,
+      ser_thresh: 0.10,
+      hot_expert_budget: 0,
+      hot_expert_selection: 'default',
+      hot_expert_tail_window: 16,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+    },
+    validated: {
+      flash_attn: true,
+      merge_up_gate_exps: false,
+    },
+  },
+  'dense-attention-locality': {
+    title: { ru: 'Dense attention locality', en: 'Dense attention locality' },
+    desc: {
+      ru: 'Универсальный attention-side эксперимент для dense и mixed семей: Merge QKV + Flash Attention + Graph Reuse. Не требует MoE-логики и подходит как мягкий baseline experiment для неизвестных dense моделей.',
+      en: 'A generic attention-side experiment for dense and mixed families: Merge QKV + Flash Attention + Graph Reuse. It does not rely on MoE logic and can serve as a mild baseline experiment for unknown dense models.',
+    },
+    risk: 'low',
+    scope: 'dense',
+    familyHint: ['other'],
+    experimental: {
+      merge_qkv: true,
+      prompt_packed_qkv: false,
+      prompt_packed_qkv_preset: 'auto',
+      prompt_packed_qkv_range: '',
+      ser_enabled: false,
+      hot_expert_budget: 0,
+      hot_expert_selection: 'default',
+      hot_expert_tail_window: 16,
+    },
+    validated: {
+      flash_attn: true,
+      graph_reuse: true,
+    },
+  },
+};
+
+function getExperimentalPresetDescription(cfg) {
+  if (cfg.desc) {
+    return currentLang === 'ru' ? cfg.desc.ru : cfg.desc.en;
+  }
+  return t(cfg.descKey || 'exp_preset_none');
+}
+
+function getExperimentalPresetConfig(preset, s = state) {
+  const family = detectModelFamily(s);
+  const cfg = EXPERIMENTAL_PRESETS[preset] || EXPERIMENTAL_PRESETS.none;
+  const baseDesc = getExperimentalPresetDescription(cfg);
+  const familyNote = cfg.familyHint.length && !cfg.familyHint.includes(family)
+    ? (currentLang === 'ru'
+      ? ` Этот пресет рассчитан прежде всего на ${cfg.familyHint.join(', ')}.`
+      : ` This preset is tuned primarily for ${cfg.familyHint.join(', ')}.`)
+    : '';
+  return {
+    ...cfg,
+    titleText: currentLang === 'ru' ? cfg.title.ru : cfg.title.en,
+    description: baseDesc,
+    note: familyNote,
+  };
+}
+
+function experimentalPresetScopeLabel(scope) {
+  if (currentLang === 'ru') {
+    if (scope === 'moe') return 'MoE';
+    if (scope === 'dense') return 'Dense';
+    return 'Generic';
+  }
+  if (scope === 'moe') return 'MoE';
+  if (scope === 'dense') return 'Dense';
+  return 'Generic';
+}
+
+function experimentalPresetRiskLabel(risk) {
+  if (currentLang === 'ru') {
+    if (risk === 'high') return 'Риск: высокий';
+    if (risk === 'medium') return 'Риск: средний';
+    return 'Риск: низкий';
+  }
+  if (risk === 'high') return 'Risk: high';
+  if (risk === 'medium') return 'Risk: medium';
+  return 'Risk: low';
+}
+
+function renderExperimentalPresetPicker() {
+  const root = document.getElementById('experimental-preset-picker');
+  const hiddenSelect = document.getElementById('p-experimental_preset');
+  if (!root || !hiddenSelect) return;
+
+  hiddenSelect.innerHTML = Object.entries(EXPERIMENTAL_PRESETS)
+    .map(([id, cfg]) => `<option value="${id}">${currentLang === 'ru' ? cfg.title.ru : cfg.title.en}</option>`)
+    .join('');
+  hiddenSelect.value = state.experimental_preset || 'none';
+
+  const selectedId = state.experimental_preset || 'none';
+  const selected = getExperimentalPresetConfig(selectedId, state);
+  const options = Object.entries(EXPERIMENTAL_PRESETS).map(([id, cfg]) => {
+    const cfgResolved = getExperimentalPresetConfig(id, state);
+    const active = id === selectedId ? 'active' : '';
+    return `
+      <button type="button" class="exp-preset-option ${active}" onclick="selectExperimentalPreset('${id.replace(/'/g, "\\'")}')">
+        <div class="exp-preset-option-title-row">
+          <div class="exp-preset-option-title">${cfgResolved.titleText}</div>
+          <div class="exp-preset-option-meta">
+            <span class="preset-chip risk-${cfgResolved.risk}">${experimentalPresetRiskLabel(cfgResolved.risk)}</span>
+            <span class="preset-chip scope-${cfgResolved.scope}">${experimentalPresetScopeLabel(cfgResolved.scope)}</span>
+          </div>
+        </div>
+        <div class="exp-preset-option-desc">${cfgResolved.description}</div>
+      </button>
+    `;
+  }).join('');
+
+  root.innerHTML = `
+    <details class="exp-preset-dropdown">
+      <summary>
+        <div class="exp-preset-summary">
+          <div class="exp-preset-summary-top">
+            <div class="exp-preset-summary-title">${selected.titleText}</div>
+            <div class="exp-preset-summary-meta">
+              <span class="preset-chip risk-${selected.risk}">${experimentalPresetRiskLabel(selected.risk)}</span>
+              <span class="preset-chip scope-${selected.scope}">${experimentalPresetScopeLabel(selected.scope)}</span>
+            </div>
+          </div>
+          <div class="exp-preset-summary-desc">${selected.description}</div>
+        </div>
+      </summary>
+      <div class="exp-preset-menu">${options}</div>
+    </details>
+  `;
+}
+
+function selectExperimentalPreset(preset) {
+  applyExperimentalPreset(preset);
+}
+
+function renderExperimentalPresetHint() {
+  const el = document.getElementById('experimental-preset-hint');
+  if (!el) return;
+  const preset = state.experimental_preset || 'none';
+  const cfg = getExperimentalPresetConfig(preset, state);
+  const linkLabel = state.experimental_preset_link_validated
+    ? (currentLang === 'ru' ? 'Связка с проверенными: ON' : 'Validated link: ON')
+    : (currentLang === 'ru' ? 'Связка с проверенными: OFF' : 'Validated link: OFF');
+  el.innerHTML = `
+    <div class="experimental-intro-title">${cfg.titleText}</div>
+    <div class="experimental-intro-body">${cfg.description}${cfg.note}</div>
+    <div class="experimental-intro-body" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px">
+      <span class="preset-chip risk-${cfg.risk}">${experimentalPresetRiskLabel(cfg.risk)}</span>
+      <span class="preset-chip scope-${cfg.scope}">${experimentalPresetScopeLabel(cfg.scope)}</span>
+      <span class="model-badge family-generic">${linkLabel}</span>
+    </div>
+  `;
+}
+
+function applyExperimentalPreset(preset, options = {}) {
+  const nextPreset = preset || 'none';
+  const cfg = getExperimentalPresetConfig(nextPreset, state);
+  suppressUpdate = true;
+  state.experimental_preset = nextPreset;
+  Object.assign(state, cfg.experimental);
+  if (state.experimental_preset_link_validated) {
+    Object.assign(state, cfg.validated);
+  }
+  suppressUpdate = false;
+  syncAllToDOM();
+  evaluate();
+  renderCommand();
+  saveState();
+  if (!options.reapplyOnly) {
+    setOptimizationPane('experimental');
+  }
+}
+
 function renderAdvancedHints() {
   const el = document.getElementById('advanced-hints');
   if (!el) return;
@@ -1659,6 +2130,7 @@ function renderAdvancedHints() {
     <div class="advanced-hint">
       <div class="advanced-hint-title">MiniMax</div>
       <div class="advanced-hint-body">${t('note_minimax_hot_budget')}</div>
+      <div class="advanced-hint-body" style="margin-top:8px">${currentLang === 'ru' ? 'Если хотите проверять новую locality-идею, начните с Hot Expert Selection = tail-window и Tail Window = 16. Это исследовательский режим, не validated default.' : 'If you want to test the new locality idea, start with Hot Expert Selection = tail-window and Tail Window = 16. This is a research mode, not a validated default.'}</div>
     </div>
   `;
   el.classList.add('visible');
@@ -1673,6 +2145,21 @@ function buildEnvOverrides(s = state) {
   }
   if ((s.hot_expert_budget || 0) > 0) {
     env.IK_LLAMA_HOT_EXPERT_BUDGET = String(s.hot_expert_budget);
+  }
+  if (s.hot_expert_selection && s.hot_expert_selection !== 'default') {
+    env.IK_LLAMA_HOT_EXPERT_SELECTION = String(s.hot_expert_selection);
+  }
+  if (s.hot_expert_selection === 'tail-window' && (s.hot_expert_tail_window || 0) > 0) {
+    env.IK_LLAMA_HOT_EXPERT_TAIL_WINDOW = String(s.hot_expert_tail_window);
+  }
+  if (s.prompt_packed_qkv) {
+    env.IK_LLAMA_PROMPT_PACKED_QKV = '1';
+    const explicitRange = String(s.prompt_packed_qkv_range || '').trim();
+    if (explicitRange) {
+      env.IK_LLAMA_PROMPT_PACKED_QKV_RANGE = explicitRange;
+    } else if (s.prompt_packed_qkv_preset) {
+      env.IK_LLAMA_PROMPT_PACKED_QKV_PRESET = String(s.prompt_packed_qkv_preset);
+    }
   }
   return env;
 }
@@ -3176,6 +3663,124 @@ const HELP = {
 <div class="tip">Only touch this for huge swap-bound MoE, primarily MiniMax. For normal MiniMax use, leaving it at 0 is safer. For Qwen3MoE, gpt-oss, and unknown families, leaving it at 0 is also the safer choice.</div>
 <div class="see-also">See also: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>model type</span> (Dense vs MoE)</div>`,
   },
+  hot_expert_selection: {
+    ru: `<h4>Hot Expert Selection (IK_LLAMA_HOT_EXPERT_SELECTION)</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>После prompt fork может запомнить «горячих» экспертов и попытаться держать их ближе к памяти для первых decode-токенов. Этот параметр задаёт, по какой части prompt выбирать таких экспертов.</div>
+<p><b>default</b> — не задавать env, оставить текущий runtime baseline.</p>
+<p><b>full-prompt</b> — считать hot experts по всему prompt.</p>
+<p><b>tail-window</b> — смотреть только на хвост prompt. Идея: последние токены prompt иногда лучше предсказывают ранний decode, чем весь prompt целиком.</p>
+<div class="bench">Практический смысл:
+• full-prompt — более общий и консервативный выбор
+• tail-window — более локальный прогноз для первых decode-шагов
+• это не меняет веса модели, а только меняет runtime-логику выбора hot experts</div>
+<div class="tip">Сейчас это имеет смысл прежде всего для huge MiniMax. Для обычного запуска других MoE-моделей не включайте это без отдельного A/B.</div>
+<div class="see-also">См. также: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
+    en: `<h4>Hot Expert Selection (IK_LLAMA_HOT_EXPERT_SELECTION)</h4>
+<div class="beginner-section"><div class="label">For beginners</div>After the prompt, the fork can remember “hot” experts and try to keep them closer to memory for the first decode tokens. This setting controls which part of the prompt is used to choose those experts.</div>
+<p><b>default</b> — do not set the env, keep the current runtime baseline.</p>
+<p><b>full-prompt</b> — choose hot experts from the whole prompt.</p>
+<p><b>tail-window</b> — look only at the end of the prompt. The idea is that the last prompt tokens may predict early decode better than the whole prompt.</p>
+<div class="bench">Practical meaning:
+• full-prompt — more general and conservative selection
+• tail-window — more local prediction for the first decode steps
+• this does not change model weights, only the runtime logic used to choose hot experts</div>
+<div class="tip">Right now this mainly makes sense for huge MiniMax. Do not enable it for other MoE families without a separate A/B check.</div>
+<div class="see-also">See also: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
+  },
+  hot_expert_tail_window: {
+    ru: `<h4>Tail Window (IK_LLAMA_HOT_EXPERT_TAIL_WINDOW)</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Если выбор hot experts идет по хвосту prompt, нужно указать размер этого хвоста. Например, 16 означает: смотреть только на последние 16 токенов prompt.</div>
+<p><b>Малое окно</b> — агрессивный локальный прогноз. Лучше ловит совсем ранний decode, но может пропустить более широкий контекст.</p>
+<p><b>Большое окно</b> — ближе к поведению full-prompt, но эффект locality может стать слабее.</p>
+<div class="bench">Текущий рабочий research-кандидат для MiniMax mixed-path: <span class="hl">16</span>. Это не validated default, а лишь первый promising A/B-результат.</div>
+<div class="tip">Используйте только вместе с Hot Expert Selection = tail-window. Если не тестируете MiniMax locality специально, оставьте как есть.</div>
+<div class="see-also">См. также: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
+    en: `<h4>Tail Window (IK_LLAMA_HOT_EXPERT_TAIL_WINDOW)</h4>
+<div class="beginner-section"><div class="label">For beginners</div>If hot experts are chosen from the prompt tail, you must specify how large that tail is. For example, 16 means: look only at the last 16 prompt tokens.</div>
+<p><b>Small window</b> — aggressive local prediction. Better for very early decode, but may miss wider context.</p>
+<p><b>Large window</b> — closer to full-prompt behavior, but the locality effect may become weaker.</p>
+<div class="bench">Current working research candidate for MiniMax mixed-path: <span class="hl">16</span>. This is not a validated default, only the first promising A/B result.</div>
+<div class="tip">Use this only together with Hot Expert Selection = tail-window. If you are not testing MiniMax locality on purpose, leave it alone.</div>
+    <div class="see-also">See also: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
+  },
+  experimental_preset: {
+    ru: `<h4>Экспериментальный пресет</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Это не «волшебная оптимизация», а готовый набор исследовательских ручек под конкретную гипотезу. Пресет помогает быстро повторить известный A/B-сценарий, не вспоминая все env-переменные вручную.</div>
+<p><b>MiniMax mixed locality</b> — включает locality-идею для huge MiniMax: tail-window selection для hot experts.</p>
+<p><b>Qwen prompt-packed</b> — включает Prompt Packed QKV с профилем, который по текущим данным лучше подходит Qwen.</p>
+<p><b>gpt-oss prompt-packed</b> — тот же класс эксперимента, но с профилем под gpt-oss.</p>
+<p><b>Attention merge-qkv</b> — мягкий attention-side эксперимент с Merge QKV.</p>
+<div class="tip">Пресет не делает гипотезу validated. Он только быстро выставляет исследовательские параметры в воспроизводимое состояние.</div>
+<div class="see-also">См. также: <span>Связывать пресет с проверенными настройками</span>, <span>Prompt Packed QKV</span>, <span>Hot Expert Selection</span></div>`,
+    en: `<h4>Experimental preset</h4>
+<div class="beginner-section"><div class="label">For beginners</div>This is not a “magic optimization”. It is a ready-made bundle of research knobs for a specific hypothesis. A preset helps you reproduce a known A/B scenario without remembering every env variable by hand.</div>
+<p><b>MiniMax mixed locality</b> — enables the locality idea for huge MiniMax: tail-window hot-expert selection.</p>
+<p><b>Qwen prompt-packed</b> — enables Prompt Packed QKV with the profile that currently fits Qwen best.</p>
+<p><b>gpt-oss prompt-packed</b> — the same class of experiment, but with a profile tuned for gpt-oss.</p>
+<p><b>Attention merge-qkv</b> — a mild attention-side experiment using Merge QKV.</p>
+<div class="tip">A preset does not make a hypothesis validated. It only puts research knobs into a reproducible starting state.</div>
+<div class="see-also">See also: <span>Link preset to validated settings</span>, <span>Prompt Packed QKV</span>, <span>Hot Expert Selection</span></div>`,
+  },
+  experimental_preset_link_validated: {
+    ru: `<h4>Связывать пресет с проверенными настройками</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Некоторые исследовательские идеи имеют смысл только рядом с определённым baseline. Например, prompt-path эксперимент почти всегда стоит проверять с включённым Flash Attention, а MiniMax locality bundle — не вместе с muge=ON.</div>
+<p><b>ON</b> — пресет может также подправить проверенные параметры, если без этого bundle становится нерепрезентативным.</p>
+<p><b>OFF</b> — меняются только экспериментальные ручки, а validated слой остаётся как есть.</p>
+<div class="tip">Если хотите чисто проверить одну гипотезу поверх собственного baseline — выключите связку. Если хотите быстро повторить задуманный автором bundle — оставьте ON.</div>`,
+    en: `<h4>Link preset to validated settings</h4>
+<div class="beginner-section"><div class="label">For beginners</div>Some research ideas only make sense next to a specific baseline. For example, a prompt-path experiment is usually tested with Flash Attention enabled, and the MiniMax locality bundle is not meant to be mixed with muge=ON.</div>
+<p><b>ON</b> — the preset may also adjust validated knobs if the bundle would otherwise become misleading.</p>
+<p><b>OFF</b> — only experimental knobs change, while the validated layer stays untouched.</p>
+<div class="tip">If you want to test one hypothesis strictly on top of your own baseline, disable the link. If you want to reproduce the intended bundle quickly, keep it ON.</div>`,
+  },
+  prompt_packed_qkv: {
+    ru: `<h4>Prompt Packed QKV</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Некоторые модели хранят Q, K и V раздельно. Этот исследовательский путь пытается в prompt-фазе упаковать их в более удобный для CPU формат, чтобы attention работал с лучшей локальностью данных.</div>
+<p>Это влияет только на prompt-подобные батчи. Decode baseline не переписывается целиком.</p>
+<div class="bench">Практический смысл:
+• может ускорять prompt-часть
+• эффект на полный mixed path обычно меньше
+• иногда стоит дополнительной RAM и времени загрузки</div>
+<div class="tip">Это не универсальная кнопка “сделать быстрее”. Используйте как research-only knob для Qwen3MoE и gpt-oss.</div>
+<div class="see-also">См. также: <span>Preset Prompt Packed</span>, <span>Диапазон Prompt Packed</span>, <span>Flash Attention</span></div>`,
+    en: `<h4>Prompt Packed QKV</h4>
+<div class="beginner-section"><div class="label">For beginners</div>Some models keep Q, K, and V projections split. This research path tries to pack them into a more CPU-friendly layout during the prompt phase so attention can run with better data locality.</div>
+<p>This affects only prompt-like batches. The normal decode baseline is not fully rewritten.</p>
+<div class="bench">Practical meaning:
+• can improve the prompt side
+• the effect on full mixed path is usually smaller
+• may cost extra RAM and load time</div>
+<div class="tip">This is not a universal “go faster” switch. Use it as a research-only knob for Qwen3MoE and gpt-oss.</div>
+<div class="see-also">See also: <span>Prompt Packed preset</span>, <span>Prompt Packed range</span>, <span>Flash Attention</span></div>`,
+  },
+  prompt_packed_qkv_preset: {
+    ru: `<h4>Preset Prompt Packed</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Prompt Packed можно применять не ко всем слоям, а только к части. Preset — это готовый диапазон слоёв, который уже показал хоть какой-то смысл на конкретной семье моделей.</div>
+<p><b>auto</b> — доверить fork выбрать известный family-aware вариант.</p>
+<p><b>front-half</b> — ранняя половина слоёв; сейчас это больше похоже на Qwen-сценарий.</p>
+<p><b>back-half</b> — поздняя половина слоёв; сейчас это больше похоже на gpt-oss-сценарий.</p>
+<p><b>full</b> — все слои; как правило, это самый тяжёлый и наименее безопасный вариант.</p>
+<div class="tip">Если нет сильной причины, не начинайте с full.</div>`,
+    en: `<h4>Prompt Packed preset</h4>
+<div class="beginner-section"><div class="label">For beginners</div>Prompt Packed does not have to cover all layers. A preset is a ready-made layer range that already showed at least some meaning on a specific model family.</div>
+<p><b>auto</b> — let the fork choose a known family-aware variant.</p>
+<p><b>front-half</b> — early half of the layers; currently closer to the Qwen case.</p>
+<p><b>back-half</b> — late half of the layers; currently closer to the gpt-oss case.</p>
+<p><b>full</b> — all layers; usually the heaviest and least safe option.</p>
+<div class="tip">Without a strong reason, do not start from full.</div>`,
+  },
+  prompt_packed_qkv_range: {
+    ru: `<h4>Диапазон Prompt Packed</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Это ручной override поверх preset. Вы явно говорите fork: “используй Prompt Packed только на слоях от start до end”.</div>
+<p>Формат: <span class="hl">start:end</span>, например <span class="hl">0:24</span> или <span class="hl">12:24</span>.</p>
+<p>Если диапазон задан, он важнее preset.</p>
+<div class="tip">Это уже advanced A/B. Если не понимаете, зачем вам явный range, оставьте поле пустым и используйте preset.</div>`,
+    en: `<h4>Prompt Packed range</h4>
+<div class="beginner-section"><div class="label">For beginners</div>This is a manual override on top of the preset. You explicitly tell the fork: “use Prompt Packed only on layers from start to end”.</div>
+<p>Format: <span class="hl">start:end</span>, for example <span class="hl">0:24</span> or <span class="hl">12:24</span>.</p>
+<p>If the range is set, it overrides the preset.</p>
+<div class="tip">This is already advanced A/B territory. If you do not know why you need an explicit range, leave it empty and use a preset.</div>`,
+  },
   model_size_gb: {
     ru: `<h4>Размер модели</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Это общий размер файлов модели на диске. Главное правило: если модель больше ~90% вашей RAM — она «swap-bound» (не помещается в память, и системе приходится постоянно подгружать данные с SSD). Это кардинально меняет оптимальные настройки.</div>
@@ -4250,6 +4855,21 @@ function syncWorkspaceRail() {
   shell.classList.toggle('rail-collapsed', workspaceRailCollapsed && window.innerWidth > 1180);
 }
 
+function syncOptimizationPane() {
+  document.querySelectorAll('[data-opt-pane-btn]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-opt-pane-btn') === currentOptimizationPane);
+  });
+  document.querySelectorAll('[data-opt-pane]').forEach(pane => {
+    pane.classList.toggle('active', pane.getAttribute('data-opt-pane') === currentOptimizationPane);
+  });
+}
+
+function setOptimizationPane(pane) {
+  currentOptimizationPane = pane || 'validated';
+  localStorage.setItem('ik_dash_opt_pane', currentOptimizationPane);
+  syncOptimizationPane();
+}
+
 function setWorkspacePane(pane) {
   currentWorkspacePane = pane || 'overview';
   localStorage.setItem('ik_dash_workspace_pane', currentWorkspacePane);
@@ -4279,9 +4899,14 @@ function initWorkspaceNavigation() {
   if (saved) {
     currentWorkspacePane = saved;
   }
+  const savedOptPane = localStorage.getItem('ik_dash_opt_pane');
+  if (savedOptPane) {
+    currentOptimizationPane = savedOptPane;
+  }
   workspaceRailCollapsed = localStorage.getItem('ik_dash_workspace_rail_collapsed') === '1';
   runtimeSideCollapsed = localStorage.getItem('ik_dash_runtime_side_collapsed') === '1';
   syncWorkspacePane();
+  syncOptimizationPane();
   syncWorkspaceRail();
   syncRuntimeSideLayout();
   window.addEventListener('resize', () => {

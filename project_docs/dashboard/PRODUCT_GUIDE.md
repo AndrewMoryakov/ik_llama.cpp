@@ -37,17 +37,19 @@
 6. подбирать стартовые настройки через `Auto-configure`;
 7. показывать предупреждения и подсказки по опасным комбинациям;
 8. различать validated baseline и experimental knobs;
-9. прокидывать часть runtime env overrides, включая experimental MiniMax knobs.
-10. показывать live inference view:
+9. прокидывать часть runtime env overrides, включая experimental MiniMax knobs;
+10. применять экспериментальные пресеты, в том числе model-aware bundles для `MiniMax`, `Qwen3MoE` и `gpt-oss`;
+11. по выбору пользователя связывать экспериментальный preset с validated-настройками, если bundle требует конкретного baseline.
+12. показывать live inference view:
 - фазы `prompt -> first decode -> decode tail`
 - текущую активность `MoE` экспертов по trace-данным runtime
-11. показывать replay ранее сохраненных trace-run:
+13. показывать replay ранее сохраненных trace-run:
 - читать логи из `bench_results/`
 - пошагово проигрывать фазы и MoE activity без повторного запуска модели
-12. переключать live observability между:
+14. переключать live observability между:
 - `Learn`
 - `Inspect`
-13. показывать replay/live traces на более легких MoE-моделях как быстрые demo-кейсы, не упираясь каждый раз в тяжелый `MiniMax` run
+15. показывать replay/live traces на более легких MoE-моделях как быстрые demo-кейсы, не упираясь каждый раз в тяжелый `MiniMax` run
 
 ## Из каких частей он состоит
 
