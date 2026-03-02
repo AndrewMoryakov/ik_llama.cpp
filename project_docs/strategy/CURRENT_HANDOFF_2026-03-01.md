@@ -144,6 +144,8 @@ Source of truth:
    - repo: `ik_llama.cpp`
    - branch: `milestone/2026-03-01-logical-snapshot`
    - commit: `05b28d1a1`
+8. current branching model:
+   - `project_docs/release/GIT_BRANCHING_MODEL_2026-03-02.md`
 
 ## Где смотреть в первую очередь
 

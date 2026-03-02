@@ -27,6 +27,7 @@ This directory is the canonical location for project-specific documentation.
 - `release/SUPPORTED_VALIDATED_MATRIX_2026-03-01.md`
 - `release/EXPERIMENTAL_MATRIX_2026-03-01.md`
 - `release/KNOWN_LIMITS_AND_OPEN_QUESTIONS_2026-03-01.md`
+- `release/GIT_BRANCHING_MODEL_2026-03-02.md`
 - `release/CURRENT_STATUS_2026-02-28.md`
 - `release/CODEBASE_HEALTH_2026-03-01.md`
 - `release/VALIDATED_SCOPE_2026-02-28.md`
