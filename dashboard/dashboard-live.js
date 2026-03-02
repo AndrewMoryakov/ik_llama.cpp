@@ -565,7 +565,7 @@
     const model = getExecutionFlowModel(phase, moe, meta);
     const nodesHtml = model.nodes.map((node, idx) => {
       const nodeHtml = `
-        <div class="flow-node flow-node-${node.state}">
+        <div class="flow-node flow-node-${node.state}" title="${esc(t('live_flow_node_hint'))}: ${esc(node.label)}">
           <div class="flow-node-label">${esc(node.label)}</div>
         </div>
       `;
@@ -574,7 +574,7 @@
       }
       return `
         ${nodeHtml}
-        <div class="flow-arrow ${node.state === 'active' ? 'flow-arrow-active' : ''}" aria-hidden="true">
+        <div class="flow-arrow ${node.state === 'active' ? 'flow-arrow-active' : ''}" aria-hidden="true" title="${esc(t('live_flow_arrow_hint'))}">
           <span></span>
         </div>
       `;
@@ -655,14 +655,14 @@
           ` : ''}
         </div>
         <div class="token-journey-track">
-          <div class="token-journey-line"></div>
+          <div class="token-journey-line" title="${esc(t('live_token_line_hint'))}"></div>
           <div class="token-journey-stops">
-            <span>Input</span>
-            <span>Router</span>
-            <span>Experts</span>
-            <span>Decode</span>
+            <span title="${esc(t('live_token_stop_input_hint'))}">Input</span>
+            <span title="${esc(t('live_token_stop_router_hint'))}">Router</span>
+            <span title="${esc(t('live_token_stop_experts_hint'))}">Experts</span>
+            <span title="${esc(t('live_token_stop_decode_hint'))}">Decode</span>
           </div>
-          <div class="token-journey-token" style="left:${position}">
+          <div class="token-journey-token" style="left:${position}" title="${esc(note)}">
             <span>${esc(t('live_token_chip'))}</span>
           </div>
         </div>
@@ -820,17 +820,17 @@
         <div class="live-empty">${esc(t('live_minimax_story_note'))}</div>
         <div class="memory-story-grid">
           <div class="memory-story-node memory-story-${sharedState}">
-            <div class="memory-story-label">${esc(t('live_minimax_story_shared'))}</div>
+            <div class="memory-story-label" title="${esc(t('live_minimax_story_shared_note'))}">${esc(t('live_minimax_story_shared'))}</div>
             <div class="memory-story-text">${esc(t('live_minimax_story_shared_note'))}</div>
           </div>
           <div class="memory-story-arrow"></div>
           <div class="memory-story-node memory-story-${hotState}">
-            <div class="memory-story-label">${esc(t('live_minimax_story_hot'))}</div>
+            <div class="memory-story-label" title="${esc(t('live_minimax_story_hot_note'))}">${esc(t('live_minimax_story_hot'))}</div>
             <div class="memory-story-text">${esc(mem.hotBudget > 0 ? `${t('live_moe_budget')}: ${mem.hotBudget}. ${t('live_moe_locked_share')}: ${formatMs(lockedShare)}%.` : t('live_minimax_story_hot_note'))}</div>
           </div>
           <div class="memory-story-arrow"></div>
           <div class="memory-story-node memory-story-${coldState}">
-            <div class="memory-story-label">${esc(t('live_minimax_story_cold'))}</div>
+            <div class="memory-story-label" title="${esc(t('live_minimax_story_cold_note'))}">${esc(t('live_minimax_story_cold'))}</div>
             <div class="memory-story-text">${esc(t('live_minimax_story_cold_note'))}</div>
           </div>
         </div>
@@ -1331,7 +1331,40 @@
     const root = document.getElementById('live-metrics-root');
     if (!root) return;
     setStatus(t('live_idle'), false);
-    root.innerHTML = `<div class="live-panel"><div class="live-empty">${esc(t(messageKey))}</div></div>`;
+    const quickPicks = getReplayQuickPicks();
+    root.innerHTML = `
+      <div class="live-panel">
+        <div class="live-panel-title">${esc(t('live_replay_overview_title'))}</div>
+        <div class="live-empty">${esc(t(messageKey))}</div>
+        <div class="live-learn-note">${esc(t('live_replay_overview_note'))}</div>
+        ${quickPicks.length ? `
+          <div class="replay-overview-grid">
+            ${quickPicks.map(item => {
+              const desc = getReplayRunDescription(item);
+              return `
+                <button type="button" class="replay-overview-card" data-replay-pick="${esc(item.id)}">
+                  <div class="replay-overview-head">
+                    <span class="live-chip"><span>${esc(t(`live_family_${item.family}`))}</span><strong>${esc(item.demoType)}</strong></span>
+                  </div>
+                  <div class="replay-overview-title">${esc(desc.title)}</div>
+                  <div class="replay-overview-text">${esc(desc.body)}</div>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+    document.querySelectorAll('[data-replay-pick]').forEach(btn => {
+      btn.onclick = async () => {
+        const runId = btn.getAttribute('data-replay-pick') || '';
+        if (!runId) return;
+        replayState.mode = 'replay';
+        replayState.selectedRun = runId;
+        stopReplay();
+        await loadReplayData(runId);
+      };
+    });
   }
 
   function renderReplayDescription() {

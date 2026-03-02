@@ -136,6 +136,48 @@
   background: rgba(43,124,216,0.08);
 }
 
+.replay-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.replay-overview-card {
+  text-align: left;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-3);
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.replay-overview-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(43,124,216,0.30);
+  background: linear-gradient(180deg, rgba(43,124,216,0.06), rgba(43,124,216,0.02));
+}
+
+.replay-overview-head {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.replay-overview-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.replay-overview-text {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .token-journey-track {
   position: relative;
   padding: 24px 0 10px;
