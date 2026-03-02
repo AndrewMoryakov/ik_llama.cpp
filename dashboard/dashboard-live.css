@@ -104,6 +104,38 @@
   margin-bottom: 16px;
 }
 
+.replay-quick-picks {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.replay-quick-picks-label {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.replay-quick-picks-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.replay-pick-btn {
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.replay-pick-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(43,124,216,0.28);
+}
+
+.replay-pick-btn.active {
+  border-color: rgba(43,124,216,0.35);
+  background: rgba(43,124,216,0.08);
+}
+
 .token-journey-track {
   position: relative;
   padding: 24px 0 10px;

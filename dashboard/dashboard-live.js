@@ -88,6 +88,20 @@
     };
   }
 
+  function getReplayTelemetryKind(data) {
+    const snapshot = data && data.final_snapshot ? data.final_snapshot : null;
+    const moe = snapshot && snapshot.moe ? snapshot.moe : {};
+    const layerRows = Array.isArray(moe.expert_layer_matrix) ? moe.expert_layer_matrix.length : 0;
+    const frameCount = Array.isArray(data && data.frames) ? data.frames.length : 0;
+    if (layerRows > 0) return 'layer_expert';
+    if (frameCount > 0) return 'phase_trace';
+    return 'no_trace';
+  }
+
+  function getReplayQuickPicks() {
+    return replayState.runs.filter(run => run.curated).slice(0, 6);
+  }
+
   function t(key) {
     if (bridge && typeof bridge.t === 'function') {
       return bridge.t(key);
@@ -408,6 +422,17 @@
         }
       };
     }
+
+    document.querySelectorAll('[data-replay-pick]').forEach(btn => {
+      btn.onclick = async () => {
+        const runId = btn.getAttribute('data-replay-pick') || '';
+        if (!runId) return;
+        replayState.mode = 'replay';
+        replayState.selectedRun = runId;
+        stopReplay();
+        await loadReplayData(runId);
+      };
+    });
 
     syncToolbarState();
   }
@@ -1090,64 +1115,74 @@
       ...heatmapRows.flatMap(row => (row.experts || []).map(item => Number(item.hits || 0))),
       0
     );
-    const heatmapHtml = showInspect && heatmapRows.length && heatmapExperts.length
+    const heatmapHtml = showInspect
       ? `
           <div class="live-history">
             <div class="live-panel-title">${esc(t('live_moe_heatmap'))}</div>
-            <div class="live-empty">${esc(t('live_moe_heatmap_note'))}</div>
-            <div class="live-summary live-summary-tight">
-              <div class="live-chip">
-                <span>${esc(t('live_moe_heatmap_rows'))}</span>
-                <strong>${esc(String(heatmapRows.length))}</strong>
+            <div class="live-empty">${esc(heatmapRows.length && heatmapExperts.length ? t('live_moe_heatmap_note') : t('live_moe_heatmap_empty_note'))}</div>
+            ${heatmapRows.length && heatmapExperts.length ? `
+              <div class="live-summary live-summary-tight">
+                <div class="live-chip">
+                  <span>${esc(t('live_moe_heatmap_rows'))}</span>
+                  <strong>${esc(String(heatmapRows.length))}</strong>
+                </div>
+                <div class="live-chip">
+                  <span>${esc(t('live_moe_heatmap_cols'))}</span>
+                  <strong>${esc(String(heatmapExperts.length))}</strong>
+                </div>
+                <div class="live-chip">
+                  <span>${esc(t('live_moe_heatmap_peak'))}</span>
+                  <strong>${esc(heatmapExperts[0] ? `e${heatmapExperts[0].expert}` : 'n/a')}</strong>
+                </div>
+                <div class="live-chip">
+                  <span>${esc(t('live_moe_heatmap_axis'))}</span>
+                  <strong>${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</strong>
+                </div>
               </div>
-              <div class="live-chip">
-                <span>${esc(t('live_moe_heatmap_cols'))}</span>
-                <strong>${esc(String(heatmapExperts.length))}</strong>
+              <div class="heatmap-legend">
+                <span class="heatmap-legend-label">${esc(t('live_moe_heatmap_legend'))}</span>
+                <div class="heatmap-legend-bar" aria-hidden="true"></div>
+                <div class="heatmap-legend-scale">
+                  <span>${esc(t('live_moe_heatmap_low'))}</span>
+                  <span>${esc(t('live_moe_heatmap_high'))}</span>
+                </div>
               </div>
-              <div class="live-chip">
-                <span>${esc(t('live_moe_heatmap_peak'))}</span>
-                <strong>${esc(heatmapExperts[0] ? `e${heatmapExperts[0].expert}` : 'n/a')}</strong>
+              <div class="expert-heatmap">
+                <div class="expert-heatmap-header">
+                  <div class="expert-heatmap-corner">${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</div>
+                  ${heatmapExperts.map(item => `<div class="expert-heatmap-col">e${esc(String(item.expert))}</div>`).join('')}
+                </div>
+                ${heatmapRows.map(row => {
+                  const rowMap = new Map((row.experts || []).map(item => [Number(item.expert), Number(item.hits || 0)]));
+                  return `
+                    <div class="expert-heatmap-row">
+                      <div class="expert-heatmap-stage">${esc(row.label || '')}</div>
+                      ${heatmapExperts.map(item => {
+                        const hits = rowMap.get(Number(item.expert)) || 0;
+                        const intensity = heatmapMax > 0 ? Math.max((hits / heatmapMax) * 100, hits > 0 ? 12 : 0) : 0;
+                        return `
+                          <div class="expert-heatmap-cell" title="${esc(`${row.title || row.label || ''} / e${item.expert} = ${hits}`)}">
+                            <div class="expert-heatmap-fill" style="opacity:${(intensity / 100).toFixed(3)}"></div>
+                            <span>${hits > 0 ? esc(String(hits)) : ''}</span>
+                          </div>
+                        `;
+                      }).join('')}
+                    </div>
+                  `;
+                }).join('')}
               </div>
-              <div class="live-chip">
-                <span>${esc(t('live_moe_heatmap_axis'))}</span>
-                <strong>${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</strong>
+            ` : `
+              <div class="live-summary live-summary-tight">
+                <div class="live-chip">
+                  <span>${esc(t('live_replay_telemetry'))}</span>
+                  <strong>${esc(t(`live_replay_telemetry_${getReplayTelemetryKind(replayState.data)}`))}</strong>
+                </div>
               </div>
-            </div>
-            <div class="heatmap-legend">
-              <span class="heatmap-legend-label">${esc(t('live_moe_heatmap_legend'))}</span>
-              <div class="heatmap-legend-bar" aria-hidden="true"></div>
-              <div class="heatmap-legend-scale">
-                <span>${esc(t('live_moe_heatmap_low'))}</span>
-                <span>${esc(t('live_moe_heatmap_high'))}</span>
-              </div>
-            </div>
-            <div class="expert-heatmap">
-              <div class="expert-heatmap-header">
-                <div class="expert-heatmap-corner">${esc(layerMatrix.length ? t('live_moe_layer') : t('live_moe_stage'))}</div>
-                ${heatmapExperts.map(item => `<div class="expert-heatmap-col">e${esc(String(item.expert))}</div>`).join('')}
-              </div>
-              ${heatmapRows.map(row => {
-                const rowMap = new Map((row.experts || []).map(item => [Number(item.expert), Number(item.hits || 0)]));
-                return `
-                  <div class="expert-heatmap-row">
-                    <div class="expert-heatmap-stage">${esc(row.label || '')}</div>
-                    ${heatmapExperts.map(item => {
-                      const hits = rowMap.get(Number(item.expert)) || 0;
-                      const intensity = heatmapMax > 0 ? Math.max((hits / heatmapMax) * 100, hits > 0 ? 12 : 0) : 0;
-                      return `
-                        <div class="expert-heatmap-cell" title="${esc(`${row.title || row.label || ''} / e${item.expert} = ${hits}`)}">
-                          <div class="expert-heatmap-fill" style="opacity:${(intensity / 100).toFixed(3)}"></div>
-                          <span>${hits > 0 ? esc(String(hits)) : ''}</span>
-                        </div>
-                      `;
-                    }).join('')}
-                  </div>
-                `;
-              }).join('')}
-            </div>
+            `}
           </div>
         `
       : '';
+
 
     const renderExpertCompareList = (items) => {
       const top = Array.isArray(items) ? items.slice(0, 5) : [];
@@ -1303,11 +1338,26 @@
     if (replayState.mode !== 'replay') return '';
     const run = replayState.runs.find(item => item.id === replayState.selectedRun);
     const desc = getReplayRunDescription(run);
+    const telemetryKind = getReplayTelemetryKind(replayState.data);
+    const quickPicks = getReplayQuickPicks();
     if (!run) {
       return `
         <div class="live-panel replay-desc-panel">
           <div class="live-panel-title">${esc(desc.title)}</div>
           <div class="live-empty">${esc(desc.body)}</div>
+          ${quickPicks.length ? `
+            <div class="replay-quick-picks">
+              <div class="replay-quick-picks-label">${esc(t('live_replay_quick_picks'))}</div>
+              <div class="replay-quick-picks-row">
+                ${quickPicks.map(item => `
+                  <button type="button" class="live-chip replay-pick-btn" data-replay-pick="${esc(item.id)}">
+                    <span>${esc(t(`live_family_${item.family}`))}</span>
+                    <strong>${esc(item.demoType)}</strong>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
         </div>
       `;
     }
@@ -1328,11 +1378,29 @@
             <span>${esc(t('live_replay_type'))}</span>
             <strong>${esc(run.demoType)}</strong>
           </div>
+          <div class="live-chip">
+            <span>${esc(t('live_replay_telemetry'))}</span>
+            <strong>${esc(t(`live_replay_telemetry_${telemetryKind}`))}</strong>
+          </div>
         </div>
         <div class="live-learn-text">${esc(desc.body)}</div>
+        ${quickPicks.length ? `
+          <div class="replay-quick-picks">
+            <div class="replay-quick-picks-label">${esc(t('live_replay_quick_picks'))}</div>
+            <div class="replay-quick-picks-row">
+              ${quickPicks.map(item => `
+                <button type="button" class="live-chip replay-pick-btn ${item.id === run.id ? 'active' : ''}" data-replay-pick="${esc(item.id)}">
+                  <span>${esc(t(`live_family_${item.family}`))}</span>
+                  <strong>${esc(item.demoType)}</strong>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
       </div>
     `;
   }
+
 
   function frameEventLabel(frame) {
     const event = frame && frame.event;
