@@ -42,6 +42,7 @@ Custom port:
 - phase timeline
 - MoE expert activity panels
 - replay mode for stored benchmark/log runs
+- `Learn / Inspect` presentation split
 
 5. `dashboard-live.css`
 - styles for the live observability layer

@@ -7,6 +7,7 @@
 
   const replayState = {
     mode: 'live',
+    view: 'learn',
     runs: [],
     selectedRun: '',
     data: null,
@@ -103,6 +104,13 @@
             <option value="replay" ${replayState.mode === 'replay' ? 'selected' : ''}>${esc(t('live_mode_replay'))}</option>
           </select>
         </label>
+        <label class="live-toolbar-group">
+          <span>${esc(t('live_view'))}</span>
+          <select id="live-view-select" class="live-toolbar-select">
+            <option value="learn" ${replayState.view === 'learn' ? 'selected' : ''}>${esc(t('live_view_learn'))}</option>
+            <option value="inspect" ${replayState.view === 'inspect' ? 'selected' : ''}>${esc(t('live_view_inspect'))}</option>
+          </select>
+        </label>
         <label class="live-toolbar-group live-toolbar-grow">
           <span>${esc(t('live_replay_run'))}</span>
           <select id="live-replay-run" class="live-toolbar-select" ${replayState.mode !== 'replay' ? 'disabled' : ''}>
@@ -139,6 +147,7 @@
 
     const modeSelect = document.getElementById('live-mode-select');
     const runSelect = document.getElementById('live-replay-run');
+    const viewSelect = document.getElementById('live-view-select');
     const reloadBtn = document.getElementById('live-replay-reload');
     const playBtn = document.getElementById('live-replay-play');
     const slider = document.getElementById('live-replay-slider');
@@ -175,6 +184,17 @@
       };
     }
 
+    if (viewSelect) {
+      viewSelect.onchange = (e) => {
+        replayState.view = e.target.value || 'learn';
+        if (replayState.mode === 'replay') {
+          renderReplayFrame();
+        } else {
+          poll();
+        }
+      };
+    }
+
     if (reloadBtn) {
       reloadBtn.onclick = async () => {
         await ensureReplayRuns(true);
@@ -202,6 +222,39 @@
         }
       };
     }
+  }
+
+  function getLearnPhaseText(phase) {
+    const current = phase && phase.current;
+    if (current === 'prompt') return t('live_learn_phase_text_prompt');
+    if (current === 'first_decode') return t('live_learn_phase_text_first_decode');
+    if (current === 'decode') return t('live_learn_phase_text_decode');
+    return t('live_learn_phase_text_idle');
+  }
+
+  function renderLearnPanel(phase, moe) {
+    const latestStage = moe && moe.latest_stage ? String(moe.latest_stage) : '';
+    const topExperts = Array.isArray(moe && moe.top_experts) ? moe.top_experts : [];
+    const topText = topExperts.length
+      ? topExperts.slice(0, 3).map(item => `e${item.expert}=${item.hits}`).join(', ')
+      : '';
+    const moeText = latestStage
+      ? `${t('live_learn_moe_text')} ${latestStage ? `Текущий stage: ${latestStage}.` : ''}${topText ? ` Top experts: ${topText}.` : ''}`
+      : t('live_learn_moe_none');
+
+    return `
+      <div class="live-grid cols-2">
+        <div class="live-panel live-learn-panel">
+          <div class="live-panel-title">${esc(t('live_learn_phase_title'))}</div>
+          <div class="live-learn-text">${esc(getLearnPhaseText(phase))}</div>
+          <div class="live-learn-note">${esc(t('live_learn_prompt_decode'))}</div>
+        </div>
+        <div class="live-panel live-learn-panel">
+          <div class="live-panel-title">${esc(t('live_learn_moe_title'))}</div>
+          <div class="live-learn-text">${esc(moeText)}</div>
+        </div>
+      </div>
+    `;
   }
 
   function renderPhasePanel(phase, meta) {
@@ -246,7 +299,8 @@
       { label: t('live_phase_decode_tail'), value: tailAvgMs },
     ];
     const compareMax = compareRows.reduce((acc, item) => Math.max(acc, item.value), 0);
-    const compareHtml = compareMax > 0
+    const showInspect = meta.view === 'inspect';
+    const compareHtml = showInspect && compareMax > 0
       ? `
           <div class="live-history">
             <div class="live-panel-title">${esc(t('live_phase_compare'))}</div>
@@ -267,7 +321,7 @@
       : '';
 
     const recent = Array.isArray(phase.recent_compact) ? phase.recent_compact : [];
-    const recentHtml = recent.length
+    const recentHtml = showInspect && recent.length
       ? `
           <div class="live-history">
             <div class="live-panel-title">${esc(t('live_recent_phases'))}</div>
@@ -414,7 +468,8 @@
       : `<div class="live-empty">${esc(t('live_no_moe_data'))}</div>`;
 
     const stageHistory = Array.isArray(moe.stage_history) ? moe.stage_history.slice(-6) : [];
-    const stageHistoryHtml = stageHistory.length
+    const showInspect = replayState.view === 'inspect';
+    const stageHistoryHtml = showInspect && stageHistory.length
       ? `
           <div class="live-history">
             <div class="live-panel-title">${esc(t('live_recent_stage_history'))}</div>
@@ -440,7 +495,7 @@
         `
       : '';
 
-    const stageCompareHtml = stages.length
+    const stageCompareHtml = showInspect && stages.length
       ? `
           <div class="live-history">
             <div class="live-panel-title">${esc(t('live_moe_stage_compare'))}</div>
@@ -512,10 +567,15 @@
           traceSummary,
           source: options.source || '',
           eventLabel: options.eventLabel || '',
+          view: replayState.view,
         })}
         ${renderMoePanel(moe)}
       </div>
     `;
+
+    if (replayState.view === 'learn') {
+      root.innerHTML += renderLearnPanel(phase, moe);
+    }
   }
 
   function renderEmptyReplay(messageKey = 'live_replay_no_runs') {

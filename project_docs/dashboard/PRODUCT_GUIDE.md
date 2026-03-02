@@ -44,6 +44,9 @@
 11. показывать replay ранее сохраненных trace-run:
 - читать логи из `bench_results/`
 - пошагово проигрывать фазы и MoE activity без повторного запуска модели
+12. переключать live observability между:
+- `Learn`
+- `Inspect`
 
 ## Из каких частей он состоит
 
@@ -122,6 +125,7 @@
 - история последних фазовых событий
 - история стадий `hot experts`
 - replay mode по сохраненным benchmark/log run directories
+- split `Learn / Inspect` для beginner-facing и engineering-facing представления
 
 ### 6. `dashboard/dashboard-live.css`
 

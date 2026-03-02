@@ -110,6 +110,27 @@
   color: var(--text-primary);
 }
 
+.live-learn-panel {
+  min-height: 100%;
+}
+
+.live-learn-text {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.live-learn-note {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .live-empty {
   color: var(--text-muted);
   font-size: 0.84rem;
