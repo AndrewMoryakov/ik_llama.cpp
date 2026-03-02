@@ -104,6 +104,7 @@ const LANG = {
     opt_tab_experimental: 'Эксперименты',
     opt_exp_title: 'Экспериментальные параметры',
     opt_exp_intro: 'Эти ручки не входят в validated baseline. Они нужны для целевых A/B-проверок и runtime-исследований, а не как рекомендации по умолчанию.',
+    opt_exp_meta_note: 'У каждого experimental-параметра теперь есть три метки: где он подходит по механике, где текущий runtime реально его поддерживает и где уже есть подтвержденный benchmark-сигнал.',
     opt_exp_learn_title: 'Что они меняют в исполнении',
     opt_exp_learn_body: 'Эти параметры не меняют веса модели. Они меняют runtime-поведение: какие эксперты считаются горячими, насколько prompt используется как прогноз для раннего decode, и можно ли отбрасывать очень слабых экспертов. Меняйте по одному параметру за раз и сравнивайте с validated baseline.',
     exp_preset_none: 'Ручной режим: dashboard ничего сам не подбирает, вы вручную управляете исследовательскими ручками.',
@@ -180,11 +181,11 @@ const LANG = {
     w_workload_pp: 'Выбран PP режим. Это полезно для длинных промтов, но не отражает общую скорость диалога.',
     w_mqkv_experimental: 'Merge QKV — экспериментальная опция. Она model-sensitive и не является validated default для текущего релизного слоя.',
     w_hot_budget_experimental: 'Hot Expert Budget — экспериментальный env-knob. Для обычного MiniMax запуска оставляйте 0; более крупные бюджеты пока не стали validated default.',
-    w_hot_budget_family: 'Hot Expert Budget сейчас имеет практический смысл прежде всего для huge MiniMax / huge MoE исследований. Не переносите его как готовое правило на другие семьи моделей.',
+    w_hot_budget_family: 'Hot Expert Budget относится к huge-MoE locality. По механике он шире, чем одна family, но текущий runtime fully wired сегодня прежде всего на MiniMax-path. На других MoE это пока research A/B, а не готовое правило.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная locality-ветка для MiniMax. Она не меняет веса модели, а только меняет то, по какой части prompt выбираются hot experts.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window сейчас имеет смысл прежде всего для huge MiniMax исследований. Не переносите эту настройку как готовое правило на Qwen3MoE, gpt-oss или неизвестные модели.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Но текущий runtime-path fully enabled сегодня прежде всего для MiniMax. Для остальных MoE считайте это research-only, пока нет отдельной generalization и validation.',
     w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
-    w_prompt_packed_family: 'Prompt Packed QKV сейчас имеет смысл прежде всего для Qwen3MoE и gpt-oss. Для MiniMax и неизвестных семейств не переносите его как готовое правило.',
+    w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Это шире, чем одна family, но текущая runtime-поддержка и auto-policy сегодня лучше всего проработаны для Qwen3MoE и gpt-oss. Для остальных семей это пока исследовательский режим.',
     w_prompt_packed_range: 'Задан явный Prompt Packed range. Это advanced override поверх preset и его стоит включать только для осознанного A/B.',
     w_exp_preset_link: 'Связка экспериментального пресета с проверенными настройками включена. При выборе preset dashboard может менять Flash Attention, RTR, Graph Reuse и другие validated knobs.',
     badge_family: 'Семейство',
@@ -532,6 +533,7 @@ const LANG = {
     opt_tab_experimental: 'Experimental',
     opt_exp_title: 'Experimental knobs',
     opt_exp_intro: 'These controls are outside the validated baseline. They are for targeted A/B checks and runtime research, not default recommendations.',
+    opt_exp_meta_note: 'Each experimental knob now carries three badges: where it fits mechanically, where current runtime support is actually wired today, and where benchmark-backed signal already exists.',
     opt_exp_learn_title: 'How these change execution',
     opt_exp_learn_body: 'These settings do not change model weights. They change runtime behavior: which experts are treated as hot, how much of the prompt is trusted as a predictor of early decode, and whether very weak experts may be dropped. Change one knob at a time and compare against the validated baseline.',
     p_exp_preset: 'Experimental preset', d_exp_preset: 'Ready-made research bundles. Use them as fast A/B starting points, not as validated defaults.',
@@ -612,11 +614,11 @@ const LANG = {
     w_workload_pp: 'PP workload is selected. Useful for long prompts, but it does not represent full dialog speed.',
     w_mqkv_experimental: 'Merge QKV is experimental. It is model-sensitive and not part of the validated default layer.',
     w_hot_budget_experimental: 'Hot Expert Budget is an experimental env knob. For normal MiniMax use, leave it at 0; larger budgets have not become a validated default.',
-    w_hot_budget_family: 'Right now Hot Expert Budget is mainly meaningful for huge MiniMax / huge MoE research. Do not carry it over as a ready-made rule to other model families.',
+    w_hot_budget_family: 'Hot Expert Budget belongs to huge-MoE locality. Mechanically it is broader than one family, but the current runtime path is fully wired today mainly on the MiniMax path. On other MoE families treat it as research A/B, not as a ready-made rule.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MiniMax locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window is currently meaningful mainly for huge MiniMax research. Do not treat it as a ready-made rule for Qwen3MoE, gpt-oss, or unknown families.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. But the current runtime path is fully enabled today mainly for MiniMax. For other MoE families treat it as research-only until runtime generalization and validation exist.',
     w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
-    w_prompt_packed_family: 'Prompt Packed QKV currently makes sense mainly for Qwen3MoE and gpt-oss. Do not treat it as a ready-made rule for MiniMax or unknown families.',
+    w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. That is broader than a single family, but current runtime support and auto-policy are best developed today for Qwen3MoE and gpt-oss. Treat other families as research mode for now.',
     w_prompt_packed_range: 'An explicit Prompt Packed range is set. This is an advanced override on top of the preset and should only be used for deliberate A/B checks.',
     w_exp_preset_link: 'The experimental preset is linked to validated settings. Selecting a preset may change Flash Attention, RTR, Graph Reuse, or other validated knobs.',
     badge_family: 'Family',
@@ -986,6 +988,12 @@ function hasExperimentalKnobs(s = state) {
   );
 }
 
+function isExperimentalRuntimeLimited(param, s = state, p = currentProfile) {
+  const meta = getSupportBadgeMeta(param, s, p);
+  if (!meta) return false;
+  return meta.className === 'support-limited' || meta.className === 'support-inactive';
+}
+
 const RULES = [
   {
     id: 'rtr_swap', severity: 'error', params: ['repack_tensors'],
@@ -1044,7 +1052,7 @@ const RULES = [
   },
   {
     id: 'hot_budget_family', severity: 'info', params: ['hot_expert_budget'],
-    test: (s, p) => (s.hot_expert_budget || 0) > 0 && !(detectModelFamily(s) === 'minimax' && isSwapBound(s, p)),
+    test: (s, p) => (s.hot_expert_budget || 0) > 0 && isExperimentalRuntimeLimited('hot_expert_budget', s, p),
     msg: 'w_hot_budget_family',
   },
   {
@@ -1054,7 +1062,7 @@ const RULES = [
   },
   {
     id: 'hot_selection_family', severity: 'warning', params: ['hot_expert_selection', 'hot_expert_tail_window'],
-    test: (s, p) => !!(s.hot_expert_selection && s.hot_expert_selection !== 'default') && !(detectModelFamily(s) === 'minimax' && isSwapBound(s, p)),
+    test: (s, p) => !!(s.hot_expert_selection && s.hot_expert_selection !== 'default') && isExperimentalRuntimeLimited('hot_expert_selection', s, p),
     msg: 'w_hot_selection_family',
   },
   {
@@ -1064,7 +1072,7 @@ const RULES = [
   },
   {
     id: 'prompt_packed_family', severity: 'warning', params: ['prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range'],
-    test: (s) => !!s.prompt_packed_qkv && !['qwen3moe', 'gpt-oss'].includes(detectModelFamily(s)),
+    test: (s, p) => !!s.prompt_packed_qkv && isExperimentalRuntimeLimited('prompt_packed_qkv', s, p),
     msg: 'w_prompt_packed_family',
   },
   {
@@ -1267,6 +1275,7 @@ function syncToDOM(changedKey) {
 function syncAllToDOM() {
   for (const p of TOGGLE_PARAMS) syncToDOM(p);
   syncToDOM(null); // sync all inputs
+  renderParameterApplicability();
 }
 
 function toggleParam(name) {
@@ -1310,6 +1319,380 @@ function severityLevel(s) {
 }
 
 const SEVERITY_ICONS = { error: '\u26D4', warning: '\u26A0\uFE0F', info: '\u2139\uFE0F', success: '\u2705' };
+const PARAM_APPLICABILITY = {
+  model: 'all',
+  model_size_gb: 'all',
+  model_type: 'all',
+  n_gpu_layers: 'all',
+  threads: 'all',
+  threads_batch: 'all',
+  n_ctx: 'all',
+  n_batch: 'all',
+  n_ubatch: 'all',
+  workload_profile: 'all',
+  flash_attn: 'all',
+  repack_tensors: 'all',
+  cache_type_k: 'all',
+  cache_type_v: 'all',
+  mla_attn: 'mla',
+  graph_reuse: 'all',
+  hostname: 'all',
+  port: 'all',
+  n_parallel: 'all',
+  api_key: 'all',
+  n_threads_http: 'all',
+  seed: 'all',
+  n_predict: 'all',
+  numa: 'all',
+  defrag_thold: 'all',
+  use_mmap: 'all',
+  use_mlock: 'all',
+  live_observability: 'all',
+  merge_up_gate_exps: 'moe',
+  fused_moe_up_gate: 'moe',
+  fused_up_gate: 'all',
+  ser_enabled: 'moe',
+  ser_min: 'moe',
+  ser_thresh: 'moe',
+  hot_expert_budget: 'moe-huge',
+  hot_expert_selection: 'moe-huge',
+  hot_expert_tail_window: 'moe-huge',
+  merge_qkv: 'arch-specific',
+  k_cache_hadamard: 'quantized-kv',
+  prompt_packed_qkv: 'split-qkv',
+  prompt_packed_qkv_preset: 'split-qkv',
+  prompt_packed_qkv_range: 'split-qkv',
+  experimental_preset: 'all',
+  experimental_preset_link_validated: 'all',
+};
+
+const EXPERIMENTAL_PARAM_META = {
+  ser_enabled: {
+    applicability: 'moe',
+    runtimeSupport: 'moe-generic',
+    validation: 'research',
+    risk: 'medium',
+    failureMode: 'dense-no-op'
+  },
+  ser_min: {
+    applicability: 'moe',
+    runtimeSupport: 'moe-generic',
+    validation: 'research',
+    risk: 'medium',
+    failureMode: 'dense-no-op'
+  },
+  ser_thresh: {
+    applicability: 'moe',
+    runtimeSupport: 'moe-generic',
+    validation: 'research',
+    risk: 'medium',
+    failureMode: 'dense-no-op'
+  },
+  hot_expert_budget: {
+    applicability: 'moe-huge',
+    runtimeSupport: 'minimax-path',
+    validation: 'partial-minimax',
+    risk: 'medium',
+    failureMode: 'extra-ram-or-wrong-hot-set'
+  },
+  hot_expert_selection: {
+    applicability: 'moe-huge',
+    runtimeSupport: 'minimax-path',
+    validation: 'partial-minimax',
+    risk: 'medium',
+    failureMode: 'inactive-or-misleading'
+  },
+  hot_expert_tail_window: {
+    applicability: 'moe-huge',
+    runtimeSupport: 'minimax-tail-window',
+    validation: 'partial-minimax',
+    risk: 'medium',
+    failureMode: 'inactive-outside-minimax'
+  },
+  merge_qkv: {
+    applicability: 'arch-specific',
+    runtimeSupport: 'arch-sensitive',
+    validation: 'research',
+    risk: 'medium',
+    failureMode: 'weak-or-negative-win'
+  },
+  prompt_packed_qkv: {
+    applicability: 'split-qkv',
+    runtimeSupport: 'split-qkv-family-first',
+    validation: 'partial-split-qkv',
+    risk: 'high',
+    failureMode: 'extra-ram-load-time'
+  },
+  prompt_packed_qkv_preset: {
+    applicability: 'split-qkv',
+    runtimeSupport: 'split-qkv-family-first',
+    validation: 'partial-split-qkv',
+    risk: 'high',
+    failureMode: 'suboptimal-range'
+  },
+  prompt_packed_qkv_range: {
+    applicability: 'split-qkv',
+    runtimeSupport: 'split-qkv-family-first',
+    validation: 'partial-split-qkv',
+    risk: 'high',
+    failureMode: 'manual-misconfiguration'
+  },
+  live_observability: {
+    applicability: 'all',
+    runtimeSupport: 'dashboard-only',
+    validation: 'helper',
+    risk: 'low',
+    failureMode: 'extra-trace-noise'
+  },
+  experimental_preset: {
+    applicability: 'all',
+    runtimeSupport: 'ui-helper',
+    validation: 'helper',
+    risk: 'low',
+    failureMode: 'over-applies-bundle'
+  },
+  experimental_preset_link_validated: {
+    applicability: 'all',
+    runtimeSupport: 'ui-helper',
+    validation: 'helper',
+    risk: 'low',
+    failureMode: 'changes-validated-baseline'
+  },
+};
+
+function getApplicabilityMeta(kind) {
+  const map = {
+    all: {
+      label: currentLang === 'ru' ? 'Все' : 'All',
+      className: 'app-all',
+      title: currentLang === 'ru'
+        ? 'Универсальный параметр: теоретически применим к любым моделям.'
+        : 'Universal parameter: theoretically applicable to any model.'
+    },
+    moe: {
+      label: 'MoE',
+      className: 'app-moe',
+      title: currentLang === 'ru'
+        ? 'Имеет смысл прежде всего для mixture-of-experts моделей.'
+        : 'Primarily meaningful for mixture-of-experts models.'
+    },
+    'moe-huge': {
+      label: currentLang === 'ru' ? 'MoE / huge-MoE' : 'MoE / huge-MoE',
+      className: 'app-moe-huge',
+      title: currentLang === 'ru'
+        ? 'По механике параметр относится к MoE locality, особенно на больших swap-bound MoE. Это не означает, что он одинаково validated или одинаково поддержан рантаймом на всех семействах.'
+        : 'Mechanically this belongs to MoE locality, especially on large swap-bound MoE. That does not mean equal validation or equal runtime support across all families.'
+    },
+    mla: {
+      label: currentLang === 'ru' ? 'MLA / DeepSeek' : 'MLA / DeepSeek',
+      className: 'app-mla',
+      title: currentLang === 'ru'
+        ? 'Имеет смысл только для моделей/семейств, где реально используется MLA-путь.'
+        : 'Only meaningful for model families that actually use the MLA path.'
+    },
+    'split-qkv': {
+      label: currentLang === 'ru' ? 'Split-QKV' : 'Split-QKV',
+      className: 'app-split-qkv',
+      title: currentLang === 'ru'
+        ? 'Имеет смысл для архитектур, где Q/K/V живут как раздельные проекции и runtime может их по-особому упаковывать.'
+        : 'Meaningful for architectures where Q/K/V exist as separate projections and runtime can repack them specially.'
+    },
+    'arch-specific': {
+      label: currentLang === 'ru' ? 'Арх.-завис.' : 'Arch-specific',
+      className: 'app-arch',
+      title: currentLang === 'ru'
+        ? 'Параметр не универсален: его смысл зависит от конкретной attention-архитектуры модели.'
+        : 'Applicability depends on the model attention architecture. Not a universal baseline.'
+    },
+    'quantized-kv': {
+      label: currentLang === 'ru' ? 'Квант. KV' : 'Quantized KV',
+      className: 'app-kv',
+      title: currentLang === 'ru'
+        ? 'Имеет смысл в первую очередь вместе с квантованным KV cache.'
+        : 'Mainly meaningful together with a quantized KV cache.'
+    },
+  };
+  return map[kind] || map.all;
+}
+
+function getExperimentalApplicabilityKind(param) {
+  return EXPERIMENTAL_PARAM_META[param]?.applicability || PARAM_APPLICABILITY[param] || 'all';
+}
+
+function getParamScopeAndMetaHost(param) {
+  const controlId = PARAM_CONTROL_MAP[param];
+  const control = controlId ? document.getElementById(controlId) : null;
+  if (!control) return { scope: null, host: null };
+
+  const scope = control.closest('.param-row, .experimental-link-card, .experimental-preset-copy');
+  if (!scope) return { scope: null, host: null };
+
+  let host = scope.querySelector('.param-label');
+  if (!host) {
+    host = scope.querySelector(`.param-meta-host[data-meta-host="${param}"]`);
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'param-meta-host';
+      host.dataset.metaHost = param;
+      const anchor = scope.querySelector('.experimental-intro-title, .param-desc');
+      if (anchor) scope.insertBefore(host, anchor.nextSibling);
+      else scope.appendChild(host);
+    }
+  }
+
+  let strip = host.querySelector(`.param-meta-strip[data-meta-param="${param}"]`);
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.className = 'param-meta-strip';
+    strip.dataset.metaParam = param;
+    host.appendChild(strip);
+  }
+
+  return { scope, host, strip };
+}
+
+function getSupportBadgeMeta(param, s = state, p = currentProfile) {
+  const meta = EXPERIMENTAL_PARAM_META[param];
+  if (!meta) return null;
+
+  const family = detectModelFamily(s);
+  const isMoe = s.model_type === 'moe';
+  const swap = isSwapBound(s, p || currentProfile || {});
+  const ru = currentLang === 'ru';
+
+  const out = (label, className, title) => ({ label, className, title });
+
+  switch (meta.runtimeSupport) {
+    case 'moe-generic':
+      if (!isMoe) {
+        return out(ru ? 'Runtime: n/a' : 'Runtime: n/a', 'support-inactive',
+          ru ? 'Параметр относится к expert/router path и не имеет смысла на dense-модели.' : 'This knob belongs to the expert/router path and is not meaningful on a dense model.');
+      }
+      return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
+        ru ? 'Текущий runtime-path поддерживает этот knob на generic MoE. Но benchmark-backed validation еще неравномерна.' : 'Current runtime supports this knob on generic MoE paths, although benchmark-backed validation is still uneven.');
+    case 'minimax-path':
+      if (!isMoe) {
+        return out(ru ? 'Runtime: n/a' : 'Runtime: n/a', 'support-inactive',
+          ru ? 'Это knob для MoE locality; на dense-моделях он неактивен по механике.' : 'This is a MoE locality knob; it is mechanically inactive on dense models.');
+      }
+      if (family === 'minimax') {
+        return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
+          ru ? 'Текущий runtime-path fully wired на MiniMax. Именно здесь knob реально включается и осмысленно влияет на поведение.' : 'Current runtime is fully wired for MiniMax. This is where the knob is actually active and meaningfully changes behavior.');
+      }
+      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
+        ru ? 'По механике knob подходит классу huge-MoE, но текущий runtime-path сегодня MiniMax-first. На других MoE это пока research territory.' : 'Mechanically the knob belongs to huge-MoE locality, but today the runtime path is MiniMax-first. On other MoE families this is still research territory.');
+    case 'minimax-tail-window':
+      if (!isMoe) {
+        return out(ru ? 'Runtime: n/a' : 'Runtime: n/a', 'support-inactive',
+          ru ? 'Tail-window относится к MoE expert locality и не имеет смысла на dense-моделях.' : 'Tail-window belongs to MoE expert locality and is not meaningful on dense models.');
+      }
+      if (family === 'minimax') {
+        return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
+          ru ? 'Tail-window path сегодня реально активен на MiniMax. Здесь knob не просто принимается, а действительно меняет hot-expert selection.' : 'The tail-window path is actually active on MiniMax today. Here the knob does not merely parse; it really changes hot-expert selection.');
+      }
+      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
+        ru ? 'Идея tail-window шире, чем одна family, но в текущем коде этот path реально включается только на MiniMax.' : 'The tail-window idea is broader than a single family, but in the current code this path is actually enabled only on MiniMax.');
+    case 'split-qkv-family-first':
+      if (family === 'qwen3moe' || family === 'gpt-oss') {
+        return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
+          ru ? 'Текущий runtime-path и family-aware presets лучше всего поддержаны сегодня именно для Qwen3MoE / gpt-oss.' : 'Current runtime support and family-aware presets are best supported today on Qwen3MoE / gpt-oss.');
+      }
+      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
+        ru ? 'По механике knob относится к split-QKV attention-семействам. Но текущая runtime-поддержка и auto-policy сегодня family-first для Qwen3MoE / gpt-oss.' : 'Mechanically this belongs to split-QKV attention families, but runtime support and auto-policy are currently family-first for Qwen3MoE / gpt-oss.');
+    case 'arch-sensitive':
+      return out(ru ? 'Runtime: чувствит.' : 'Runtime: sensitive', 'support-limited',
+        ru ? 'Код принимает этот knob широко, но его реальная полезность и путь выполнения зависят от attention-архитектуры модели.' : 'The code accepts this knob broadly, but the actual effect and execution path depend on the model attention architecture.');
+    case 'dashboard-only':
+      return out(ru ? 'Runtime: UI' : 'Runtime: UI', 'support-dashboard',
+        ru ? 'Это не runtime optimization knob модели, а dashboard-side observability/tooling layer.' : 'This is not a model runtime optimization knob; it is dashboard-side observability/tooling.');
+    case 'ui-helper':
+      return out(ru ? 'Runtime: helper' : 'Runtime: helper', 'support-helper',
+        ru ? 'Это helper-control dashboard, а не отдельный runtime path модели.' : 'This is a dashboard helper control, not a separate model runtime path.');
+    default:
+      return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
+        ru ? 'Текущий runtime-path поддерживает этот knob.' : 'Current runtime supports this knob.');
+  }
+}
+
+function getValidationBadgeMeta(param, s = state) {
+  const meta = EXPERIMENTAL_PARAM_META[param];
+  if (!meta) return null;
+
+  const family = detectModelFamily(s);
+  const ru = currentLang === 'ru';
+  const out = (label, className, title) => ({ label, className, title });
+
+  switch (meta.validation) {
+    case 'partial-minimax':
+      if (family === 'minimax') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'Есть benchmark-backed сигнал на MiniMax, но это еще не validated default.' : 'There is benchmark-backed signal on MiniMax, but this is still not a validated default.');
+      }
+      return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
+        ru ? 'Вне MiniMax сейчас нет достаточного benchmark-backed сигнала. Это research-only territory.' : 'Outside MiniMax there is not enough benchmark-backed signal yet. This remains research-only territory.');
+    case 'partial-split-qkv':
+      if (family === 'qwen3moe' || family === 'gpt-oss') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'Есть benchmark-backed сигнал на Qwen3MoE / gpt-oss, но knob остается experimental и не считается validated default.' : 'There is benchmark-backed signal on Qwen3MoE / gpt-oss, but the knob remains experimental and is not a validated default.');
+      }
+      return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
+        ru ? 'Вне текущих split-QKV test-families это пока исследовательский режим без отдельной validation.' : 'Outside the current split-QKV test families this remains a research mode without separate validation.');
+    case 'research':
+      return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
+        ru ? 'По этому knob пока нет достаточно сильной benchmark-backing, чтобы считать его validated even on a known family.' : 'This knob does not yet have strong enough benchmark backing to be treated as validated even on a known family.');
+    case 'helper':
+      return out(ru ? 'Проверка: helper' : 'Signal: helper', 'validation-helper',
+        ru ? 'Это helper/tooling слой. Для него важна usability, а не benchmark validation как у runtime knobs.' : 'This is a helper/tooling control. Usability matters here rather than benchmark validation in the runtime sense.');
+    case 'validated':
+      return out(ru ? 'Проверка: есть' : 'Signal: validated', 'validation-validated',
+        ru ? 'Есть достаточный benchmark-backed сигнал для текущей family.' : 'There is sufficient benchmark-backed signal for the current family.');
+    default:
+      return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
+        ru ? 'По этому knob validation пока не завершена.' : 'Validation for this knob is not complete yet.');
+  }
+}
+
+function renderParameterApplicability() {
+  for (const [param, controlId] of Object.entries(PARAM_CONTROL_MAP)) {
+    const control = document.getElementById(controlId);
+    if (!control) continue;
+
+    const { strip } = getParamScopeAndMetaHost(param);
+    if (!strip) continue;
+
+    strip.innerHTML = '';
+
+    const appMeta = getApplicabilityMeta(getExperimentalApplicabilityKind(param));
+    const appBadge = document.createElement('span');
+    appBadge.className = `param-app-badge ${appMeta.className}`;
+    appBadge.dataset.appParam = param;
+    appBadge.textContent = appMeta.label;
+    appBadge.title = appMeta.title;
+    strip.appendChild(appBadge);
+
+    if (EXPERIMENTAL_PARAM_META[param]) {
+      const supportMeta = getSupportBadgeMeta(param);
+      if (supportMeta) {
+        const supportBadge = document.createElement('span');
+        supportBadge.className = `param-support-badge ${supportMeta.className}`;
+        supportBadge.dataset.supportParam = param;
+        supportBadge.textContent = supportMeta.label;
+        supportBadge.title = supportMeta.title;
+        strip.appendChild(supportBadge);
+      }
+
+      const validationMeta = getValidationBadgeMeta(param);
+      if (validationMeta) {
+        const validationBadge = document.createElement('span');
+        validationBadge.className = `param-validation-badge ${validationMeta.className}`;
+        validationBadge.dataset.validationParam = param;
+        validationBadge.textContent = validationMeta.label;
+        validationBadge.title = validationMeta.title;
+        strip.appendChild(validationBadge);
+      }
+    }
+  }
+}
 const PARAM_CONTROL_MAP = {
   model: 'p-model',
   model_size_gb: 'p-model_size_gb',
