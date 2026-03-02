@@ -127,3 +127,42 @@ See:
 - `project_docs/llm/README.md`
 - `project_docs/llm/SESSION_BOOTSTRAP.md`
 - `project_docs/llm/SOURCE_OF_TRUTH_MAP.md`
+
+## Branching Rule
+
+Current branch model:
+
+1. `main`
+- release-facing branch
+
+2. `dev`
+- default active integration branch
+
+3. `milestone/*`
+- frozen project snapshots
+
+4. `feature/*`
+- bounded implementation branches
+
+5. `research/*`
+- uncertain or hypothesis-driven experimental branches
+
+6. `safety/*`
+- temporary backup branches before risky operations
+
+Practical rule:
+
+- continue normal work from `dev`
+- do not keep day-to-day development on `milestone/*`
+
+Naming guideline:
+
+- `feature/<area>-<goal>`
+- `research/<area>-<hypothesis>`
+
+Examples:
+
+- `feature/minimax-locality`
+- `feature/gptoss-decode-path`
+- `research/minimax-expert-selection`
+- `research/prompt-packed-qkv`

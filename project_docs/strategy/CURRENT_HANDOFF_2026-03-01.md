@@ -147,6 +147,12 @@ Source of truth:
 8. current branching model:
    - `project_docs/release/GIT_BRANCHING_MODEL_2026-03-02.md`
 
+Практически сейчас:
+
+- active integration branch: `dev`
+- frozen reference snapshot: `milestone/2026-03-01-logical-snapshot`
+- release-facing branch: `main`
+
 ## Где смотреть в первую очередь
 
 ### Общая стратегия
