@@ -17,6 +17,14 @@ Use these documents in this order:
 - secondary research line
 - use a lightweight predictor for expert shortlist / prefetch / hot-set guidance
 
+4. `NEXT_IDEAS_2026-03-02.md`
+- prioritized list of the next plausible expert-selection ideas
+- split into:
+  - cheap
+  - medium
+  - ambitious
+- includes a recommended next order
+
 This directory is intentionally research-oriented:
 - preserve failed ideas
 - preserve speculative ideas
