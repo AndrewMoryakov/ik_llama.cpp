@@ -104,11 +104,26 @@ Rule:
 
 Role:
 
-- emergency backup branches before risky sync/rebase/update operations
+- mandatory backup branches before specific state-destructive or history-rewriting operations
 
-Use them only when:
+Create them before:
 
-- preserving a temporary safety copy is more important than naming purity
+1. `git rebase`
+2. `git reset --hard`
+3. `git clean -fd` or stronger cleanup
+4. force-push on an existing remote branch
+5. risky upstream sync that may require history rewriting or discarding local state
+
+Do not create them for:
+
+1. normal commits on `dev`
+2. routine feature work
+3. ordinary non-rewriting merges
+4. routine pushes
+
+Naming:
+
+- `safety/<reason>-YYYY-MM-DD`
 
 ## Working Rules
 
@@ -119,6 +134,14 @@ Use them only when:
 3. if the task is larger, create `feature/*` or `research/*`
 4. merge back into `dev`
 5. when `dev` becomes clean and publishable, promote selected state into `main`
+
+### Mandatory safety branch rule
+
+For LLM agents, `safety/*` is not an aesthetic convention.
+
+It is required only for the specific destructive/history-rewriting cases listed above.
+
+Outside those cases, do not create it.
 
 ### Promotion to `main`
 

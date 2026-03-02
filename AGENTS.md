@@ -148,12 +148,42 @@ Current branch model:
 - uncertain or hypothesis-driven experimental branches
 
 6. `safety/*`
-- temporary backup branches before risky operations
+- mandatory temporary backup branches before specific risky operations
 
 Practical rule:
 
 - continue normal work from `dev`
 - do not keep day-to-day development on `milestone/*`
+
+## Safety Branch Rule
+
+For LLM agents this is not discretionary.
+
+Create a `safety/*` branch **before** any operation that can rewrite history, drop commits, or destroy local state.
+
+Mandatory cases:
+
+1. `git rebase`
+2. `git reset --hard`
+3. `git clean -fd` or stronger cleanup
+4. force-push of a branch that already exists on a remote
+5. replacing one integration line with another via reset/rebase instead of merge
+6. risky upstream sync where local unpublished commits could become hard to recover mentally
+
+Do **not** create `safety/*` for:
+
+1. normal commits on `dev`
+2. ordinary `feature/*` or `research/*` branches
+3. normal merges that do not rewrite history
+4. routine pushes
+
+Naming rule:
+
+- `safety/<reason>-YYYY-MM-DD`
+
+Example:
+
+- `safety/pre-rebase-2026-03-02`
 
 Naming guideline:
 
