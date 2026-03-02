@@ -18,6 +18,9 @@
   <!-- ═══ TOP BAR ═══ -->
   <header class="topbar">
     <div class="topbar-brand">
+      <button class="workspace-menu-toggle" id="btn-workspace-menu" onclick="toggleWorkspaceNav()" title="Sections">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <div class="brand-icon">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
       </div>
@@ -51,6 +54,67 @@
 
   <!-- ═══ MAIN CONTENT ═══ -->
   <main class="container">
+    <div class="dash-workspace-shell" id="dash-workspace-shell">
+      <div class="dash-workspace-backdrop" id="dash-workspace-backdrop" onclick="toggleWorkspaceNav(false)"></div>
+      <aside class="dash-workspace-rail" id="dash-workspace-rail">
+        <div class="dash-rail-head">
+          <div class="dash-rail-head-copy">
+            <div class="dash-rail-title" data-i18n="ws_sections">Sections</div>
+            <div class="dash-rail-subtitle" data-i18n="ws_sections_note">Workspace navigation</div>
+          </div>
+          <button type="button" class="dash-rail-collapse" id="btn-rail-collapse" onclick="toggleWorkspaceRail()" title="Collapse menu" aria-label="Collapse menu">
+            <span class="dash-rail-collapse-expand">‹</span>
+            <span class="dash-rail-collapse-collapsed">›</span>
+          </button>
+        </div>
+        <nav class="dash-rail-nav">
+          <button class="dash-rail-btn active" data-workspace-pane-btn="overview" onclick="setWorkspacePane('overview')">
+            <span class="dash-rail-btn-icon">◎</span>
+            <span data-i18n="ws_nav_overview">Overview</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="model" onclick="setWorkspacePane('model')">
+            <span class="dash-rail-btn-icon">◫</span>
+            <span data-i18n="sec_model">Model</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="performance" onclick="setWorkspacePane('performance')">
+            <span class="dash-rail-btn-icon">↯</span>
+            <span data-i18n="sec_perf">Performance</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="optimization" onclick="setWorkspacePane('optimization')">
+            <span class="dash-rail-btn-icon">⚙</span>
+            <span data-i18n="sec_opt">Optimization</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="server" onclick="setWorkspacePane('server')">
+            <span class="dash-rail-btn-icon">⛁</span>
+            <span data-i18n="sec_server">Server</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="advanced" onclick="setWorkspacePane('advanced')">
+            <span class="dash-rail-btn-icon">⋯</span>
+            <span data-i18n="sec_adv">Advanced</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="launch" onclick="setWorkspacePane('launch')">
+            <span class="dash-rail-btn-icon">▶</span>
+            <span data-i18n="ws_nav_launch">Launch</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="runtime" onclick="setWorkspacePane('runtime')">
+            <span class="dash-rail-btn-icon">◉</span>
+            <span data-i18n="ws_nav_runtime">Runtime</span>
+          </button>
+        </nav>
+      </aside>
+
+      <div class="dash-workspace-stage">
+        <section class="dash-workspace-pane active" id="dash-pane-overview" data-workspace-pane="overview">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_overview">Overview</h2>
+              <p data-i18n="ws_desc_overview">Hardware profile, dashboard server state, and current warnings.</p>
+            </div>
+          </div>
+
+          <div class="overview-hero-grid" id="overview-hero-grid"></div>
+          <div class="overview-quickline card" id="overview-quickline"></div>
+          <div class="overview-actions card" id="overview-actions"></div>
 
     <!-- PROFILE EDITOR -->
     <div class="profile-editor card" id="profile-editor">
@@ -92,6 +156,16 @@
 
     <!-- WARNINGS -->
     <div class="warnings" id="warnings-area"></div>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-model" data-workspace-pane="model">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_model">Model</h2>
+              <p data-i18n="ws_desc_model">Model path, size, family, and placement decisions.</p>
+            </div>
+          </div>
 
     <!-- ═══ MODEL ═══ -->
     <details class="card" open>
@@ -153,6 +227,16 @@
         </div>
       </div>
     </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-performance" data-workspace-pane="performance">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_perf">Performance</h2>
+              <p data-i18n="ws_desc_perf">Threads, context, batching, and workload-specific performance controls.</p>
+            </div>
+          </div>
 
     <!-- ═══ PERFORMANCE ═══ -->
     <details class="card" open>
@@ -230,6 +314,16 @@
         </div>
       </div>
     </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-optimization" data-workspace-pane="optimization">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_opt">Optimization</h2>
+              <p data-i18n="ws_desc_opt">ik_llama-specific runtime switches, cache formats, and MoE controls.</p>
+            </div>
+          </div>
 
     <!-- ═══ OPTIMIZATION ═══ -->
     <details class="card" open>
@@ -478,8 +572,18 @@
       </div>
     </details>
 
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-server" data-workspace-pane="server">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_server">Server</h2>
+              <p data-i18n="ws_desc_server">llama-server network settings and concurrency controls.</p>
+            </div>
+          </div>
+
     <!-- ═══ SERVER ═══ -->
-    <details class="card">
+    <details class="card" open>
       <summary>
         <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
         <span data-i18n="sec_server">Server</span>
@@ -538,8 +642,18 @@
       </div>
     </details>
 
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-advanced" data-workspace-pane="advanced">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_adv">Advanced</h2>
+              <p data-i18n="ws_desc_adv">Advanced runtime and memory controls that usually stay out of the critical path.</p>
+            </div>
+          </div>
+
     <!-- ═══ ADVANCED ═══ -->
-    <details class="card">
+    <details class="card" open>
       <summary>
         <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         <span data-i18n="sec_adv">Advanced</span>
@@ -621,6 +735,16 @@
       </div>
     </details>
 
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-launch" data-workspace-pane="launch">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_launch">Launch</h2>
+              <p data-i18n="ws_desc_launch">Generated command, export/import, and launch controls.</p>
+            </div>
+          </div>
+
     <!-- ═══ COMMAND OUTPUT — Terminal style ═══ -->
     <div class="command-section terminal-card">
       <div class="terminal-chrome">
@@ -655,6 +779,52 @@
       </div>
     </div>
 
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-runtime" data-workspace-pane="runtime">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_runtime">Runtime</h2>
+              <p data-i18n="ws_desc_runtime">Interactive terminals, process logs, and live observability for the active run.</p>
+            </div>
+          </div>
+          <div class="dash-runtime-grid">
+            <div class="dash-runtime-main">
+    <div class="runtime-main-bar card" id="runtime-main-bar">
+      <div class="runtime-main-bar-title" data-i18n="runtime_main_bar_title">Side panels hidden</div>
+      <div class="runtime-main-bar-note" data-i18n="runtime_main_bar_note">Restore terminal, chat, and logs when you need them.</div>
+      <div class="runtime-main-bar-actions">
+        <button type="button" class="btn-ghost" onclick="toggleRuntimeSide(false)" data-i18n="runtime_dock_show_side">Show side panels</button>
+      </div>
+    </div>
+    <div class="card live-metrics-card" id="live-metrics-card">
+      <div class="live-metrics-head">
+        <div>
+          <div class="live-metrics-title" data-i18n="live_title">Live Inference View</div>
+          <div class="live-metrics-subtitle" data-i18n="live_subtitle">Phase flow and MoE expert activity for the current run</div>
+        </div>
+        <div class="live-metrics-status" id="live-metrics-status"></div>
+      </div>
+      <div class="live-toolbar" id="live-metrics-toolbar"></div>
+      <div id="live-metrics-root"></div>
+    </div>
+            </div>
+
+            <div class="dash-runtime-side">
+    <div class="runtime-dock card" id="runtime-dock">
+      <div class="runtime-dock-head">
+        <div>
+          <div class="runtime-dock-title" data-i18n="runtime_dock_title">Runtime panels</div>
+          <div class="runtime-dock-note" data-i18n="runtime_dock_note">Collapse side panels to free space for the live scene</div>
+        </div>
+        <button type="button" class="runtime-dock-collapse" id="runtime-dock-collapse" onclick="toggleRuntimeSide()" data-i18n="runtime_dock_hide_side">Hide side panels</button>
+      </div>
+      <div class="runtime-dock-row">
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-cli" onclick="toggleRuntimePanel('cli')">CLI</button>
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-chat" onclick="toggleRuntimePanel('chat')">Chat</button>
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-process" onclick="toggleRuntimePanel('process')">Logs</button>
+      </div>
+    </div>
     <!-- ═══ CLI TERMINAL (llama-cli mode) ═══ -->
     <div class="cli-terminal terminal-card" id="cli-terminal">
       <div class="terminal-chrome">
@@ -727,17 +897,10 @@
         <button class="btn-danger stop" id="btn-stop2" onclick="stopProcess()" data-i18n="btn_stop">Stop</button>
       </div>
     </div>
-
-    <div class="card live-metrics-card" id="live-metrics-card">
-      <div class="live-metrics-head">
-        <div>
-          <div class="live-metrics-title" data-i18n="live_title">Live Inference View</div>
-          <div class="live-metrics-subtitle" data-i18n="live_subtitle">Phase flow and MoE expert activity for the current run</div>
-        </div>
-        <div class="live-metrics-status" id="live-metrics-status"></div>
+            </div>
+          </div>
+        </section>
       </div>
-      <div class="live-toolbar" id="live-metrics-toolbar"></div>
-      <div id="live-metrics-root"></div>
     </div>
 
   </main>

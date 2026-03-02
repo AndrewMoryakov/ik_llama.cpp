@@ -5,6 +5,76 @@ const LANG = {
   ru: {
     sec_model: 'Модель', sec_perf: 'Производительность', sec_opt: 'Оптимизации',
     sec_server: 'Сервер', sec_adv: 'Дополнительно',
+    ws_sections: 'Разделы',
+    ws_sections_note: 'Навигация по рабочим экранам',
+    ws_nav_overview: 'Обзор',
+    ws_nav_launch: 'Запуск',
+    ws_nav_runtime: 'Runtime',
+    ws_title_overview: 'Обзор',
+    ws_title_launch: 'Запуск',
+    ws_title_runtime: 'Runtime',
+    ws_desc_overview: 'Профиль железа, состояние dashboard-сервера и текущие предупреждения.',
+    ws_desc_model: 'Путь к модели, размер, семейство и базовые решения по размещению.',
+    ws_desc_perf: 'Потоки, контекст, batching и workload-зависимые настройки производительности.',
+    ws_desc_opt: 'Специфичные для ik_llama runtime-флаги, форматы кеша и MoE-контролы.',
+    ws_desc_server: 'Сетевые настройки llama-server и параметры параллельной обработки запросов.',
+    ws_desc_adv: 'Дополнительные runtime- и memory-параметры, которые обычно не трогают без причины.',
+    ws_desc_launch: 'Сгенерированная команда, экспорт/импорт конфига и контроль запуска.',
+    ws_desc_runtime: 'Интерактивные терминалы, логи процесса и живая observability для активного запуска.',
+    ov_family: 'Семейство',
+    ov_memory: 'Память',
+    ov_validation: 'Статус',
+    ov_runtime: 'Runtime',
+    ov_warn_count: 'Активных предупреждений',
+    ov_warn_none: 'нет',
+    ov_runtime_offline: 'server offline',
+    ov_runtime_idle: 'готов к запуску',
+    ov_runtime_loading: 'загрузка модели',
+    ov_runtime_ready: 'модель работает',
+    ov_runtime_stopped: 'процесс остановлен',
+    ov_mem_unknown: 'неизвестно',
+    ov_mem_inram: 'in-RAM',
+    ov_mem_near: 'near-RAM',
+    ov_mem_swap: 'swap-bound',
+    ov_validation_validated: 'validated baseline',
+    ov_validation_partial: 'research / partial',
+    ov_validation_unknown: 'unknown family',
+    ov_actions_title: 'Следующие шаги',
+    ov_actions_note: 'Быстрые переходы по текущему состоянию конфигурации и процесса.',
+    ov_action_model_title: 'Проверьте модель',
+    ov_action_model_body: 'Уточните путь, размер и family detection. От этого зависит весь остальной профиль.',
+    ov_action_perf_title: 'Сведите performance baseline',
+    ov_action_perf_body: 'Проверьте workload, потоки, контекст и batching до тонкой оптимизации.',
+    ov_action_opt_title: 'Сверьте runtime policy',
+    ov_action_opt_body: 'Сравните RTR, KV cache и MoE knobs с текущими validated выводами.',
+    ov_action_launch_title: 'Соберите и запустите команду',
+    ov_action_launch_body: 'Проверьте сгенерированную команду, затем стартуйте процесс из рабочего launch-pane.',
+    ov_action_runtime_title: 'Следите за runtime',
+    ov_action_runtime_body: 'После запуска переходите в Runtime: там интерактивные панели, логи и live observability.',
+    ov_go_model: 'К модели',
+    ov_go_perf: 'К performance',
+    ov_go_opt: 'К оптимизациям',
+    ov_go_launch: 'К запуску',
+    ov_go_runtime: 'К runtime',
+    ov_go_model_size: 'К размеру',
+    ov_go_rtr: 'К RTR',
+    ov_go_threads: 'К потокам',
+    ov_profile_title: 'Текущий профиль',
+    ov_profile_note: 'Короткая сводка по workload, потокам и runtime policy без перехода по секциям.',
+    ov_quick_workload: 'Workload',
+    ov_quick_threads: 'Threads',
+    ov_quick_rtr: 'RTR',
+    ov_quick_kv: 'KV cache',
+    ov_quick_fa: 'FlashAttn',
+    ov_quick_mmap: 'mmap',
+    ov_quick_hot: 'Hot experts',
+    ov_quick_auto: 'auto',
+    ov_browse_model: 'Выбрать GGUF',
+    ov_family_unknown_value: 'Не определено',
+    ov_validation_unknown_value: 'Нет validated-профиля',
+    ov_family_unknown_note: 'Семейство пока не определено. Выберите GGUF и дайте dashboard прочитать путь и размер модели.',
+    ov_validation_unknown_note: 'Для этой модели еще нет подтвержденной линии. Проверьте family detection и сравните базовый runtime-профиль вручную.',
+    warn_open: 'Открыть',
     p_model: 'Путь к модели', d_model: 'Путь к GGUF-файлу. Split-модели (00001-of-NNNNN) определяются автоматически',
     p_model_size: 'Размер модели (ГБ)', d_model_size: 'Суммарный размер всех частей. Ключевой параметр: если модель > 90% RAM — она swap-bound, и нужны другие настройки',
     p_model_type: 'Тип модели', d_model_type: 'Dense — все веса активны всегда (Llama, Phi, Gemma). MoE — только часть экспертов активна на токен (MiniMax, DeepSeek, Qwen3-MoE). Определяется автоматически при чтении GGUF',
@@ -178,6 +248,7 @@ const LANG = {
     live_moe_heatmap: 'Heatmap экспертов',
     live_moe_heatmap_note: 'Если доступны layer traces, строки — слои модели. Иначе используется fallback по стадиям hot-expert workflow.',
     live_moe_heatmap_empty_note: 'У этого run нет достаточно глубоких expert traces для heatmap. Для полного layer x expert вида выберите curated demo с layer trace.',
+    live_moe_heatmap_open_demo: 'Открыть layer-trace demo',
     live_moe_heatmap_rows: 'Строк',
     live_moe_heatmap_cols: 'Экспертов',
     live_moe_heatmap_peak: 'Пик',
@@ -331,10 +402,88 @@ const LANG = {
     live_workspace_inspector_phase: 'Phase',
     live_workspace_inspector_moe: 'MoE',
     live_workspace_inspector_memory: 'Memory',
+    live_workspace_hide_inspector: 'Скрыть инспектор',
+    live_workspace_show_inspector: 'Показать инспектор',
+    runtime_dock_title: 'Runtime panels',
+    runtime_dock_note: 'Сворачивайте правую колонку, чтобы освободить место для live-сцены.',
+    runtime_dock_hide_side: 'Свернуть правую колонку',
+    runtime_dock_show_side: 'Развернуть правую колонку',
+    runtime_main_bar_title: 'Правая колонка скрыта',
+    runtime_main_bar_note: 'Разверните терминал, чат и логи, когда они снова понадобятся.',
   },
   en: {
     sec_model: 'Model', sec_perf: 'Performance', sec_opt: 'Optimization',
     sec_server: 'Server', sec_adv: 'Advanced',
+    ws_sections: 'Sections',
+    ws_sections_note: 'Workspace navigation',
+    ws_nav_overview: 'Overview',
+    ws_nav_launch: 'Launch',
+    ws_nav_runtime: 'Runtime',
+    ws_title_overview: 'Overview',
+    ws_title_launch: 'Launch',
+    ws_title_runtime: 'Runtime',
+    ws_desc_overview: 'Hardware profile, dashboard server state, and current warnings.',
+    ws_desc_model: 'Model path, size, family, and basic placement decisions.',
+    ws_desc_perf: 'Threads, context, batching, and workload-specific performance controls.',
+    ws_desc_opt: 'ik_llama-specific runtime switches, cache formats, and MoE controls.',
+    ws_desc_server: 'llama-server network settings and request concurrency controls.',
+    ws_desc_adv: 'Advanced runtime and memory controls that usually stay untouched without a reason.',
+    ws_desc_launch: 'Generated command, config export/import, and launch controls.',
+    ws_desc_runtime: 'Interactive terminals, process logs, and live observability for the active run.',
+    ov_family: 'Family',
+    ov_memory: 'Memory',
+    ov_validation: 'Status',
+    ov_runtime: 'Runtime',
+    ov_warn_count: 'Active warnings',
+    ov_warn_none: 'none',
+    ov_runtime_offline: 'server offline',
+    ov_runtime_idle: 'ready to launch',
+    ov_runtime_loading: 'loading model',
+    ov_runtime_ready: 'model running',
+    ov_runtime_stopped: 'process stopped',
+    ov_mem_unknown: 'unknown',
+    ov_mem_inram: 'in-RAM',
+    ov_mem_near: 'near-RAM',
+    ov_mem_swap: 'swap-bound',
+    ov_validation_validated: 'validated baseline',
+    ov_validation_partial: 'research / partial',
+    ov_validation_unknown: 'unknown family',
+    ov_actions_title: 'Next actions',
+    ov_actions_note: 'Fast jumps based on the current configuration and process state.',
+    ov_action_model_title: 'Check the model',
+    ov_action_model_body: 'Confirm path, size, and family detection. Everything else depends on that.',
+    ov_action_perf_title: 'Lock the performance baseline',
+    ov_action_perf_body: 'Check workload, threads, context, and batching before fine-grained optimization.',
+    ov_action_opt_title: 'Review runtime policy',
+    ov_action_opt_body: 'Compare RTR, KV cache, and MoE knobs against the current validated conclusions.',
+    ov_action_launch_title: 'Build and launch',
+    ov_action_launch_body: 'Review the generated command, then start the process from the launch pane.',
+    ov_action_runtime_title: 'Watch runtime',
+    ov_action_runtime_body: 'After launch, move to Runtime for interactive panels, logs, and live observability.',
+    ov_go_model: 'Open model',
+    ov_go_perf: 'Open performance',
+    ov_go_opt: 'Open optimization',
+    ov_go_launch: 'Open launch',
+    ov_go_runtime: 'Open runtime',
+    ov_go_model_size: 'Open size',
+    ov_go_rtr: 'Open RTR',
+    ov_go_threads: 'Open threads',
+    ov_profile_title: 'Current profile',
+    ov_profile_note: 'Compact summary of workload, threads, and runtime policy without leaving Overview.',
+    ov_quick_workload: 'Workload',
+    ov_quick_threads: 'Threads',
+    ov_quick_rtr: 'RTR',
+    ov_quick_kv: 'KV cache',
+    ov_quick_fa: 'FlashAttn',
+    ov_quick_mmap: 'mmap',
+    ov_quick_hot: 'Hot experts',
+    ov_quick_auto: 'auto',
+    ov_browse_model: 'Choose GGUF',
+    ov_family_unknown_value: 'Not detected',
+    ov_validation_unknown_value: 'No validated profile',
+    ov_family_unknown_note: 'The family is not detected yet. Pick a GGUF and let the dashboard read model path and size first.',
+    ov_validation_unknown_note: 'This model has no validated line yet. Confirm family detection and compare the baseline runtime profile manually.',
+    warn_open: 'Open',
     p_model: 'Model path', d_model: 'Path to GGUF file. Split models (00001-of-NNNNN) are detected automatically',
     p_model_size: 'Model size (GB)', d_model_size: 'Total size of all parts. Key parameter: if model > 90% RAM it is swap-bound and needs different settings',
     p_model_type: 'Model type', d_model_type: 'Dense — all weights active always (Llama, Phi, Gemma). MoE — only a subset of experts active per token (MiniMax, DeepSeek, Qwen3-MoE). Auto-detected from GGUF metadata',
@@ -507,6 +656,7 @@ const LANG = {
     live_moe_heatmap: 'Expert heatmap',
     live_moe_heatmap_note: 'If layer traces are available, rows are model layers. Otherwise the heatmap falls back to hot-expert stages.',
     live_moe_heatmap_empty_note: 'This run does not have deep enough expert traces for a heatmap. Choose a curated layer-trace demo for a full layer x expert view.',
+    live_moe_heatmap_open_demo: 'Open layer-trace demo',
     live_moe_heatmap_rows: 'Rows',
     live_moe_heatmap_cols: 'Experts',
     live_moe_heatmap_peak: 'Peak',
@@ -660,6 +810,14 @@ const LANG = {
     live_workspace_inspector_phase: 'Phase',
     live_workspace_inspector_moe: 'MoE',
     live_workspace_inspector_memory: 'Memory',
+    live_workspace_hide_inspector: 'Hide inspector',
+    live_workspace_show_inspector: 'Show inspector',
+    runtime_dock_title: 'Runtime panels',
+    runtime_dock_note: 'Collapse the right column to free space for the live scene.',
+    runtime_dock_hide_side: 'Hide right column',
+    runtime_dock_show_side: 'Show right column',
+    runtime_main_bar_title: 'Right column hidden',
+    runtime_main_bar_note: 'Restore terminal, chat, and logs when you need them again.',
   }
 };
 
@@ -901,6 +1059,7 @@ const RULES = [
 let currentLang = 'ru';
 let currentProfile = null;
 let suppressUpdate = false;
+let currentWorkspacePane = 'overview';
 
 const DEFAULTS = {
   model: '', model_size_gb: 0, model_type: 'dense', n_gpu_layers: -1,
@@ -978,24 +1137,12 @@ function syncToDOM(changedKey) {
   if (rtrSel && rtrSel !== document.activeElement) {
     rtrSel.value = getRtrMode(state);
   }
-  // Sync inputs/selects
-  const inputMap = {
-    model: 'p-model', model_size_gb: 'p-model_size_gb', model_type: 'p-model_type',
-    n_gpu_layers: 'p-n_gpu_layers', threads: 'p-threads', threads_batch: 'p-threads_batch',
-    n_ctx: 'p-n_ctx', n_batch: 'p-n_batch', n_ubatch: 'p-n_ubatch',
-    workload_profile: 'p-workload_profile',
-    cache_type_k: 'p-cache_type_k', cache_type_v: 'p-cache_type_v', mla_attn: 'p-mla_attn',
-    ser_min: 'p-ser_min', ser_thresh: 'p-ser_thresh', hot_expert_budget: 'p-hot_expert_budget',
-    hostname: 'p-hostname', port: 'p-port', n_parallel: 'p-n_parallel',
-    api_key: 'p-api_key', n_threads_http: 'p-n_threads_http',
-    seed: 'p-seed', n_predict: 'p-n_predict', numa: 'p-numa', defrag_thold: 'p-defrag_thold',
-    target: 'sel-target', shell: 'sel-shell',
-  };
-  if (changedKey && inputMap[changedKey]) {
-    const el = document.getElementById(inputMap[changedKey]);
+  if (changedKey && PARAM_CONTROL_MAP[changedKey] && !String(PARAM_CONTROL_MAP[changedKey]).startsWith('tog-')) {
+    const el = document.getElementById(PARAM_CONTROL_MAP[changedKey]);
     if (el && el !== document.activeElement) el.value = state[changedKey];
   } else {
-    for (const [k, id] of Object.entries(inputMap)) {
+    for (const [k, id] of Object.entries(PARAM_CONTROL_MAP)) {
+      if (String(id).startsWith('tog-')) continue;
       const el = document.getElementById(id);
       if (el && el !== document.activeElement) el.value = state[k];
     }
@@ -1048,6 +1195,161 @@ function severityLevel(s) {
 }
 
 const SEVERITY_ICONS = { error: '\u26D4', warning: '\u26A0\uFE0F', info: '\u2139\uFE0F', success: '\u2705' };
+const PARAM_CONTROL_MAP = {
+  model: 'p-model',
+  model_size_gb: 'p-model_size_gb',
+  model_type: 'p-model_type',
+  n_gpu_layers: 'p-n_gpu_layers',
+  threads: 'p-threads',
+  threads_batch: 'p-threads_batch',
+  n_ctx: 'p-n_ctx',
+  n_batch: 'p-n_batch',
+  n_ubatch: 'p-n_ubatch',
+  workload_profile: 'p-workload_profile',
+  repack_tensors: 'p-repack_tensors',
+  cache_type_k: 'p-cache_type_k',
+  cache_type_v: 'p-cache_type_v',
+  mla_attn: 'p-mla_attn',
+  ser_min: 'p-ser_min',
+  ser_thresh: 'p-ser_thresh',
+  hot_expert_budget: 'p-hot_expert_budget',
+  hostname: 'p-hostname',
+  port: 'p-port',
+  n_parallel: 'p-n_parallel',
+  api_key: 'p-api_key',
+  n_threads_http: 'p-n_threads_http',
+  seed: 'p-seed',
+  n_predict: 'p-n_predict',
+  numa: 'p-numa',
+  defrag_thold: 'p-defrag_thold',
+  target: 'sel-target',
+  shell: 'sel-shell',
+  flash_attn: 'tog-flash_attn',
+  merge_up_gate_exps: 'tog-merge_up_gate_exps',
+  graph_reuse: 'tog-graph_reuse',
+  merge_qkv: 'tog-merge_qkv',
+  k_cache_hadamard: 'tog-k_cache_hadamard',
+  fused_moe_up_gate: 'tog-fused_moe_up_gate',
+  fused_up_gate: 'tog-fused_up_gate',
+  use_mmap: 'tog-use_mmap',
+  use_mlock: 'tog-use_mlock',
+  ser_enabled: 'tog-ser_enabled',
+  live_observability: 'tog-live_observability',
+};
+const WARNING_PARAM_TO_PANE = {
+  model: 'model',
+  model_size_gb: 'model',
+  model_type: 'model',
+  n_gpu_layers: 'model',
+  workload_profile: 'performance',
+  threads: 'performance',
+  threads_batch: 'performance',
+  n_ctx: 'performance',
+  n_batch: 'performance',
+  n_ubatch: 'performance',
+  repack_tensors: 'optimization',
+  merge_up_gate_exps: 'optimization',
+  cache_type_k: 'optimization',
+  cache_type_v: 'optimization',
+  mla_attn: 'optimization',
+  ser_enabled: 'optimization',
+  ser_min: 'optimization',
+  ser_thresh: 'optimization',
+  hot_expert_budget: 'optimization',
+  graph_reuse: 'optimization',
+  merge_qkv: 'optimization',
+  k_cache_hadamard: 'optimization',
+  fused_moe_up_gate: 'optimization',
+  fused_up_gate: 'optimization',
+  hostname: 'server',
+  port: 'server',
+  n_parallel: 'server',
+  api_key: 'server',
+  n_threads_http: 'server',
+  use_mmap: 'advanced',
+  use_mlock: 'advanced',
+  numa: 'advanced',
+  defrag_thold: 'advanced',
+  seed: 'advanced',
+  n_predict: 'advanced',
+};
+
+function getWorkspacePaneLabel(pane) {
+  if (pane === 'model') return t('sec_model');
+  if (pane === 'performance') return t('sec_perf');
+  if (pane === 'optimization') return t('sec_opt');
+  if (pane === 'server') return t('sec_server');
+  if (pane === 'advanced') return t('sec_adv');
+  if (pane === 'launch') return t('ws_nav_launch');
+  if (pane === 'runtime') return t('ws_nav_runtime');
+  return t('ws_nav_overview');
+}
+
+function getWorkspacePaneForWarning(rule) {
+  const params = Array.isArray(rule.params) ? rule.params : [];
+  for (const param of params) {
+    if (WARNING_PARAM_TO_PANE[param]) return WARNING_PARAM_TO_PANE[param];
+  }
+  if (/server|port|host|api/i.test(rule.id)) return 'server';
+  return '';
+}
+
+function flashElement(el, className = 'focus-target', duration = 3800) {
+  if (!el) return;
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+  setTimeout(() => el.classList.remove(className), duration);
+}
+
+function highlightWorkspacePaneButton(pane) {
+  if (!pane) return;
+  const btn = document.querySelector(`[data-workspace-pane-btn="${pane}"]`);
+  flashElement(btn, 'pulse-target', 3800);
+}
+
+function jumpToParam(param, paneOverride = '') {
+  const pane = paneOverride || WARNING_PARAM_TO_PANE[param] || '';
+  if (pane) {
+    setWorkspacePane(pane);
+    highlightWorkspacePaneButton(pane);
+  }
+
+  const targetId = PARAM_CONTROL_MAP[param];
+  if (!targetId) return;
+
+  setTimeout(() => {
+    const raw = document.getElementById(targetId);
+    if (!raw) return;
+    const container = raw.closest('.param-row') || raw.closest('.profile-field') || raw.closest('.card') || raw;
+    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    flashElement(container);
+    const focusable = raw.matches('input, select, textarea, button')
+      ? raw
+      : (raw.closest('button, [tabindex], input, select, textarea') || null);
+    if (focusable && typeof focusable.focus === 'function') {
+      try {
+        focusable.focus({ preventScroll: true });
+      } catch (_) {
+        focusable.focus();
+      }
+    }
+  }, pane ? 140 : 20);
+}
+
+function jumpToOverviewChip(param, paneOverride = '') {
+  jumpToParam(param, paneOverride);
+}
+
+function pickActionParam(active, pane, fallback = '') {
+  for (const rule of active) {
+    const params = Array.isArray(rule.params) ? rule.params : [];
+    for (const param of params) {
+      if ((WARNING_PARAM_TO_PANE[param] || '') === pane) return param;
+    }
+  }
+  return fallback;
+}
 
 function renderWarnings(active) {
   const area = document.getElementById('warnings-area');
@@ -1057,18 +1359,221 @@ function renderWarnings(active) {
   for (const rule of active) {
     const div = document.createElement('div');
     div.className = 'warning-banner ' + rule.severity;
+    const pane = getWorkspacePaneForWarning(rule);
+    if (pane) {
+      div.classList.add('navigable');
+      div.tabIndex = 0;
+      div.setAttribute('role', 'button');
+      div.setAttribute('aria-label', `${t('warn_open')} ${getWorkspacePaneLabel(pane)}`);
+      div.addEventListener('click', () => {
+        const param = (Array.isArray(rule.params) ? rule.params : []).find(p => (WARNING_PARAM_TO_PANE[p] || '') === pane);
+        if (param) jumpToParam(param, pane);
+        else setWorkspacePane(pane);
+      });
+      div.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          const param = (Array.isArray(rule.params) ? rule.params : []).find(p => (WARNING_PARAM_TO_PANE[p] || '') === pane);
+          if (param) jumpToParam(param, pane);
+          else setWorkspacePane(pane);
+        }
+      });
+    }
     const icon = document.createElement('span');
     icon.className = 'warning-icon';
     icon.textContent = SEVERITY_ICONS[rule.severity] || '';
     div.appendChild(icon);
+    const body = document.createElement('div');
+    body.className = 'warning-body';
     const text = document.createElement('span');
     text.className = 'warning-text';
     let html = '<b>' + rule.id.replace(/_/g, ' ') + ':</b> ' + t(rule.msg);
     if (rule.fix) html += '<br><em>' + t(rule.fix) + '</em>';
     text.innerHTML = html;
-    div.appendChild(text);
+    body.appendChild(text);
+    div.appendChild(body);
+    if (pane) {
+      const jump = document.createElement('button');
+      jump.className = 'warning-jump';
+      jump.type = 'button';
+      jump.textContent = `${t('warn_open')} ${getWorkspacePaneLabel(pane)}`;
+      jump.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const param = (Array.isArray(rule.params) ? rule.params : []).find(p => (WARNING_PARAM_TO_PANE[p] || '') === pane);
+        if (param) jumpToParam(param, pane);
+        else setWorkspacePane(pane);
+      });
+      div.appendChild(jump);
+    }
     area.appendChild(div);
   }
+  renderOverviewSummary(active);
+}
+
+function renderOverviewSummary(active = []) {
+  const hero = document.getElementById('overview-hero-grid');
+  const quickline = document.getElementById('overview-quickline');
+  const actions = document.getElementById('overview-actions');
+  if (!hero || !quickline || !actions) return;
+
+  const profile = currentProfile || { totalRamGb: 0 };
+  const family = detectModelFamily(state);
+  const validation = getFamilyValidationStatus(state);
+  const swap = isSwapBound(state, profile);
+  const memState = profile.totalRamGb > 0 && state.model_size_gb > 0
+    ? (swap ? 'swap' : (state.model_size_gb > profile.totalRamGb * 0.75 ? 'near' : 'inram'))
+    : 'unknown';
+  const runtimeState = !serverConnected
+    ? 'offline'
+    : (interactionReady ? 'ready' : (modelLoadProgress.phase && modelLoadProgress.phase !== 'idle'
+      ? 'loading'
+      : (document.getElementById('proc-status')?.textContent?.includes('exit') ? 'stopped' : 'idle')));
+
+  const familyText = family === 'qwen3moe'
+    ? t('badge_family_qwen')
+    : family === 'gpt-oss'
+      ? t('badge_family_gptoss')
+      : family === 'minimax'
+        ? t('badge_family_minimax')
+        : t('ov_family_unknown_value');
+  const familyNote = family === 'generic'
+    ? t('ov_family_unknown_note')
+    : (state.model_size_gb > 0 ? `${state.model_size_gb} GB` : (currentLang === 'ru' ? 'Размер модели пока не определён' : 'Model size is not set yet'));
+  const validationText = validation === 'validated'
+    ? t('ov_validation_validated')
+    : validation === 'partial'
+      ? t('ov_validation_partial')
+      : t('ov_validation_unknown_value');
+  const validationNote = validation === 'unknown'
+    ? t('ov_validation_unknown_note')
+    : (hasExperimentalKnobs(state) ? t('badge_status_exp_knobs') : (currentLang === 'ru' ? 'Без экспериментальных ручек' : 'No experimental knobs active'));
+  const runtimeText = runtimeState === 'offline'
+    ? t('ov_runtime_offline')
+    : runtimeState === 'ready'
+      ? t('ov_runtime_ready')
+      : runtimeState === 'loading'
+        ? t('ov_runtime_loading')
+        : runtimeState === 'stopped'
+          ? t('ov_runtime_stopped')
+          : t('ov_runtime_idle');
+  const memoryText = memState === 'swap'
+    ? t('ov_mem_swap')
+    : memState === 'near'
+      ? t('ov_mem_near')
+      : memState === 'inram'
+        ? t('ov_mem_inram')
+        : t('ov_mem_unknown');
+
+  const familyClass = validation === 'validated' ? 'accent' : validation === 'partial' ? 'warn' : '';
+  const memoryClass = memState === 'swap' ? 'error' : memState === 'near' ? 'warn' : memState === 'inram' ? 'accent' : '';
+  const warnClass = active.some(r => r.severity === 'error') ? 'error' : active.some(r => r.severity === 'warning') ? 'warn' : 'accent';
+  const workloadText = state.workload_profile === 'tg'
+    ? t('badge_path_tg')
+    : state.workload_profile === 'pp'
+      ? t('badge_path_pp')
+      : t('badge_path_mixed');
+  const threadsBatchText = state.threads_batch === -1 ? t('ov_quick_auto') : String(state.threads_batch);
+  const hotBudgetText = (state.hot_expert_budget || 0) > 0
+    ? String(state.hot_expert_budget)
+    : (currentLang === 'ru' ? '0 / default' : '0 / default');
+  const quickChips = [
+    { label: t('ov_quick_workload'), value: workloadText, tone: state.workload_profile === 'mixed' ? 'accent' : '', param: 'workload_profile', pane: 'performance' },
+    { label: t('ov_quick_threads'), value: `${state.threads} / ${threadsBatchText}`, tone: '', param: 'threads', pane: 'performance' },
+    { label: t('ov_quick_rtr'), value: String(state.repack_tensors || 'off').toUpperCase(), tone: state.repack_tensors === 'on' && swap ? 'error' : (state.repack_tensors === 'auto' ? 'accent' : ''), param: 'repack_tensors', pane: 'optimization' },
+    { label: t('ov_quick_kv'), value: `${state.cache_type_k}/${state.cache_type_v}`, tone: state.cache_type_k === 'q8_0' ? 'accent' : '', param: 'cache_type_k', pane: 'optimization' },
+    { label: t('ov_quick_fa'), value: state.flash_attn ? 'ON' : 'OFF', tone: state.flash_attn ? 'accent' : 'warn', param: 'flash_attn', pane: 'optimization' },
+    { label: t('ov_quick_mmap'), value: state.use_mmap ? 'ON' : 'OFF', tone: '', param: 'use_mmap', pane: 'advanced' },
+    { label: t('ov_quick_hot'), value: hotBudgetText, tone: (state.hot_expert_budget || 0) > 0 ? 'warn' : '', param: 'hot_expert_budget', pane: 'optimization' },
+  ];
+  const modelActionParam = pickActionParam(active, 'model', 'model');
+  const perfActionParam = pickActionParam(active, 'performance', 'threads');
+  const optActionParam = pickActionParam(active, 'optimization', 'repack_tensors');
+  const runtimeHeroButton = interactionReady || runtimeState === 'loading'
+    ? `<button class="btn-ghost overview-hero-btn" onclick="setWorkspacePane('runtime')">${t('ov_go_runtime')}</button>`
+    : `<button class="btn-ghost overview-hero-btn" onclick="setWorkspacePane('launch')">${t('ov_go_launch')}</button>`;
+
+  hero.innerHTML = `
+    <div class="overview-hero-card ${familyClass}">
+      <div class="overview-hero-label">${t('ov_family')}</div>
+      <div class="overview-hero-value">${familyText}</div>
+      <div class="overview-hero-note">${familyNote}</div>
+      <div class="overview-hero-actions">
+        ${!state.model
+          ? `<button class="btn-accent overview-hero-btn" onclick="browseModelFile()">${t('ov_browse_model')}</button>`
+          : `<button class="btn-ghost overview-hero-btn" onclick="jumpToParam('model', 'model')">${t('ov_go_model')}</button>`}
+      </div>
+    </div>
+    <div class="overview-hero-card ${memoryClass}">
+      <div class="overview-hero-label">${t('ov_memory')}</div>
+      <div class="overview-hero-value">${memoryText}</div>
+      <div class="overview-hero-note">${profile.totalRamGb > 0 ? `${Math.round(profile.totalRamGb)} GB RAM` : (currentLang === 'ru' ? 'RAM профиля неизвестна' : 'Profile RAM is unknown')}</div>
+      <div class="overview-hero-actions">
+        <button class="btn-ghost overview-hero-btn" onclick="jumpToParam('model_size_gb', 'model')">${t('ov_go_model_size')}</button>
+      </div>
+    </div>
+    <div class="overview-hero-card ${familyClass}">
+      <div class="overview-hero-label">${t('ov_validation')}</div>
+      <div class="overview-hero-value">${validationText}</div>
+      <div class="overview-hero-note">${validationNote}</div>
+      <div class="overview-hero-actions">
+        <button class="btn-ghost overview-hero-btn" onclick="jumpToParam('repack_tensors', 'optimization')">${t('ov_go_rtr')}</button>
+      </div>
+    </div>
+    <div class="overview-hero-card ${warnClass}">
+      <div class="overview-hero-label">${t('ov_runtime')}</div>
+      <div class="overview-hero-value">${runtimeText}</div>
+      <div class="overview-hero-note">${t('ov_warn_count')}: ${active.length || t('ov_warn_none')}</div>
+      <div class="overview-hero-actions">
+        ${runtimeHeroButton}
+      </div>
+    </div>
+  `;
+
+  quickline.innerHTML = `
+    <div class="overview-quickline-head">
+      <div>
+        <div class="overview-quickline-title">${t('ov_profile_title')}</div>
+        <div class="overview-quickline-note">${t('ov_profile_note')}</div>
+      </div>
+    </div>
+    <div class="overview-quickline-grid">
+      ${quickChips.map(item => `
+        <button type="button" class="overview-chip ${item.tone || ''}" onclick="jumpToOverviewChip('${item.param}', '${item.pane}')">
+          <span class="overview-chip-label">${item.label}</span>
+          <span class="overview-chip-value">${item.value}</span>
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  const actionList = [
+    { title: t('ov_action_model_title'), body: t('ov_action_model_body'), label: t('ov_go_model'), pane: 'model', param: modelActionParam },
+    { title: t('ov_action_perf_title'), body: t('ov_action_perf_body'), label: t('ov_go_threads'), pane: 'performance', param: perfActionParam },
+    { title: t('ov_action_opt_title'), body: t('ov_action_opt_body'), label: t('ov_go_rtr'), pane: 'optimization', param: optActionParam },
+    interactionReady || runtimeState === 'loading'
+      ? { title: t('ov_action_runtime_title'), body: t('ov_action_runtime_body'), label: t('ov_go_runtime'), pane: 'runtime', accent: true }
+      : { title: t('ov_action_launch_title'), body: t('ov_action_launch_body'), label: t('ov_go_launch'), pane: 'launch', accent: true },
+  ];
+
+  actions.innerHTML = `
+    <div class="overview-actions-head">
+      <div>
+        <div class="overview-actions-title">${t('ov_actions_title')}</div>
+        <div class="overview-actions-note">${t('ov_actions_note')}</div>
+      </div>
+    </div>
+    <div class="overview-actions-grid">
+      ${actionList.map(item => `
+        <div class="overview-action">
+          <div class="overview-action-top">
+            <div class="overview-action-title">${item.title}</div>
+          </div>
+          <div class="overview-action-body">${item.body}</div>
+          <button class="${item.accent ? 'btn-accent' : 'btn-ghost'}" onclick="${item.param ? `jumpToParam('${item.param}', '${item.pane}')` : `setWorkspacePane('${item.pane}')`}">${item.label}</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
 function renderModelBadges() {
@@ -1567,12 +2072,14 @@ async function checkServer() {
     document.getElementById('btn-launch').style.opacity = '1';
     // Check if process is already running
     await checkProcessStatus();
+    evaluate();
   } catch(e) {
     serverConnected = false;
     document.getElementById('server-dot').className = 'status-dot disconnected';
     document.getElementById('server-status-text').textContent = t('srv_offline');
     document.getElementById('sys-info').textContent = '';
     document.getElementById('btn-launch').style.opacity = '0.4';
+    evaluate();
   }
 }
 
@@ -2075,12 +2582,14 @@ async function launchProcess() {
     const result = await apiPost('/api/launch', { args, env, terminal: isCli });
     if (result.ok) {
       toast(result.message);
+      setWorkspacePane('runtime');
+      autoConfigureRuntimePanels(true);
       resetModelLoadProgress();
       clearProcOutput();
       clearChat();
       clearCliTerminal();
       setChatReady(false);
-      showProcessPanel(true);
+      applyRuntimePanels();
       startOutputPolling();
       if (isCli) {
         // CLI terminal mode: show log message that interactive session is in external terminal
@@ -2158,7 +2667,8 @@ async function stopProcess() {
 }
 
 function showProcessPanel(show) {
-  document.getElementById('process-panel').classList.toggle('visible', show);
+  runtimePanels.process = !!show;
+  applyRuntimePanels();
 }
 
 function startOutputPolling() {
@@ -2427,6 +2937,7 @@ async function checkProcessStatus() {
         stopOutputPolling();
       }
     }
+    evaluate();
   } catch(e) {}
 }
 
@@ -3200,17 +3711,82 @@ function filterGlossary(value) {
 // ============================================================
 
 let interactionReady = false;
+let workspaceRailCollapsed = false;
+let runtimeSideCollapsed = false;
+const runtimePanels = {
+  cli: true,
+  chat: true,
+  process: true,
+};
+
+function autoConfigureRuntimePanels(force = false) {
+  const isCli = state.target === 'llama-cli';
+  const next = isCli
+    ? { cli: true, chat: false, process: false }
+    : { cli: false, chat: true, process: true };
+  if (force || !interactionReady) {
+    runtimePanels.cli = next.cli;
+    runtimePanels.chat = next.chat;
+    runtimePanels.process = next.process;
+  }
+}
+
+function updateRuntimeDock() {
+  const isCli = state.target === 'llama-cli';
+  const modeVisibility = { cli: true, chat: !isCli, process: !isCli };
+  const map = {
+    cli: document.getElementById('runtime-dock-cli'),
+    chat: document.getElementById('runtime-dock-chat'),
+    process: document.getElementById('runtime-dock-process'),
+  };
+  for (const [key, btn] of Object.entries(map)) {
+    if (!btn) continue;
+    btn.classList.toggle('active', !!runtimePanels[key] && !!modeVisibility[key]);
+    btn.classList.toggle('hidden-by-mode', !modeVisibility[key]);
+    btn.disabled = !modeVisibility[key];
+  }
+  const collapseBtn = document.getElementById('runtime-dock-collapse');
+  if (collapseBtn) {
+    collapseBtn.textContent = t(runtimeSideCollapsed ? 'runtime_dock_show_side' : 'runtime_dock_hide_side');
+  }
+}
+
+function syncRuntimeSideLayout() {
+  const grid = document.querySelector('.dash-runtime-grid');
+  if (!grid) return;
+  grid.classList.toggle('side-collapsed', !!runtimeSideCollapsed);
+}
+
+function applyRuntimePanels() {
+  const isCli = state.target === 'llama-cli';
+  const cliEl = document.getElementById('cli-terminal');
+  const chatEl = document.getElementById('chat-panel');
+  const processEl = document.getElementById('process-panel');
+  if (cliEl) cliEl.classList.toggle('active', !!runtimePanels.cli);
+  if (chatEl) chatEl.classList.toggle('active', !isCli && !!runtimePanels.chat);
+  if (processEl) processEl.classList.toggle('visible', !isCli && !!runtimePanels.process);
+  syncRuntimeSideLayout();
+  updateRuntimeDock();
+}
+
+function toggleRuntimePanel(name) {
+  if (!(name in runtimePanels)) return;
+  const isCli = state.target === 'llama-cli';
+  if (isCli && (name === 'chat' || name === 'process')) return;
+  runtimePanels[name] = !runtimePanels[name];
+  applyRuntimePanels();
+}
+
+function toggleRuntimeSide(force) {
+  runtimeSideCollapsed = typeof force === 'boolean' ? force : !runtimeSideCollapsed;
+  localStorage.setItem('ik_dash_runtime_side_collapsed', runtimeSideCollapsed ? '1' : '0');
+  applyRuntimePanels();
+}
 
 function updateInteractionPanels() {
   const isCli = state.target === 'llama-cli';
-  const isServer = state.target === 'llama-server';
-  const cliEl = document.getElementById('cli-terminal');
-  const chatEl = document.getElementById('chat-panel');
-
-  // Console/log viewer — ALWAYS visible (shows loading logs for both modes)
-  if (cliEl) cliEl.classList.add('active');
-  // Chat panel — ONLY for server mode
-  if (chatEl) chatEl.classList.toggle('active', isServer);
+  autoConfigureRuntimePanels();
+  applyRuntimePanels();
 
   // Update terminal label based on mode
   const termLabel = document.querySelector('#cli-terminal .terminal-label');
@@ -3659,6 +4235,63 @@ function restoreTheme() {
   }
 }
 
+function syncWorkspacePane() {
+  document.querySelectorAll('[data-workspace-pane-btn]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-workspace-pane-btn') === currentWorkspacePane);
+  });
+  document.querySelectorAll('[data-workspace-pane]').forEach(pane => {
+    pane.classList.toggle('active', pane.getAttribute('data-workspace-pane') === currentWorkspacePane);
+  });
+}
+
+function syncWorkspaceRail() {
+  const shell = document.getElementById('dash-workspace-shell');
+  if (!shell) return;
+  shell.classList.toggle('rail-collapsed', workspaceRailCollapsed && window.innerWidth > 1180);
+}
+
+function setWorkspacePane(pane) {
+  currentWorkspacePane = pane || 'overview';
+  localStorage.setItem('ik_dash_workspace_pane', currentWorkspacePane);
+  syncWorkspacePane();
+  toggleWorkspaceNav(false);
+}
+
+function toggleWorkspaceNav(force) {
+  const shell = document.getElementById('dash-workspace-shell');
+  if (!shell) return;
+  const next = typeof force === 'boolean' ? force : !shell.classList.contains('nav-open');
+  shell.classList.toggle('nav-open', next);
+}
+
+function toggleWorkspaceRail(force) {
+  if (window.innerWidth <= 1180) {
+    toggleWorkspaceNav(typeof force === 'boolean' ? force : undefined);
+    return;
+  }
+  workspaceRailCollapsed = typeof force === 'boolean' ? force : !workspaceRailCollapsed;
+  localStorage.setItem('ik_dash_workspace_rail_collapsed', workspaceRailCollapsed ? '1' : '0');
+  syncWorkspaceRail();
+}
+
+function initWorkspaceNavigation() {
+  const saved = localStorage.getItem('ik_dash_workspace_pane');
+  if (saved) {
+    currentWorkspacePane = saved;
+  }
+  workspaceRailCollapsed = localStorage.getItem('ik_dash_workspace_rail_collapsed') === '1';
+  runtimeSideCollapsed = localStorage.getItem('ik_dash_runtime_side_collapsed') === '1';
+  syncWorkspacePane();
+  syncWorkspaceRail();
+  syncRuntimeSideLayout();
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 1180) {
+      toggleWorkspaceNav(false);
+    }
+    syncWorkspaceRail();
+  });
+}
+
 // ============================================================
 // === INIT ===
 // ============================================================
@@ -3670,6 +4303,7 @@ function init() {
     applyProfile('ryzen_7950x_96gb');
   }
   setLang(currentLang);
+  initWorkspaceNavigation();
   syncAllToDOM();
   evaluate();
   renderCommand();

@@ -11,6 +11,7 @@
     view: 'learn',
     stage: 'flow',
     inspector: 'guide',
+    inspectorHidden: localStorage.getItem('ik_dash_live_inspector_hidden') === '1',
     runs: [],
     replayFilter: 'curated',
     selectedRun: '',
@@ -135,6 +136,13 @@
         body: t('live_scenario_gptoss_body'),
       } : null,
     ].filter(Boolean);
+  }
+
+  function getPreferredLayerTraceDemo() {
+    return replayState.runs.find(run => String(run.id || '').includes('minimax_cli_layer_trace'))
+      || replayState.runs.find(run => String(run.id || '').includes('layer_trace'))
+      || replayState.runs.find(run => run.curated && run.trace_like)
+      || null;
   }
 
   function t(key) {
@@ -602,8 +610,17 @@
   function renderExecutionFlow(phase, moe, meta) {
     const model = getExecutionFlowModel(phase, moe, meta);
     const nodesHtml = model.nodes.map((node, idx) => {
+      const nodeLink = node.id === 'input'
+        ? 'prompt'
+        : node.id === 'router'
+          ? 'router'
+          : node.id === 'experts'
+            ? 'experts'
+            : node.id === 'decode'
+              ? 'decode'
+              : '';
       const nodeHtml = `
-        <div class="flow-node flow-node-${node.state}" title="${esc(t('live_flow_node_hint'))}: ${esc(node.label)}">
+        <div class="flow-node flow-node-${node.state}" ${nodeLink ? `data-runtime-link="${esc(nodeLink)}"` : ''} title="${esc(t('live_flow_node_hint'))}: ${esc(node.label)}">
           <div class="flow-node-label">${esc(node.label)}</div>
         </div>
       `;
@@ -624,7 +641,7 @@
         <div class="live-summary live-summary-tight">
           <div class="live-chip">
             <span>${esc(t('live_phase_current'))}</span>
-            <strong>${esc(phase && phase.current ? phase.current : 'idle')}</strong>
+            <strong ${phase && phase.current === 'prompt' ? 'data-runtime-link="prompt"' : ((phase && (phase.current === 'first_decode' || phase.current === 'decode')) ? 'data-runtime-link="decode"' : '')}>${esc(phase && phase.current ? phase.current : 'idle')}</strong>
           </div>
           <div class="live-chip">
             <span>${esc(t('live_flow_path'))}</span>
@@ -695,12 +712,12 @@
         <div class="token-journey-track">
           <div class="token-journey-line" title="${esc(t('live_token_line_hint'))}"></div>
           <div class="token-journey-stops">
-            <span title="${esc(t('live_token_stop_input_hint'))}">Input</span>
-            <span title="${esc(t('live_token_stop_router_hint'))}">Router</span>
-            <span title="${esc(t('live_token_stop_experts_hint'))}">Experts</span>
-            <span title="${esc(t('live_token_stop_decode_hint'))}">Decode</span>
+            <span data-runtime-link="prompt" title="${esc(t('live_token_stop_input_hint'))}">Input</span>
+            <span data-runtime-link="router" title="${esc(t('live_token_stop_router_hint'))}">Router</span>
+            <span data-runtime-link="experts" title="${esc(t('live_token_stop_experts_hint'))}">Experts</span>
+            <span data-runtime-link="decode" title="${esc(t('live_token_stop_decode_hint'))}">Decode</span>
           </div>
-          <div class="token-journey-token" style="left:${position}" title="${esc(note)}">
+          <div class="token-journey-token" ${current === 'prompt' ? 'data-runtime-link="prompt"' : ((current === 'first_decode' || current === 'decode') ? 'data-runtime-link="decode"' : '')} style="left:${position}" title="${esc(note)}">
             <span>${esc(t('live_token_chip'))}</span>
           </div>
         </div>
@@ -1012,10 +1029,11 @@
               <button type="button" class="workspace-tab ${inspector === 'phase' ? 'active' : ''}" data-live-inspector="phase">${esc(t('live_workspace_inspector_phase'))}</button>
               <button type="button" class="workspace-tab ${inspector === 'moe' ? 'active' : ''}" data-live-inspector="moe">${esc(t('live_workspace_inspector_moe'))}</button>
               <button type="button" class="workspace-tab ${inspector === 'memory' ? 'active' : ''}" data-live-inspector="memory">${esc(t('live_workspace_inspector_memory'))}</button>
+              <button type="button" class="workspace-tab workspace-toggle" data-live-inspector-toggle="1">${esc(t(replayState.inspectorHidden ? 'live_workspace_show_inspector' : 'live_workspace_hide_inspector'))}</button>
             </div>
           </div>
         </div>
-        <div class="workspace-body">
+        <div class="workspace-body ${replayState.inspectorHidden ? 'inspector-collapsed' : ''}">
           <div class="workspace-main">
             ${mainHtml}
           </div>
@@ -1042,12 +1060,73 @@
     document.querySelectorAll('[data-live-inspector]').forEach(btn => {
       btn.onclick = () => {
         replayState.inspector = btn.getAttribute('data-live-inspector') || 'guide';
+        replayState.inspectorHidden = false;
+        localStorage.setItem('ik_dash_live_inspector_hidden', '0');
         if (replayState.mode === 'replay') {
           renderReplayFrame();
         } else {
           poll();
         }
       };
+    });
+
+    document.querySelectorAll('[data-live-inspector-toggle]').forEach(btn => {
+      btn.onclick = () => {
+        replayState.inspectorHidden = !replayState.inspectorHidden;
+        localStorage.setItem('ik_dash_live_inspector_hidden', replayState.inspectorHidden ? '1' : '0');
+        if (replayState.mode === 'replay') {
+          renderReplayFrame();
+        } else {
+          poll();
+        }
+      };
+    });
+
+    bindReplayPickButtons();
+    bindRuntimeLinkEvents();
+  }
+
+  function bindReplayPickButtons() {
+    document.querySelectorAll('[data-replay-pick]').forEach(btn => {
+      btn.onclick = async () => {
+        const runId = btn.getAttribute('data-replay-pick') || '';
+        if (!runId) return;
+        replayState.mode = 'replay';
+        replayState.selectedRun = runId;
+        stopReplay();
+        await loadReplayData(runId);
+      };
+    });
+  }
+
+  function bindRuntimeLinkEvents() {
+    const groups = {};
+    document.querySelectorAll('[data-runtime-link]').forEach(el => {
+      const key = el.getAttribute('data-runtime-link') || '';
+      if (!key) return;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(el);
+    });
+
+    const clearActive = () => {
+      document.querySelectorAll('.runtime-link-active').forEach(el => el.classList.remove('runtime-link-active'));
+    };
+
+    Object.entries(groups).forEach(([key, els]) => {
+      const activate = () => {
+        clearActive();
+        els.forEach(el => el.classList.add('runtime-link-active'));
+        if (key === 'prompt' || key === 'decode') {
+          document.querySelectorAll('[data-runtime-link="compare"]').forEach(el => el.classList.add('runtime-link-active'));
+        }
+      };
+      const deactivate = () => clearActive();
+      els.forEach(el => {
+        el.addEventListener('mouseenter', activate);
+        el.addEventListener('mouseleave', deactivate);
+        el.addEventListener('focus', activate);
+        el.addEventListener('blur', deactivate);
+      });
     });
   }
 
@@ -1328,6 +1407,7 @@
       ...heatmapRows.flatMap(row => (row.experts || []).map(item => Number(item.hits || 0))),
       0
     );
+    const layerTraceDemo = getPreferredLayerTraceDemo();
     const heatmapHtml = showInspect
       ? `
           <div class="live-history">
@@ -1391,6 +1471,17 @@
                   <strong>${esc(t(`live_replay_telemetry_${getReplayTelemetryKind(replayState.data)}`))}</strong>
                 </div>
               </div>
+              ${layerTraceDemo ? `
+                <div class="replay-quick-picks">
+                  <div class="replay-quick-picks-label">${esc(t('live_replay_quick_picks'))}</div>
+                  <div class="replay-quick-picks-row">
+                    <button type="button" class="live-chip replay-pick-btn" data-replay-pick="${esc(layerTraceDemo.id)}">
+                      <span>${esc(t('live_moe_heatmap_open_demo'))}</span>
+                      <strong>${esc(layerTraceDemo.demoType)}</strong>
+                    </button>
+                  </div>
+                </div>
+              ` : ''}
             `}
           </div>
         `
@@ -1421,25 +1512,25 @@
 
     const compareHtml = showInspect && ((compare.prompt && compare.prompt.length) || (compare.decode && compare.decode.length))
       ? `
-          <div class="live-history">
+          <div class="live-history" data-runtime-link="compare">
             <div class="live-panel-title">${esc(t('live_moe_prompt_decode_compare'))}</div>
             <div class="live-summary live-summary-tight">
-              <div class="live-chip">
+              <div class="live-chip" data-runtime-link="compare">
                 <span>${esc(t('live_moe_overlap_count'))}</span>
                 <strong>${esc(String(compareOverlapCount))}</strong>
               </div>
-              <div class="live-chip">
+              <div class="live-chip" data-runtime-link="compare">
                 <span>${esc(t('live_moe_overlap_hint'))}</span>
                 <strong>${esc(stability.label && stability.label !== 'n/a' ? t(`live_moe_stability_${stability.label}`) : 'n/a')}</strong>
               </div>
             </div>
             <div class="expert-compare-grid">
               <div>
-                <div class="live-panel-title">${esc(t('live_phase_prompt'))}</div>
+                <div class="live-panel-title" data-runtime-link="prompt">${esc(t('live_phase_prompt'))}</div>
                 ${renderExpertCompareList(compare.prompt)}
               </div>
               <div>
-                <div class="live-panel-title">${esc(t('live_phase_decode_tail'))}</div>
+                <div class="live-panel-title" data-runtime-link="decode">${esc(t('live_phase_decode_tail'))}</div>
                 ${renderExpertCompareList(compare.decode)}
               </div>
             </div>
