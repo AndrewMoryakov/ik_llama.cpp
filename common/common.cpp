@@ -327,6 +327,72 @@ static std::string add_rpc_devices(std::string& servers) {
     return rpc_devices;
 }
 
+static bool common_bool_from_string(const std::string & value, bool & out) {
+    std::string v = string_lower(string_strip(value));
+    if (v == "1" || v == "true" || v == "on" || v == "yes") {
+        out = true;
+        return true;
+    }
+    if (v == "0" || v == "false" || v == "off" || v == "no") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+static bool common_set_process_env(const std::string & key, const std::string & value) {
+#if defined(_WIN32)
+    return _putenv_s(key.c_str(), value.c_str()) == 0;
+#else
+    return setenv(key.c_str(), value.c_str(), 1) == 0;
+#endif
+}
+
+static bool common_apply_experimental_cli_overrides(const gpt_params & params, std::string * err = nullptr) {
+    static const std::unordered_map<std::string, std::string> allowed = {
+        { "hot-expert-budget",         "IK_LLAMA_HOT_EXPERT_BUDGET" },
+        { "hot-expert-selection",      "IK_LLAMA_HOT_EXPERT_SELECTION" },
+        { "hot-expert-tail-window",    "IK_LLAMA_HOT_EXPERT_TAIL_WINDOW" },
+        { "prompt-packed-qkv",         "IK_LLAMA_PROMPT_PACKED_QKV" },
+        { "prompt-packed-preset",      "IK_LLAMA_PROMPT_PACKED_QKV_PRESET" },
+        { "prompt-packed-range",       "IK_LLAMA_PROMPT_PACKED_QKV_RANGE" },
+    };
+
+    for (const auto & kv : params.experimental_cli) {
+        auto it = allowed.find(kv.first);
+        if (it == allowed.end()) {
+            if (err) {
+                *err = string_format(
+                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range)",
+                        kv.first.c_str());
+            }
+            return false;
+        }
+
+        std::string value = string_strip(kv.second);
+        if (kv.first == "prompt-packed-qkv") {
+            bool enabled = false;
+            if (!common_bool_from_string(value, enabled)) {
+                if (err) {
+                    *err = string_format("--experimental %s expects on/off/true/false/1/0, got '%s'",
+                            kv.first.c_str(), value.c_str());
+                }
+                return false;
+            }
+            value = enabled ? "1" : "0";
+        }
+
+        if (!common_set_process_env(it->second, value)) {
+            if (err) {
+                *err = string_format("failed to set process environment variable %s", it->second.c_str());
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
 std::pair<long, std::vector<char>> common_remote_get_content(const std::string& url, const common_remote_params&) {
     if (!url.empty()) {
         throw std::runtime_error("error: built without CURL, cannot download file from the internet");
@@ -1539,6 +1605,21 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         params.merge_qkv = true;
         return true;
     }
+    if (arg == "--experimental") {
+        CHECK_ARG
+        const std::string spec = argv[i];
+        const size_t eq = spec.find('=');
+        if (eq == std::string::npos || eq == 0 || eq == spec.size() - 1) {
+            fprintf(stderr, "error: --experimental expects key=value, got '%s'\n", spec.c_str());
+            invalid_param = true;
+            return true;
+        }
+
+        std::string key = string_lower(string_strip(spec.substr(0, eq)));
+        std::string value = string_strip(spec.substr(eq + 1));
+        params.experimental_cli[key] = value;
+        return true;
+    }
     // Keep backwards-compatible aliases: there have been multiple spellings in the wild.
     if (arg == "-muge" ||
         arg == "--merge-up-gate-exps" ||
@@ -2281,6 +2362,10 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     options.push_back({ "*",         "-mqkv,  --merge-qkv,",            "merge Q,K,V (default: %d)", params.merge_qkv});
     options.push_back({ "*",         "-muge,  --merge-up-gate-experts,","merge ffn_up/gate_exps (default: %d)", params.merge_up_gate_exps});
     options.push_back({ "*",         "-khad,  --k-cache-hadamard,",     "Use Hadamard transform for K-cache (default: %d)", params.k_cache_hadamard});
+    options.push_back({ "*",           "       --experimental KEY=VALUE",
+                                                                        "set a repeatable experimental runtime override.\n"
+                                                                        "supported keys: hot-expert-budget, hot-expert-selection, hot-expert-tail-window,\n"
+                                                                        "prompt-packed-qkv, prompt-packed-preset, prompt-packed-range" });
     options.push_back({ "*",         "-smf16, --split-mode-f16,",       "Use f16 for data exchange between GPUs (default: %d)", true});
     options.push_back({ "*",         "-smf32, --split-mode-f32,",       "Use f32 for data exchange between GPUs (default: %d)", false});
     options.push_back({ "*",         "-grt, --graph-reduce-type",       "Type for data exchange between GPUs (default: %s)", "f32"});
@@ -3225,6 +3310,11 @@ void llama_lora_adapters_apply(struct llama_context * ctx, std::vector<llama_lor
 }
 
 struct llama_model_params common_model_params_to_llama(const gpt_params & params) {
+    std::string experimental_err;
+    if (!common_apply_experimental_cli_overrides(params, &experimental_err)) {
+        throw std::runtime_error(experimental_err);
+    }
+
     auto mparams = llama_model_default_params();
     mparams.devices = params.devices.c_str();
 

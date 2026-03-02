@@ -357,6 +357,7 @@ struct gpt_params {
     bool split_mode_graph_scheduling = false; // if true, force split mode graph scheduling
     //bool split_mode_f16    = true;  // if true, intermediate results will be cast to f16 before copying to other GPUs to perform reduce ops
     bool scheduler_async   = false; // if true, in split mode graph the scheduler will use multiple threads to evaluate the graph
+    std::map<std::string, std::string> experimental_cli; // repeatable --experimental key=value runtime overrides
 
     std::string cache_type_k = "f16"; // KV cache data type for the K
     std::string cache_type_v = "f16"; // KV cache data type for the V

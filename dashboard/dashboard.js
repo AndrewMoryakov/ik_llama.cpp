@@ -2153,25 +2153,30 @@ function buildEnvOverrides(s = state) {
     env.IK_LLAMA_PG_TRACE_DECODE_WINDOW = '8';
     env.IK_LLAMA_HOT_EXPERT_TRACE = '1';
   }
+  return env;
+}
+
+function buildExperimentalCliArgs(s = state) {
+  const args = [];
   if ((s.hot_expert_budget || 0) > 0) {
-    env.IK_LLAMA_HOT_EXPERT_BUDGET = String(s.hot_expert_budget);
+    args.push('--experimental', `hot-expert-budget=${s.hot_expert_budget}`);
   }
   if (s.hot_expert_selection && s.hot_expert_selection !== 'default') {
-    env.IK_LLAMA_HOT_EXPERT_SELECTION = String(s.hot_expert_selection);
+    args.push('--experimental', `hot-expert-selection=${String(s.hot_expert_selection)}`);
   }
   if (s.hot_expert_selection === 'tail-window' && (s.hot_expert_tail_window || 0) > 0) {
-    env.IK_LLAMA_HOT_EXPERT_TAIL_WINDOW = String(s.hot_expert_tail_window);
+    args.push('--experimental', `hot-expert-tail-window=${s.hot_expert_tail_window}`);
   }
   if (s.prompt_packed_qkv) {
-    env.IK_LLAMA_PROMPT_PACKED_QKV = '1';
+    args.push('--experimental', 'prompt-packed-qkv=on');
     const explicitRange = String(s.prompt_packed_qkv_range || '').trim();
     if (explicitRange) {
-      env.IK_LLAMA_PROMPT_PACKED_QKV_RANGE = explicitRange;
+      args.push('--experimental', `prompt-packed-range=${explicitRange}`);
     } else if (s.prompt_packed_qkv_preset) {
-      env.IK_LLAMA_PROMPT_PACKED_QKV_PRESET = String(s.prompt_packed_qkv_preset);
+      args.push('--experimental', `prompt-packed-preset=${String(s.prompt_packed_qkv_preset)}`);
     }
   }
-  return env;
+  return args;
 }
 
 function renderEnvPrefix(env, shell) {
@@ -2244,6 +2249,10 @@ function renderCommand() {
   if (s.use_mlock) parts.push('--mlock');
   if (s.numa !== 'disabled') parts.push('--numa ' + s.numa);
   if (s.defrag_thold !== -1) parts.push('-dt ' + s.defrag_thold);
+  const experimentalArgs = buildExperimentalCliArgs(s);
+  for (let i = 0; i < experimentalArgs.length; i += 2) {
+    parts.push(`${experimentalArgs[i]} ${experimentalArgs[i + 1]}`);
+  }
 
   const cont = s.shell === 'powershell' ? ' `' : ' \\';
   const sep = '\n  ';
@@ -3146,6 +3155,7 @@ function buildArgsArray() {
   if (s.use_mlock) args.push('--mlock');
   if (s.numa !== 'disabled') { args.push('--numa', s.numa); }
   if (s.defrag_thold !== -1) { args.push('-dt', '' + s.defrag_thold); }
+  args.push(...buildExperimentalCliArgs(s));
 
   return args;
 }
@@ -3654,7 +3664,7 @@ const HELP = {
 <div class="see-also">See also: <span>model type</span> (Dense vs MoE)</div>`,
   },
   hot_expert_budget: {
-    ru: `<h4>Hot Expert Budget (IK_LLAMA_HOT_EXPERT_BUDGET)</h4>
+    ru: `<h4>Hot Expert Budget (--experimental hot-expert-budget=N)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>У huge MoE вроде MiniMax не все эксперты одинаково полезны сразу после промта. Fork может запомнить «горячих» экспертов из prompt-фазы и попытаться держать их в памяти для первых decode-токенов. Этот параметр задаёт, сколько таких экспертов разрешено держать в hot-наборе.</div>
 <p><b>0</b> = оставить runtime default.</p>
 <p><b>N &gt; 0</b> = попросить runtime держать до N «горячих» экспертов.</p>
@@ -3663,8 +3673,9 @@ const HELP = {
 • слишком большой budget — растёт давление на RAM без гарантии выигрыша
 • короткий quick check когда-то подсветил большие бюджеты, но первый более длинный controlled MiniMax run не оправдал новый default выше legacy 16</div>
 <div class="tip">Что меняет: сколько experts runtime пытается держать «теплыми» после prompt. Где помогает: huge swap-bound MoE, если ранний decode переиспользует узкий hot set. Где может навредить: лишнее давление на RAM и удержание неправильных experts. Когда трогать: в первую очередь для MiniMax-класса и только как controlled test.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-budget=16</span></div>
 <div class="see-also">См. также: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>тип модели</span> (Dense vs MoE)</div>`,
-    en: `<h4>Hot Expert Budget (IK_LLAMA_HOT_EXPERT_BUDGET)</h4>
+    en: `<h4>Hot Expert Budget (--experimental hot-expert-budget=N)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In huge MoE models such as MiniMax, not all experts are equally useful right after the prompt. The fork can remember "hot" experts from the prompt phase and try to keep them resident for the first decode tokens. This parameter sets how many experts are allowed in that hot set.</div>
 <p><b>0</b> = keep the runtime default.</p>
 <p><b>N &gt; 0</b> = ask the runtime to keep up to N "hot" experts.</p>
@@ -3673,10 +3684,11 @@ const HELP = {
 • too large a budget — RAM pressure increases without a guaranteed win
 • a short quick check once highlighted larger budgets, but the first longer controlled MiniMax run did not justify a new default above the legacy 16 budget</div>
 <div class="tip">What this changes: how many experts runtime tries to keep “warm” after the prompt. Where it helps: huge swap-bound MoE if early decode reuses a narrow hot set. Where it can hurt: extra RAM pressure and retention of the wrong experts. When to touch it: mainly for MiniMax-class tests and only as a controlled experiment.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-budget=16</span></div>
 <div class="see-also">See also: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>model type</span> (Dense vs MoE)</div>`,
   },
   hot_expert_selection: {
-    ru: `<h4>Hot Expert Selection (IK_LLAMA_HOT_EXPERT_SELECTION)</h4>
+    ru: `<h4>Hot Expert Selection (--experimental hot-expert-selection=...)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>После prompt fork может запомнить «горячих» экспертов и попытаться держать их ближе к памяти для первых decode-токенов. Этот параметр задаёт, по какой части prompt выбирать таких экспертов.</div>
 <p><b>default</b> — не задавать env, оставить текущий runtime baseline.</p>
 <p><b>full-prompt</b> — считать hot experts по всему prompt.</p>
@@ -3688,8 +3700,9 @@ const HELP = {
 • меняется именно runtime-логика: какие experts fork считает приоритетными для раннего decode
 • то есть вы меняете не саму модель, а способ использовать prompt как прогноз для ближайших токенов ответа</div>
 <div class="tip">Сейчас это имеет смысл прежде всего для huge MiniMax. Для обычного запуска других MoE-моделей не включайте это без отдельного A/B.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window</span></div>
 <div class="see-also">См. также: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
-    en: `<h4>Hot Expert Selection (IK_LLAMA_HOT_EXPERT_SELECTION)</h4>
+    en: `<h4>Hot Expert Selection (--experimental hot-expert-selection=...)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>After the prompt, the fork can remember “hot” experts and try to keep them closer to memory for the first decode tokens. This setting controls which part of the prompt is used to choose those experts.</div>
 <p><b>default</b> — do not set the env, keep the current runtime baseline.</p>
 <p><b>full-prompt</b> — choose hot experts from the whole prompt.</p>
@@ -3701,24 +3714,27 @@ const HELP = {
 • it changes the runtime logic: which experts the fork treats as priority candidates for early decode
 • in other words, you are not changing the model itself; you are changing how prompt information is used as a predictor for the first answer tokens</div>
 <div class="tip">Right now this mainly makes sense for huge MiniMax. Do not enable it for other MoE families without a separate A/B check.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window</span></div>
 <div class="see-also">See also: <span>Hot Expert Budget</span>, <span>Tail Window</span>, <span>-rtr</span></div>`,
   },
   hot_expert_tail_window: {
-    ru: `<h4>Tail Window (IK_LLAMA_HOT_EXPERT_TAIL_WINDOW)</h4>
+    ru: `<h4>Tail Window (--experimental hot-expert-tail-window=N)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Если выбор hot experts идет по хвосту prompt, нужно указать размер этого хвоста. Например, 16 означает: смотреть только на последние 16 токенов prompt.</div>
 <p><b>Малое окно</b> — агрессивный локальный прогноз. Лучше ловит совсем ранний decode, но может пропустить более широкий контекст.</p>
 <p><b>Большое окно</b> — ближе к поведению full-prompt, но эффект locality может стать слабее.</p>
 <div class="bench">Текущий рабочий research-кандидат для MiniMax mixed-path: <span class="hl">16</span>. Это не validated default, а лишь первый promising A/B-результат.
 <br>Интуитивно: вместо вопроса «какие experts были важны для всего prompt?» runtime задаёт более узкий вопрос: «какие experts были важны для самого конца prompt, из которого сейчас начнётся ответ?»</div>
 <div class="tip">Используйте только вместе с Hot Expert Selection = tail-window. Если не тестируете MiniMax locality специально, оставьте как есть.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window --experimental hot-expert-tail-window=16</span></div>
 <div class="see-also">См. также: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
-    en: `<h4>Tail Window (IK_LLAMA_HOT_EXPERT_TAIL_WINDOW)</h4>
+    en: `<h4>Tail Window (--experimental hot-expert-tail-window=N)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>If hot experts are chosen from the prompt tail, you must specify how large that tail is. For example, 16 means: look only at the last 16 prompt tokens.</div>
 <p><b>Small window</b> — aggressive local prediction. Better for very early decode, but may miss wider context.</p>
 <p><b>Large window</b> — closer to full-prompt behavior, but the locality effect may become weaker.</p>
 <div class="bench">Current working research candidate for MiniMax mixed-path: <span class="hl">16</span>. This is not a validated default, only the first promising A/B result.
 <br>Intuitively: instead of asking “which experts mattered for the whole prompt?”, runtime asks the narrower question “which experts mattered for the very end of the prompt, where the answer is about to begin?”</div>
 <div class="tip">Use this only together with Hot Expert Selection = tail-window. If you are not testing MiniMax locality on purpose, leave it alone.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window --experimental hot-expert-tail-window=16</span></div>
     <div class="see-also">See also: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
   },
   experimental_preset: {
@@ -3752,7 +3768,7 @@ const HELP = {
 <div class="tip">If you want to test one hypothesis strictly on top of your own baseline, disable the link. If you want to reproduce the intended bundle quickly, keep it ON.</div>`,
   },
   prompt_packed_qkv: {
-    ru: `<h4>Prompt Packed QKV</h4>
+    ru: `<h4>Prompt Packed QKV (--experimental prompt-packed-qkv=on)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Некоторые модели хранят Q, K и V раздельно. Этот исследовательский путь пытается в prompt-фазе упаковать их в более удобный для CPU формат, чтобы attention работал с лучшей локальностью данных.</div>
 <p>Это влияет только на prompt-подобные батчи. Decode baseline не переписывается целиком.</p>
 <div class="bench">Практический смысл:
@@ -3760,8 +3776,9 @@ const HELP = {
 • эффект на полный mixed path обычно меньше
 • иногда стоит дополнительной RAM и времени загрузки</div>
 <div class="tip">Что меняет: только prompt-path layout, а не всю модель. Где помогает: prompt-heavy и mixed-path A/B на split-QKV семьях. Где может навредить: RAM, load time и общая простота baseline. Когда трогать: Qwen3MoE / gpt-oss prompt-path experiments, а не общий baseline-тюнинг.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
 <div class="see-also">См. также: <span>Preset Prompt Packed</span>, <span>Диапазон Prompt Packed</span>, <span>Flash Attention</span></div>`,
-    en: `<h4>Prompt Packed QKV</h4>
+    en: `<h4>Prompt Packed QKV (--experimental prompt-packed-qkv=on)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Some models keep Q, K, and V projections split. This research path tries to pack them into a more CPU-friendly layout during the prompt phase so attention can run with better data locality.</div>
 <p>This affects only prompt-like batches. The normal decode baseline is not fully rewritten.</p>
 <div class="bench">Practical meaning:
@@ -3769,35 +3786,40 @@ const HELP = {
 • the effect on full mixed path is usually smaller
 • may cost extra RAM and load time</div>
 <div class="tip">What this changes: only the prompt-path layout, not the whole model. Where it helps: prompt-heavy and mixed-path A/B on split-QKV families. Where it can hurt: RAM, load time, and baseline simplicity. When to touch it: Qwen3MoE / gpt-oss prompt-path experiments, not general baseline tuning.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
 <div class="see-also">See also: <span>Prompt Packed preset</span>, <span>Prompt Packed range</span>, <span>Flash Attention</span></div>`,
   },
   prompt_packed_qkv_preset: {
-    ru: `<h4>Preset Prompt Packed</h4>
+    ru: `<h4>Preset Prompt Packed (--experimental prompt-packed-preset=...)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Prompt Packed можно применять не ко всем слоям, а только к части. Preset — это готовый диапазон слоёв, который уже показал хоть какой-то смысл на конкретной семье моделей.</div>
 <p><b>auto</b> — доверить fork выбрать известный family-aware вариант.</p>
 <p><b>front-half</b> — ранняя половина слоёв; сейчас это больше похоже на Qwen-сценарий.</p>
 <p><b>back-half</b> — поздняя половина слоёв; сейчас это больше похоже на gpt-oss-сценарий.</p>
 <p><b>full</b> — все слои; как правило, это самый тяжёлый и наименее безопасный вариант.</p>
-<div class="tip">Если нет сильной причины, не начинайте с full.</div>`,
-    en: `<h4>Prompt Packed preset</h4>
+<div class="tip">Если нет сильной причины, не начинайте с full.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-preset=back-half</span></div>`,
+    en: `<h4>Prompt Packed preset (--experimental prompt-packed-preset=...)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Prompt Packed does not have to cover all layers. A preset is a ready-made layer range that already showed at least some meaning on a specific model family.</div>
 <p><b>auto</b> — let the fork choose a known family-aware variant.</p>
 <p><b>front-half</b> — early half of the layers; currently closer to the Qwen case.</p>
 <p><b>back-half</b> — late half of the layers; currently closer to the gpt-oss case.</p>
 <p><b>full</b> — all layers; usually the heaviest and least safe option.</p>
-<div class="tip">Without a strong reason, do not start from full.</div>`,
+<div class="tip">Without a strong reason, do not start from full.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-preset=back-half</span></div>`,
   },
   prompt_packed_qkv_range: {
-    ru: `<h4>Диапазон Prompt Packed</h4>
+    ru: `<h4>Диапазон Prompt Packed (--experimental prompt-packed-range=start:end)</h4>
 <div class="beginner-section"><div class="label">Для новичков</div>Это ручной override поверх preset. Вы явно говорите fork: “используй Prompt Packed только на слоях от start до end”.</div>
 <p>Формат: <span class="hl">start:end</span>, например <span class="hl">0:24</span> или <span class="hl">12:24</span>.</p>
 <p>Если диапазон задан, он важнее preset.</p>
-<div class="tip">Это уже advanced A/B. Если не понимаете, зачем вам явный range, оставьте поле пустым и используйте preset.</div>`,
-    en: `<h4>Prompt Packed range</h4>
+<div class="tip">Это уже advanced A/B. Если не понимаете, зачем вам явный range, оставьте поле пустым и используйте preset.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-range=0:24</span></div>`,
+    en: `<h4>Prompt Packed range (--experimental prompt-packed-range=start:end)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>This is a manual override on top of the preset. You explicitly tell the fork: “use Prompt Packed only on layers from start to end”.</div>
 <p>Format: <span class="hl">start:end</span>, for example <span class="hl">0:24</span> or <span class="hl">12:24</span>.</p>
 <p>If the range is set, it overrides the preset.</p>
-<div class="tip">This is already advanced A/B territory. If you do not know why you need an explicit range, leave it empty and use a preset.</div>`,
+<div class="tip">This is already advanced A/B territory. If you do not know why you need an explicit range, leave it empty and use a preset.</div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-range=0:24</span></div>`,
   },
   model_size_gb: {
     ru: `<h4>Размер модели</h4>

@@ -37,7 +37,7 @@
 6. подбирать стартовые настройки через `Auto-configure`;
 7. показывать предупреждения и подсказки по опасным комбинациям;
 8. различать validated baseline и experimental knobs;
-9. прокидывать часть runtime env overrides, включая experimental MiniMax knobs;
+9. прокидывать trace/debug env overrides и передавать runtime-safe experimental knobs через repeatable CLI `--experimental key=value`;
 10. применять экспериментальные пресеты, в том числе model-aware bundles для `MiniMax`, `Qwen3MoE` и `gpt-oss`;
 11. по выбору пользователя связывать экспериментальный preset с validated-настройками, если bundle требует конкретного baseline.
 12. показывать live inference view:
@@ -157,7 +157,9 @@
 3. UI оценивает memory regime по размеру модели и RAM хоста;
 4. knowledge layer подбирает стартовый профиль;
 5. rules добавляют warnings и badges;
-6. builder собирает CLI args и env overrides;
+6. builder собирает CLI args и env overrides:
+- validated и runtime-safe experimental knobs идут в CLI;
+- trace/debug layer остается в env overrides;
 7. `dashboard_server.py` запускает процесс и показывает статус.
 
 То есть dashboard не просто рисует форму, а делает runtime reasoning поверх текущей benchmark truth.
