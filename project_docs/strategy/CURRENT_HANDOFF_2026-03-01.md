@@ -37,6 +37,7 @@ Source of truth:
 
 - `project_docs/benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `project_docs/benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
+- `project_docs/strategy/PHASE2_KNOB_BACKLOG_2026-03-03.md`
 
 ### 2. MiniMax M2.5
 
