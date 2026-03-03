@@ -64,6 +64,15 @@
 1. `experimentalChanges`
 2. `linkedValidatedChanges`
 
+Для validated/class-level presets фиксируются:
+
+1. `Applicability`
+2. `Validation`
+3. `Confidence`
+4. `values`
+
+То есть evidence layer теперь покрывает не только research knobs, но и product-level preset bundles.
+
 ## Что не входит в evidence layer
 
 Он не заменяет:
@@ -91,7 +100,8 @@
 1. experimental knob badges;
 2. preset badges;
 3. validation/confidence tooltips;
-4. tested-on / failure-mode summaries.
+4. tested-on / failure-mode summaries;
+5. standard preset definitions.
 
 ## Каноническая схема
 
@@ -108,7 +118,7 @@
 7. `testedOn`
 8. `failureMode`
 
-### Preset entry
+### Experimental preset entry
 
 Каждый experimental preset должен иметь:
 
@@ -122,6 +132,18 @@
 8. `testedOn`
 9. `experimentalChanges`
 10. `linkedValidatedChanges`
+
+### Standard preset entry
+
+Каждый standard preset должен иметь:
+
+1. `id`
+2. `title`
+3. `description`
+4. `applicability`
+5. `validation`
+6. `confidence`
+7. `values`
 
 ## Правила интерпретации
 
@@ -183,6 +205,7 @@
 - `validation`
 - `confidence`
 - `failureMode`, если появились новые отрицательные сигналы
+- preset confidence/validation, если findings влияют на preset recommendation
 
 3. затем, если нужно, обновляются:
 - presets

@@ -132,6 +132,20 @@ Practical meaning:
 2. continue it specifically as a promising huge-model branch for `gpt-oss-120b`
 3. for `gpt-oss-20b`, the next mainline technical priority remains decode-side optimization, not more prompt-packed tuning
 
+### 5. Data-driven evidence layer
+
+The dashboard/product layer now has a canonical evidence registry:
+
+- `dashboard/evidence-layer.js`
+
+It already covers:
+
+1. experimental knobs
+2. experimental presets
+3. standard dashboard presets
+
+This means new findings should now be integrated by updating the evidence registry rather than adding new hardcoded `if/else` semantics across `dashboard.js`.
+
 Canonical follow-up for this unfinished tail:
 
 - `project_docs/strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`

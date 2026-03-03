@@ -901,48 +901,6 @@ const PROFILES = {
 };
 
 // ============================================================
-// === PRESETS ===
-// ============================================================
-const PRESETS = {
-  'moe_in_ram': {
-    name: { ru: 'MoE (в RAM)', en: 'MoE (In-RAM)' },
-    desc: { ru: 'Qwen3-30B-A3B, gpt-oss-20b и т.д.', en: 'Qwen3-30B-A3B, gpt-oss-20b, etc.' },
-    values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false,
-              cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'moe' },
-  },
-  'gptoss_huge_throughput': {
-    name: { ru: 'gpt-oss huge (throughput)', en: 'gpt-oss huge (throughput)' },
-    desc: { ru: 'gpt-oss-120b: throughput-first, startup дороже', en: 'gpt-oss-120b: throughput-first, startup is more expensive' },
-    values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false,
-              cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' },
-  },
-  'minimax_huge_safe': {
-    name: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
-    desc: { ru: 'MiniMax M2.5: консервативный OFF-baseline; mixed path стоит сравнивать с AUTO', en: 'MiniMax M2.5: conservative OFF baseline; mixed path should be compared against AUTO' },
-    values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false,
-              cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' },
-  },
-  'dense_in_ram': {
-    name: { ru: 'Dense (в RAM)', en: 'Dense (In-RAM)' },
-    desc: { ru: 'Llama-3, Phi-4 и т.д.', en: 'Llama-3, Phi-4, etc.' },
-    values: { threads: 16, flash_attn: true, repack_tensors: 'on', merge_up_gate_exps: false,
-              cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'dense' },
-  },
-  'server_prod': {
-    name: { ru: 'Сервер (Production)', en: 'Server (Production)' },
-    desc: { ru: 'llama-server с параллельными слотами', en: 'llama-server with parallel slots' },
-    values: { threads: 16, flash_attn: true, repack_tensors: 'on', cache_type_k: 'q8_0',
-              cache_type_v: 'f16', n_parallel: 4, hostname: '0.0.0.0', model_type: 'dense',
-              target: 'llama-server' },
-  },
-  'max_context': {
-    name: { ru: 'Макс. контекст', en: 'Max Context' },
-    desc: { ru: 'Максимальный контекст с квант. KV', en: 'Max context with quantized KV' },
-    values: { flash_attn: true, cache_type_k: 'q8_0', cache_type_v: 'q4_0', n_ctx: 131072 },
-  },
-};
-
-// ============================================================
 // === CROSS-PARAMETER RULES ===
 // ============================================================
 function isSwapBound(s, p) {
@@ -981,10 +939,10 @@ function isValidatedAutoMoeFamily(s = state, meta = lastModelMeta) {
 }
 
 function getFamilyValidationStatus(s = state, meta = lastModelMeta) {
-  const family = detectModelFamily(s, meta);
-  if (family === 'qwen3moe' || family === 'gpt-oss') return 'validated';
-  if (family === 'minimax') return 'partial';
-  return 'unknown';
+  return window.IKLLamaEvidenceLayer?.getFamilyValidationStatus?.(
+    { state: s, meta, family: detectModelFamily(s, meta), modelPath: s.model || '', modelType: s.model_type, workload: s.workload_profile, isSwapBound: isSwapBound(s, currentProfile || {}) },
+    { detectModelFamily, isSwapBound }
+  ) || 'unknown';
 }
 
 function hasExperimentalKnobs(s = state) {
@@ -2056,9 +2014,14 @@ function renderOverviewSummary(active = []) {
       : family === 'minimax'
         ? t('badge_family_minimax')
         : t('ov_family_unknown_value');
-  const familyNote = family === 'generic'
+  const familyEvidenceNote = window.IKLLamaEvidenceLayer?.getFamilyValidationNote?.(
+    { state, meta: lastModelMeta, family, modelPath: state.model || '', modelType: state.model_type, workload: state.workload_profile, isSwapBound: swap },
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || '';
+  const familyNote = family === 'other'
     ? t('ov_family_unknown_note')
-    : (state.model_size_gb > 0 ? `${state.model_size_gb} GB` : (currentLang === 'ru' ? 'Размер модели пока не определён' : 'Model size is not set yet'));
+    : (familyEvidenceNote || (state.model_size_gb > 0 ? `${state.model_size_gb} GB` : (currentLang === 'ru' ? 'Размер модели пока не определён' : 'Model size is not set yet')));
   const validationText = validation === 'validated'
     ? t('ov_validation_validated')
     : validation === 'partial'
@@ -2066,7 +2029,7 @@ function renderOverviewSummary(active = []) {
       : t('ov_validation_unknown_value');
   const validationNote = validation === 'unknown'
     ? t('ov_validation_unknown_note')
-    : (hasExperimentalKnobs(state) ? t('badge_status_exp_knobs') : (currentLang === 'ru' ? 'Без экспериментальных ручек' : 'No experimental knobs active'));
+    : (familyEvidenceNote || (hasExperimentalKnobs(state) ? t('badge_status_exp_knobs') : (currentLang === 'ru' ? 'Без экспериментальных ручек' : 'No experimental knobs active')));
   const runtimeText = runtimeState === 'offline'
     ? t('ov_runtime_offline')
     : runtimeState === 'ready'
@@ -2258,356 +2221,6 @@ function renderDots(paramSeverity) {
     if (dot && colorMap[sev]) {
       dot.className = 'dot visible ' + colorMap[sev];
     }
-  }
-}
-
-const EXPERIMENTAL_PRESETS = {
-  none: {
-    title: { ru: 'Manual / off', en: 'Manual / off' },
-    descKey: 'exp_preset_none',
-    risk: 'low',
-    scope: 'generic',
-    familyHint: [],
-    experimental: {},
-    validated: {},
-  },
-  'minimax-mixed-locality': {
-    title: { ru: 'MiniMax mixed locality', en: 'MiniMax mixed locality' },
-    descKey: 'exp_preset_minimax',
-    risk: 'medium',
-    scope: 'moe',
-    familyHint: ['minimax'],
-    experimental: {
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'tail-window',
-      hot_expert_tail_window: 16,
-      merge_qkv: false,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-      ser_enabled: false,
-    },
-    validated: {
-      workload_profile: 'mixed',
-      flash_attn: true,
-      repack_tensors: 'auto',
-      merge_up_gate_exps: false,
-    },
-  },
-  'minimax-locality-aggressive': {
-    title: { ru: 'MiniMax locality aggressive', en: 'MiniMax locality aggressive' },
-    descKey: '',
-    desc: {
-      ru: 'Более рискованный вариант для huge MiniMax: сохраняет tail-window selection, но дополнительно поднимает Hot Expert Budget до 24. Теоретически может лучше удерживать ранний decode, но длинные прогоны не подтвердили это как новый default.',
-      en: 'A riskier huge-MiniMax variant: keeps tail-window selection and also raises Hot Expert Budget to 24. It may hold early decode better in theory, but longer runs did not validate it as a new default.',
-    },
-    risk: 'high',
-    scope: 'moe',
-    familyHint: ['minimax'],
-    experimental: {
-      hot_expert_budget: 24,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'tail-window',
-      hot_expert_tail_window: 16,
-      merge_qkv: false,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-      ser_enabled: false,
-    },
-    validated: {
-      workload_profile: 'mixed',
-      flash_attn: true,
-      repack_tensors: 'auto',
-      merge_up_gate_exps: false,
-    },
-  },
-  'qwen-prompt-packed': {
-    title: { ru: 'Qwen prompt-packed', en: 'Qwen prompt-packed' },
-    descKey: 'exp_preset_qwen',
-    risk: 'high',
-    scope: 'moe',
-    familyHint: ['qwen3moe'],
-    experimental: {
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'default',
-      hot_expert_tail_window: 16,
-      merge_qkv: false,
-      prompt_packed_qkv: true,
-      prompt_packed_qkv_preset: 'front-half',
-      prompt_packed_qkv_range: '',
-      ser_enabled: false,
-    },
-    validated: {
-      flash_attn: true,
-      graph_reuse: true,
-      repack_tensors: 'auto',
-    },
-  },
-  'gptoss-prompt-packed': {
-    title: { ru: 'gpt-oss prompt-packed', en: 'gpt-oss prompt-packed' },
-    descKey: 'exp_preset_gptoss',
-    risk: 'high',
-    scope: 'moe',
-    familyHint: ['gpt-oss'],
-    experimental: {
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'default',
-      hot_expert_tail_window: 16,
-      merge_qkv: false,
-      prompt_packed_qkv: true,
-      prompt_packed_qkv_preset: 'back-half',
-      prompt_packed_qkv_range: '',
-      ser_enabled: false,
-    },
-    validated: {
-      flash_attn: true,
-      graph_reuse: true,
-      repack_tensors: 'auto',
-    },
-  },
-  'attention-merge-qkv': {
-    title: { ru: 'Attention merge-qkv', en: 'Attention merge-qkv' },
-    descKey: 'exp_preset_merge_qkv',
-    risk: 'medium',
-    scope: 'generic',
-    familyHint: ['qwen3moe', 'gpt-oss', 'other'],
-    experimental: {
-      merge_qkv: true,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-    },
-    validated: {
-      flash_attn: true,
-      graph_reuse: true,
-    },
-  },
-  'huge-moe-ser-light': {
-    title: { ru: 'Huge MoE SER light', en: 'Huge MoE SER light' },
-    desc: {
-      ru: 'Мягкий router-side эксперимент для больших MoE: включает SER с min=4 и threshold=0.05. Идея — отрезать очень слабых экспертов и уменьшить I/O, не делая pruning слишком агрессивным.',
-      en: 'A mild router-side experiment for large MoE: enables SER with min=4 and threshold=0.05. The goal is to prune very weak experts and reduce I/O without making pruning too aggressive.',
-    },
-    risk: 'medium',
-    scope: 'moe',
-    familyHint: ['minimax', 'qwen3moe', 'gpt-oss'],
-    experimental: {
-      ser_enabled: true,
-      ser_min: 4,
-      ser_thresh: 0.05,
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'default',
-      hot_expert_tail_window: 16,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-    },
-    validated: {
-      flash_attn: true,
-      merge_up_gate_exps: false,
-    },
-  },
-  'huge-moe-ser-aggressive': {
-    title: { ru: 'Huge MoE SER aggressive', en: 'Huge MoE SER aggressive' },
-    desc: {
-      ru: 'Более рискованный router-side bundle для больших MoE: SER с min=3 и threshold=0.10. Теоретически может сильнее разгрузить I/O, но риск потери качества и нестабильности решения роутера выше.',
-      en: 'A more aggressive router-side bundle for large MoE: SER with min=3 and threshold=0.10. It may reduce I/O further in theory, but quality loss and routing instability risk are higher.',
-    },
-    risk: 'high',
-    scope: 'moe',
-    familyHint: ['minimax', 'qwen3moe', 'gpt-oss'],
-    experimental: {
-      ser_enabled: true,
-      ser_min: 3,
-      ser_thresh: 0.10,
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'default',
-      hot_expert_tail_window: 16,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-    },
-    validated: {
-      flash_attn: true,
-      merge_up_gate_exps: false,
-    },
-  },
-  'dense-attention-locality': {
-    title: { ru: 'Dense attention locality', en: 'Dense attention locality' },
-    desc: {
-      ru: 'Универсальный attention-side эксперимент для dense и mixed семей: Merge QKV + Flash Attention + Graph Reuse. Не требует MoE-логики и подходит как мягкий baseline experiment для неизвестных dense моделей.',
-      en: 'A generic attention-side experiment for dense and mixed families: Merge QKV + Flash Attention + Graph Reuse. It does not rely on MoE logic and can serve as a mild baseline experiment for unknown dense models.',
-    },
-    risk: 'low',
-    scope: 'dense',
-    familyHint: ['other'],
-    experimental: {
-      merge_qkv: true,
-      prompt_packed_qkv: false,
-      prompt_packed_qkv_preset: 'auto',
-      prompt_packed_qkv_range: '',
-      ser_enabled: false,
-      hot_expert_budget: 0,
-      hot_expert_budget_mult: 0,
-      hot_expert_selection: 'default',
-      hot_expert_tail_window: 16,
-    },
-    validated: {
-      flash_attn: true,
-      graph_reuse: true,
-    },
-  },
-};
-
-function getExperimentalPresetDescription(cfg) {
-  if (cfg.desc) {
-    return currentLang === 'ru' ? cfg.desc.ru : cfg.desc.en;
-  }
-  return t(cfg.descKey || 'exp_preset_none');
-}
-
-function getExperimentalPresetConfig(preset, s = state) {
-  const family = detectModelFamily(s);
-  const cfg = EXPERIMENTAL_PRESETS[preset] || EXPERIMENTAL_PRESETS.none;
-  const baseDesc = getExperimentalPresetDescription(cfg);
-  const familyNote = cfg.familyHint.length && !cfg.familyHint.includes(family)
-    ? (currentLang === 'ru'
-      ? ` Этот пресет рассчитан прежде всего на ${cfg.familyHint.join(', ')}.`
-      : ` This preset is tuned primarily for ${cfg.familyHint.join(', ')}.`)
-    : '';
-  return {
-    ...cfg,
-    titleText: currentLang === 'ru' ? cfg.title.ru : cfg.title.en,
-    description: baseDesc,
-    note: familyNote,
-  };
-}
-
-function experimentalPresetScopeLabel(scope) {
-  if (currentLang === 'ru') {
-    if (scope === 'moe') return 'MoE';
-    if (scope === 'dense') return 'Dense';
-    return 'Generic';
-  }
-  if (scope === 'moe') return 'MoE';
-  if (scope === 'dense') return 'Dense';
-  return 'Generic';
-}
-
-function experimentalPresetRiskLabel(risk) {
-  if (currentLang === 'ru') {
-    if (risk === 'high') return 'Риск: высокий';
-    if (risk === 'medium') return 'Риск: средний';
-    return 'Риск: низкий';
-  }
-  if (risk === 'high') return 'Risk: high';
-  if (risk === 'medium') return 'Risk: medium';
-  return 'Risk: low';
-}
-
-function renderExperimentalPresetPicker() {
-  const root = document.getElementById('experimental-preset-picker');
-  const hiddenSelect = document.getElementById('p-experimental_preset');
-  if (!root || !hiddenSelect) return;
-
-  hiddenSelect.innerHTML = Object.entries(EXPERIMENTAL_PRESETS)
-    .map(([id, cfg]) => `<option value="${id}">${currentLang === 'ru' ? cfg.title.ru : cfg.title.en}</option>`)
-    .join('');
-  hiddenSelect.value = state.experimental_preset || 'none';
-
-  const selectedId = state.experimental_preset || 'none';
-  const selected = getExperimentalPresetConfig(selectedId, state);
-  const pickerKicker = currentLang === 'ru' ? 'Выбери исследовательский bundle' : 'Choose a research bundle';
-  const pickerHint = currentLang === 'ru'
-    ? 'Безопасный baseline не меняется сам по себе. Этот control только собирает воспроизводимый A/B-старт.'
-    : 'The safe baseline does not change by itself. This control only builds a reproducible A/B starting point.';
-  const options = Object.entries(EXPERIMENTAL_PRESETS).map(([id, cfg]) => {
-    const cfgResolved = getExperimentalPresetConfig(id, state);
-    const active = id === selectedId ? 'active' : '';
-    return `
-      <button type="button" class="exp-preset-option ${active}" onclick="selectExperimentalPreset('${id.replace(/'/g, "\\'")}')">
-        <div class="exp-preset-option-title-row">
-          <div class="exp-preset-option-title">${cfgResolved.titleText}</div>
-          <div class="exp-preset-option-meta">
-            <span class="preset-chip risk-${cfgResolved.risk}">${experimentalPresetRiskLabel(cfgResolved.risk)}</span>
-            <span class="preset-chip scope-${cfgResolved.scope}">${experimentalPresetScopeLabel(cfgResolved.scope)}</span>
-          </div>
-        </div>
-        <div class="exp-preset-option-desc">${cfgResolved.description}</div>
-      </button>
-    `;
-  }).join('');
-
-  root.innerHTML = `
-    <details class="exp-preset-dropdown">
-      <summary>
-        <div class="exp-preset-summary">
-          <div class="exp-preset-summary-kicker">${pickerKicker}</div>
-          <div class="exp-preset-summary-top">
-            <div class="exp-preset-summary-title">${selected.titleText}</div>
-            <div class="exp-preset-summary-meta">
-              <span class="preset-chip risk-${selected.risk}">${experimentalPresetRiskLabel(selected.risk)}</span>
-              <span class="preset-chip scope-${selected.scope}">${experimentalPresetScopeLabel(selected.scope)}</span>
-            </div>
-          </div>
-          <div class="exp-preset-summary-desc">${selected.description}</div>
-          <div class="exp-preset-summary-desc">${pickerHint}</div>
-        </div>
-      </summary>
-      <div class="exp-preset-menu">${options}</div>
-    </details>
-  `;
-}
-
-function selectExperimentalPreset(preset) {
-  applyExperimentalPreset(preset);
-  const details = document.querySelector('#experimental-preset-picker .exp-preset-dropdown');
-  if (details) {
-    details.open = false;
-  }
-}
-
-function renderExperimentalPresetHint() {
-  const el = document.getElementById('experimental-preset-hint');
-  if (!el) return;
-  const preset = state.experimental_preset || 'none';
-  const cfg = getExperimentalPresetConfig(preset, state);
-  const linkLabel = state.experimental_preset_link_validated
-    ? (currentLang === 'ru' ? 'Связка с проверенными: ON' : 'Validated link: ON')
-    : (currentLang === 'ru' ? 'Связка с проверенными: OFF' : 'Validated link: OFF');
-  el.innerHTML = `
-    <div class="experimental-intro-title">${cfg.titleText}</div>
-    <div class="experimental-intro-body">${cfg.description}${cfg.note}</div>
-    <div class="experimental-preset-hint-line">
-      <span class="preset-chip risk-${cfg.risk}">${experimentalPresetRiskLabel(cfg.risk)}</span>
-      <span class="preset-chip scope-${cfg.scope}">${experimentalPresetScopeLabel(cfg.scope)}</span>
-      <span class="model-badge family-generic">${linkLabel}</span>
-    </div>
-  `;
-}
-
-function applyExperimentalPreset(preset, options = {}) {
-  const nextPreset = preset || 'none';
-  const cfg = getExperimentalPresetConfig(nextPreset, state);
-  suppressUpdate = true;
-  state.experimental_preset = nextPreset;
-  Object.assign(state, cfg.experimental);
-  if (state.experimental_preset_link_validated) {
-    Object.assign(state, cfg.validated);
-  }
-  suppressUpdate = false;
-  syncAllToDOM();
-  evaluate();
-  renderCommand();
-  saveState();
-  if (!options.reapplyOnly) {
-    setOptimizationPane('experimental');
   }
 }
 
@@ -3026,18 +2639,19 @@ function updateCustomProfile() {
 // ============================================================
 function initPresets() {
   const sel = document.getElementById('sel-preset');
+  const presets = window.IKLLamaEvidenceLayer?.listStandardPresets?.(currentLang) || [];
   sel.innerHTML = '<option value="">-- ' + (currentLang === 'ru' ? 'Пресет' : 'Preset') + ' --</option>';
-  for (const [k, v] of Object.entries(PRESETS)) {
+  for (const preset of presets) {
     const opt = document.createElement('option');
-    opt.value = k;
-    opt.textContent = v.name[currentLang] + ' \u2014 ' + v.desc[currentLang];
+    opt.value = preset.id;
+    opt.textContent = preset.titleText + ' \u2014 ' + preset.description;
     sel.appendChild(opt);
   }
 }
 
 function applyPreset(id) {
   if (!id) return;
-  const preset = PRESETS[id];
+  const preset = window.IKLLamaEvidenceLayer?.getStandardPreset?.(id);
   if (!preset) return;
   suppressUpdate = true;
   for (const [k, v] of Object.entries(preset.values)) {
@@ -3458,61 +3072,20 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   });
 
   // --- Runtime Repack ---
-  if (family === 'minimax' && isSwapBound) {
-    params.repack_tensors = 'off';
+  const rtrGuidance = window.IKLLamaEvidenceLayer?.getAutoConfigRtrGuidance?.(
+    { state: { ...state, model_type: isMoE ? 'moe' : 'dense' }, meta: modelInfo, family, modelPath: state.model || '', modelType: isMoE ? 'moe' : 'dense', workload: 'mixed', isSwapBound },
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  );
+  params.repack_tensors = rtrGuidance?.mode || (isMoE ? 'auto' : (isSwapBound ? 'off' : 'on'));
+  (rtrGuidance?.reasons || []).forEach((entry) => {
     reasons.push({
-      param: 'repack_tensors', value: 'OFF',
-      ru: 'rtr OFF: MiniMax в swap-bound режиме всё ещё самый консервативный старт, особенно если вас интересует TG-only',
-      en: 'rtr OFF: MiniMax in swap-bound mode still has the most conservative starting point, especially if TG-only is what matters',
+      param: 'repack_tensors',
+      value: entry.value,
+      ru: currentLang === 'ru' ? entry.text : entry.text,
+      en: currentLang === 'en' ? entry.text : entry.text,
     });
-    reasons.push({
-      param: 'repack_tensors', value: 'AUTO?',
-      ru: 'Свежий closeout уже показал, что для mixed path у MiniMax стоит отдельно сравнивать AUTO: после фикса policy bug он больше не считается заведомо плохим',
-      en: 'The fresh closeout already showed that MiniMax mixed path should compare against AUTO separately: after the policy fix it is no longer assumed bad',
-    });
-  } else if (family === 'gpt-oss' && isSwapBound) {
-    params.repack_tensors = 'auto';
-    reasons.push({
-      param: 'repack_tensors', value: 'AUTO',
-      ru: 'rtr AUTO: для huge gpt-oss это текущий throughput-first старт, но cold-start и load time будут заметно дороже, чем у OFF',
-      en: 'rtr AUTO: for huge gpt-oss this is the current throughput-first starting point, but cold-start and load time will be noticeably worse than OFF',
-    });
-  } else if (family === 'qwen3moe' || family === 'gpt-oss') {
-    params.repack_tensors = 'auto';
-    reasons.push({
-      param: 'repack_tensors', value: 'AUTO',
-      ru: 'rtr AUTO: текущий лучший общий старт для Qwen3MoE/gpt-oss на Zen4; mixed path нужно оценивать отдельно от TG',
-      en: 'rtr AUTO: current best general starting point for Qwen3MoE/gpt-oss on Zen4; mixed path must be judged separately from TG',
-    });
-  } else if (isMoE && isSwapBound) {
-    params.repack_tensors = 'off';
-    reasons.push({
-      param: 'repack_tensors', value: 'OFF',
-      ru: 'rtr OFF: для неизвестной swap-bound MoE безопаснее начать консервативно и потом отдельно проверить AUTO',
-      en: 'rtr OFF: for an unknown swap-bound MoE it is safer to start conservatively and test AUTO separately later',
-    });
-  } else if (isMoE) {
-    params.repack_tensors = 'auto';
-    reasons.push({
-      param: 'repack_tensors', value: 'AUTO',
-      ru: 'rtr AUTO: это ближайший текущий baseline для in-RAM MoE, но если семейство невалидированное — подтверждайте отдельным бенчем',
-      en: 'rtr AUTO: this is the closest current baseline for in-RAM MoE, but if the family is not validated yet, confirm it with a separate benchmark',
-    });
-  } else if (isSwapBound) {
-    params.repack_tensors = 'off';
-    reasons.push({
-      param: 'repack_tensors', value: 'OFF',
-      ru: `rtr OFF: swap-bound (${modelSizeGb} ГБ > ${Math.round(totalRam*0.9)} ГБ). Не форсируем repack на большой модели`,
-      en: `rtr OFF: swap-bound (${modelSizeGb} GB > ${Math.round(totalRam*0.9)} GB). Do not force repack on a large model`,
-    });
-  } else {
-    params.repack_tensors = 'on';
-    reasons.push({
-      param: 'repack_tensors', value: 'ON',
-      ru: 'rtr ON: плотная модель помещается в RAM, можно форсировать repack ради CPU locality',
-      en: 'rtr ON: dense model fits in RAM, forcing repack is reasonable for CPU locality',
-    });
-  }
+  });
 
   // --- Merge Up+Gate ---
   if (isMoE && !isSwapBound) {
@@ -3590,13 +3163,19 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
     });
   }
 
-  if (family === 'minimax' && isSwapBound) {
+  const hotGuidance = window.IKLLamaEvidenceLayer?.getHotExpertGuidance?.(
+    { state: { ...state, model_type: isMoE ? 'moe' : 'dense' }, meta: modelInfo, family, modelPath: state.model || '', modelType: isMoE ? 'moe' : 'dense', workload: 'mixed', isSwapBound },
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  );
+  (hotGuidance?.reasons || []).forEach((entry) => {
     reasons.push({
-      param: 'hot_expert_budget', value: '0 / runtime default',
-      ru: 'Hot experts: первый более длинный controlled rtr=off run не подтвердил новый MiniMax default выше legacy 16. Для обычного запуска оставляйте 0 и не переопределяйте runtime default.',
-      en: 'Hot experts: the first longer controlled rtr=off run did not confirm a new MiniMax default above the legacy 16 budget. For normal use, leave this at 0 and do not override the runtime default.',
+      param: 'hot_expert_budget',
+      value: entry.value,
+      ru: currentLang === 'ru' ? entry.text : entry.text,
+      en: currentLang === 'en' ? entry.text : entry.text,
     });
-  }
+  });
 
   return {
     params,

@@ -74,6 +74,198 @@
     'dense-attention-locality': { id: 'dense-attention-locality', title: { ru: 'Dense attention locality', en: 'Dense attention locality' }, desc: { ru: 'Универсальный attention-side эксперимент для dense и mixed семей: Merge QKV + Flash Attention + Graph Reuse. Не требует MoE-логики и подходит как мягкий baseline experiment для неизвестных dense моделей.', en: 'A generic attention-side experiment for dense and mixed families: Merge QKV + Flash Attention + Graph Reuse. It does not rely on MoE logic and can serve as a mild baseline experiment for unknown dense models.' }, risk: 'low', scope: 'dense', familyHint: ['other'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { merge_qkv: true, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false, hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16 }, validated: { flash_attn: true, graph_reuse: true } }
   };
 
+  const STANDARD_PRESET_EVIDENCE = {
+    moe_in_ram: {
+      id: 'moe_in_ram',
+      title: { ru: 'MoE (в RAM)', en: 'MoE (In-RAM)' },
+      description: { ru: 'Qwen3-30B-A3B, gpt-oss-20b и похожие in-RAM / near-RAM MoE.', en: 'Qwen3-30B-A3B, gpt-oss-20b, and similar in-RAM / near-RAM MoE.' },
+      applicability: 'moe',
+      validation: 'validated',
+      confidence: 'medium',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'moe' }
+    },
+    gptoss_huge_throughput: {
+      id: 'gptoss_huge_throughput',
+      title: { ru: 'gpt-oss huge (throughput)', en: 'gpt-oss huge (throughput)' },
+      description: { ru: 'gpt-oss-120b: throughput-first профиль, но startup/load будут дороже.', en: 'gpt-oss-120b: throughput-first profile, but startup/load will be more expensive.' },
+      applicability: 'moe-huge',
+      validation: 'validated',
+      confidence: 'high',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' }
+    },
+    minimax_huge_safe: {
+      id: 'minimax_huge_safe',
+      title: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
+      description: { ru: 'MiniMax M2.5: консервативный OFF-baseline; mixed path стоит сравнивать с AUTO.', en: 'MiniMax M2.5: conservative OFF baseline; mixed path should be compared against AUTO.' },
+      applicability: 'moe-huge',
+      validation: 'partial',
+      confidence: 'medium',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' }
+    },
+    dense_in_ram: {
+      id: 'dense_in_ram',
+      title: { ru: 'Dense (в RAM)', en: 'Dense (In-RAM)' },
+      description: { ru: 'Llama-3, Phi-4 и другие dense-модели, уверенно помещающиеся в RAM.', en: 'Llama-3, Phi-4, and other dense models that fit in RAM.' },
+      applicability: 'dense',
+      validation: 'validated',
+      confidence: 'medium',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'on', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'dense' }
+    },
+    server_prod: {
+      id: 'server_prod',
+      title: { ru: 'Сервер (Production)', en: 'Server (Production)' },
+      description: { ru: 'llama-server с параллельными слотами и безопасным стартовым baseline.', en: 'llama-server with parallel slots and a safe starting baseline.' },
+      applicability: 'all',
+      validation: 'validated',
+      confidence: 'medium',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'on', cache_type_k: 'q8_0', cache_type_v: 'f16', n_parallel: 4, hostname: '0.0.0.0', model_type: 'dense', target: 'llama-server' }
+    },
+    max_context: {
+      id: 'max_context',
+      title: { ru: 'Макс. контекст', en: 'Max Context' },
+      description: { ru: 'Контекст-ориентированный preset с квантованным KV-кешем.', en: 'Context-oriented preset with a quantized KV cache.' },
+      applicability: 'quantized-kv',
+      validation: 'partial',
+      confidence: 'low',
+      values: { flash_attn: true, cache_type_k: 'q8_0', cache_type_v: 'q4_0', n_ctx: 131072 }
+    }
+  };
+
+  const FAMILY_VALIDATION_EVIDENCE = {
+    qwen3moe: {
+      status: 'validated',
+      noteRu: 'Для Qwen3MoE уже есть подтвержденная линия baseline/runtime guidance.',
+      noteEn: 'Qwen3MoE already has a validated baseline/runtime guidance line.'
+    },
+    'gpt-oss': {
+      status: 'validated',
+      noteRu: 'Для gpt-oss есть validated baseline, но practical confidence по отдельным knobs уже различается между 20b и 120b.',
+      noteEn: 'gpt-oss has a validated baseline, but practical confidence for individual knobs already differs between 20b and 120b.'
+    },
+    minimax: {
+      status: 'partial',
+      noteRu: 'MiniMax имеет подтвержденную huge-MoE линию, но часть runtime guidance все еще research/partial.',
+      noteEn: 'MiniMax has a confirmed huge-MoE line, but part of its runtime guidance is still research/partial.'
+    },
+    other: {
+      status: 'unknown',
+      noteRu: 'Для этой family пока нет validated product line. Используйте class-level guidance и отдельный A/B.',
+      noteEn: 'This family does not yet have a validated product line. Use class-level guidance and a separate A/B.'
+    }
+  };
+
+  const AUTOCONFIG_RTR_POLICIES = [
+    {
+      id: 'minimax-swap',
+      matches: (ctx) => ctx.family === 'minimax' && ctx.isSwapBound,
+      mode: 'off',
+      reasons: {
+        ru: [
+          { value: 'OFF', text: 'rtr OFF: MiniMax в swap-bound режиме всё ещё самый консервативный старт, особенно если вас интересует TG-only.' },
+          { value: 'AUTO?', text: 'Для mixed path у MiniMax уже есть подтвержденный смысл отдельно сравнивать AUTO: после фикса policy bug он больше не считается заведомо плохим.' }
+        ],
+        en: [
+          { value: 'OFF', text: 'rtr OFF: MiniMax in swap-bound mode still has the most conservative starting point, especially if TG-only is what matters.' },
+          { value: 'AUTO?', text: 'For MiniMax mixed path there is now a confirmed reason to compare against AUTO separately: after the policy fix it is no longer assumed bad.' }
+        ]
+      }
+    },
+    {
+      id: 'gptoss-huge',
+      matches: (ctx) => ctx.family === 'gpt-oss' && ctx.isSwapBound,
+      mode: 'auto',
+      reasons: {
+        ru: [
+          { value: 'AUTO', text: 'rtr AUTO: для huge gpt-oss это текущий throughput-first старт, но cold-start и load time будут заметно дороже, чем у OFF.' }
+        ],
+        en: [
+          { value: 'AUTO', text: 'rtr AUTO: for huge gpt-oss this is the current throughput-first starting point, but cold-start and load time will be noticeably worse than OFF.' }
+        ]
+      }
+    },
+    {
+      id: 'validated-moe',
+      matches: (ctx) => ctx.family === 'qwen3moe' || ctx.family === 'gpt-oss',
+      mode: 'auto',
+      reasons: {
+        ru: [
+          { value: 'AUTO', text: 'rtr AUTO: текущий лучший общий старт для Qwen3MoE/gpt-oss на Zen4; mixed path нужно оценивать отдельно от TG.' }
+        ],
+        en: [
+          { value: 'AUTO', text: 'rtr AUTO: current best general starting point for Qwen3MoE/gpt-oss on Zen4; mixed path must be judged separately from TG.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-moe-swap',
+      matches: (ctx) => ctx.modelType === 'moe' && ctx.isSwapBound,
+      mode: 'off',
+      reasons: {
+        ru: [
+          { value: 'OFF', text: 'rtr OFF: для неизвестной swap-bound MoE безопаснее начать консервативно и потом отдельно проверить AUTO.' }
+        ],
+        en: [
+          { value: 'OFF', text: 'rtr OFF: for an unknown swap-bound MoE it is safer to start conservatively and test AUTO separately later.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-moe-inram',
+      matches: (ctx) => ctx.modelType === 'moe',
+      mode: 'auto',
+      reasons: {
+        ru: [
+          { value: 'AUTO', text: 'rtr AUTO: это ближайший текущий baseline для in-RAM MoE, но если семейство невалидированное — подтверждайте отдельным бенчем.' }
+        ],
+        en: [
+          { value: 'AUTO', text: 'rtr AUTO: this is the closest current baseline for in-RAM MoE, but if the family is not validated yet, confirm it with a separate benchmark.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-dense-swap',
+      matches: (ctx) => ctx.isSwapBound,
+      mode: 'off',
+      reasons: {
+        ru: [
+          { value: 'OFF', text: `rtr OFF: swap-bound dense-модель. Не форсируем repack на большой модели.` }
+        ],
+        en: [
+          { value: 'OFF', text: 'rtr OFF: swap-bound dense model. Do not force repack on a large model.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-dense-inram',
+      matches: () => true,
+      mode: 'on',
+      reasons: {
+        ru: [
+          { value: 'ON', text: 'rtr ON: плотная модель помещается в RAM, можно форсировать repack ради CPU locality.' }
+        ],
+        en: [
+          { value: 'ON', text: 'rtr ON: a dense model fits in RAM, so forcing repack is reasonable for CPU locality.' }
+        ]
+      }
+    }
+  ];
+
+  const HOT_EXPERT_GUIDANCE = [
+    {
+      id: 'minimax-swap',
+      matches: (ctx) => ctx.family === 'minimax' && ctx.isSwapBound,
+      recommendation: { budget: 0, budgetMult: 0, selection: 'default' },
+      reasons: {
+        ru: [
+          { value: '0 / runtime default', text: 'Hot experts: первый более длинный controlled rtr=off run не подтвердил новый MiniMax default выше legacy 16. Для обычного запуска оставляйте 0 и не переопределяйте runtime default.' }
+        ],
+        en: [
+          { value: '0 / runtime default', text: 'Hot experts: the first longer controlled rtr=off run did not confirm a new MiniMax default above the legacy 16 budget. For normal use, leave this at 0 and do not override the runtime default.' }
+        ]
+      }
+    }
+  ];
+
   function getModelSizeTag(ctx) {
     const path = String(ctx.modelPath || '').toLowerCase();
     if (path.includes('120b')) return '120b';
@@ -160,6 +352,35 @@
   function listTestedOn(paramId) { return (EXPERIMENTAL_KNOB_EVIDENCE[paramId] && EXPERIMENTAL_KNOB_EVIDENCE[paramId].testedOn) || []; }
   function explainFailureMode(paramId, lang) { const entry = EXPERIMENTAL_KNOB_EVIDENCE[paramId]; return entry ? (lang === 'ru' ? entry.failureModeRu : entry.failureModeEn) : ''; }
 
+  function getFamilyValidationStatus(rawCtx, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    return (FAMILY_VALIDATION_EVIDENCE[ctx.family] || FAMILY_VALIDATION_EVIDENCE.other).status;
+  }
+
+  function getFamilyValidationNote(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const entry = FAMILY_VALIDATION_EVIDENCE[ctx.family] || FAMILY_VALIDATION_EVIDENCE.other;
+    return lang === 'ru' ? entry.noteRu : entry.noteEn;
+  }
+
+  function getAutoConfigRtrGuidance(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const policy = AUTOCONFIG_RTR_POLICIES.find((item) => item.matches(ctx)) || AUTOCONFIG_RTR_POLICIES[AUTOCONFIG_RTR_POLICIES.length - 1];
+    const reasons = (lang === 'ru' ? policy.reasons.ru : policy.reasons.en).map((entry) => ({ value: entry.value, text: entry.text }));
+    return { id: policy.id, mode: policy.mode, reasons };
+  }
+
+  function getHotExpertGuidance(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const policy = HOT_EXPERT_GUIDANCE.find((item) => item.matches(ctx));
+    if (!policy) return null;
+    return {
+      id: policy.id,
+      recommendation: policy.recommendation,
+      reasons: (lang === 'ru' ? policy.reasons.ru : policy.reasons.en).map((entry) => ({ value: entry.value, text: entry.text }))
+    };
+  }
+
   function getKnobEvidence(paramId, rawCtx, lang, helpers) {
     const entry = EXPERIMENTAL_KNOB_EVIDENCE[paramId];
     if (!entry) return null;
@@ -210,10 +431,35 @@
   }
   function listExperimentalPresets() { return Object.entries(EXPERIMENTAL_PRESET_EVIDENCE); }
 
+  function listStandardPresets(lang) {
+    return Object.entries(STANDARD_PRESET_EVIDENCE).map(([id, cfg]) => ({
+      id,
+      titleText: lang === 'ru' ? cfg.title.ru : cfg.title.en,
+      description: lang === 'ru' ? cfg.description.ru : cfg.description.en,
+      applicability: localize(APPLICABILITY_META[cfg.applicability] || APPLICABILITY_META.all, lang),
+      validation: localize(VALIDATION_META[cfg.validation] || VALIDATION_META.validated, lang),
+      confidence: {
+        level: cfg.confidence,
+        ...(CONFIDENCE_META[cfg.confidence]
+          ? {
+              label: lang === 'ru' ? CONFIDENCE_META[cfg.confidence].labelRu : CONFIDENCE_META[cfg.confidence].labelEn,
+              className: CONFIDENCE_META[cfg.confidence].className
+            }
+          : {})
+      },
+      values: { ...cfg.values }
+    }));
+  }
+
+  function getStandardPreset(id) {
+    return STANDARD_PRESET_EVIDENCE[id] || null;
+  }
+
   global.IKLLamaEvidenceLayer = {
     APPLICABILITY_META, RUNTIME_SUPPORT_META, VALIDATION_META, CONFIDENCE_META, RISK_META,
-    EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE,
+    EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE, STANDARD_PRESET_EVIDENCE, FAMILY_VALIDATION_EVIDENCE,
     getKnobEvidence, getPresetEvidence, getApplicabilityBadge, getRuntimeSupportBadge, getValidationBadge, getConfidenceBadge,
-    listTestedOn, explainFailureMode, listExperimentalPresets, getPresetRiskLabel, getPresetScopeLabel
+    listTestedOn, explainFailureMode, listExperimentalPresets, listStandardPresets, getStandardPreset, getPresetRiskLabel, getPresetScopeLabel,
+    getFamilyValidationStatus, getFamilyValidationNote, getAutoConfigRtrGuidance, getHotExpertGuidance
   };
 })(window);

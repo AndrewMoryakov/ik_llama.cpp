@@ -110,8 +110,9 @@ Canonical matrix for this layer:
 Роль этого слоя:
 
 1. хранить `Applicability`, `Runtime support`, `Validation`, `Confidence`, `Risk`, `Tested on` и `Failure mode`;
-2. позволять добавлять новые benchmark findings как данные, а не как новые ad-hoc ветвления в `dashboard.js`;
-3. держать product semantics согласованной с benchmark truth и handoff docs.
+2. хранить standard presets и их confidence/validation как данные, а не как hardcoded bundles в `dashboard.js`;
+3. позволять добавлять новые benchmark findings как данные, а не как новые ad-hoc ветвления в `dashboard.js`;
+4. держать product semantics согласованной с benchmark truth и handoff docs.
 
 Операционное правило:
 
