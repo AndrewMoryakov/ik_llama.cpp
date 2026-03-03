@@ -1,108 +1,125 @@
 # Next Benchmark Queue - 2026-03-01
 
-Короткий operational note: какие прогоны реально имеют смысл следующими.
+Operational note: which benchmark questions are already closed, which fresh runs now exist, and what still makes sense next.
 
-## 1. Active now
+## 1. Recently completed
 
-### MiniMax M2.5 closeout
+### MiniMax policy closeout
 
-Status: `completed`.
-
-Result:
-
-- `TG-only`: `off > auto`
-- mixed `pp32+tg4`: `auto > off`
+Status: `completed`
 
 Meaning:
 
-- MiniMax `off vs auto` should no longer be treated as an open policy question
-- the next MiniMax step should move into `expert locality / paging`
+- `TG-only`: `off > auto`
+- mixed `pg32,4`: `auto > off`
+- this policy question should now be treated as closed on the fixed tree
 
-Run in progress:
+Canonical raw artifacts:
 
-- `rtr=off` vs `rtr=auto`
-- `Hot Expert Budget` unset / runtime default
+- `ik_llama.cpp/bench_results/2026-03-01_223439_minimax_hot_budget_long`
+- `ik_llama.cpp/bench_results/2026-03-01_224347_minimax_policy_closeout`
+
+### MiniMax locality confirm
+
+Status: `completed`
+
+Run:
+
+- `ik_llama.cpp/bench_results/2026-03-03_001015_minimax_locality_confirm`
+
+Matrix:
+
+- baseline default hot-expert selection
+- `tail-window=16`
+- `rtr=auto`
 - scenarios:
-  - `tg32`
-  - `pg32,4`
-- `t16`, `fa1`, `muge0`, `ngl0`, `r=1`, `w=1`
+  - `tg128`
+  - `pg512,128`
+- `r=3`, `w=1`, `t=16`, `fa=1`, `muge=0`
 
-Current run dir:
+Result:
 
-- `ik_llama.cpp/bench_results/2026-03-01_221624_minimax_hot_budget_long`
+- `TG128`: `1.332637 -> 1.282882`
+- `PG512,128 mixed`: `3.991484 -> 4.030163`
 
-Launcher dir:
+Meaning:
 
-- `ik_llama.cpp/bench_results/2026-03-01_221623_minimax_off_vs_auto_launcher_fixed2`
+1. `tail-window=16` did not become a practical new baseline
+2. mixed signal stayed positive but weak
+3. next MiniMax line should move toward smarter locality ideas, not repeat this exact confirm pass
 
-Current status:
+### GPT-OSS runtime refresh
 
-- `tg32 off` complete: `0.618850 tok/s`
-- `tg32 auto` complete: `0.553629 tok/s`
-- `pg32,4 off` is/was re-run separately via:
-  - `ik_llama.cpp/bench_results/2026-03-01_223439_minimax_hot_budget_long`
-- continuation for `pg32,4 auto` has been scheduled via:
-  - `ik_llama.cpp/bench_results/2026-03-01_223808_minimax_pg_auto_continuation`
+Status: `completed`
 
-Why this split exists:
+Queue launcher:
 
-- the older overloaded hot-budget runner was failing around the `pg` transition
-- a cleaner dedicated policy runner was added:
-  - `ik_llama.cpp/scripts/bench-minimax-policy-closeout.ps1`
+- `ik_llama.cpp/bench_results/2026-03-03_060927_gptoss_queue_launcher`
 
-Why this run matters:
+#### gpt-oss-20b baseline
 
-- it closes the main remaining practical policy question for huge `MiniMax`
-- it has better ROI than any wider matrix right now
+Run:
 
-## 2. Next if MiniMax finishes cleanly
+- `ik_llama.cpp/bench_results/2026-03-03_060928_gptoss20b_runtime_baseline`
 
-### gpt-oss-20b decode-side follow-up
+Result:
 
-Not started in this pass because no local model path is currently available from the active host context.
+- `TG128`: `23.707807`
+- `PG512,128`
+  - `pp512`: `272.749618`
+  - `tg128`: `24.075077`
+  - `pp512+tg128`: `90.283185`
 
-Minimal useful pass:
+Meaning:
 
-1. `tg128`
-2. `pg512,128`
-3. baseline profile:
-   - `t16`
-   - `fa1`
-   - `rtr=auto`
-   - `muge0`
-4. same-build A/B around the next decode-side target
+- fresh current-tree baseline now exists for the next decode-side `gpt-oss-20b` line
 
-Why:
+#### gpt-oss-120b packaging refresh
 
-- `gpt-oss-20b` remains the best next candidate for a clean engine win
-- prompt-only work already looks mostly exhausted
+Run:
 
-## 3. Next huge-model packaging pass
+- `ik_llama.cpp/bench_results/2026-03-03_061156_gptoss120b_runtime_packaging`
 
-### gpt-oss-120b runtime-policy packaging
+Result:
 
-Useful when the model path is available:
+- `TG128`
+  - `off`: `14.134468`
+  - `auto`: `16.657064`
+- `PG512,128`
+  - `off`: `59.089030`
+  - `auto`: `60.177522`
 
-1. `tg128`
-2. `pg512,128`
-3. compare:
-   - `rtr=off`
-   - `rtr=auto`
+Meaning:
 
-Interpretation goal:
+1. `rtr=auto` is the current throughput-first mode on this tree
+2. `off` still matters only for more conservative startup-sensitive packaging
 
-- separate throughput-first profile from startup-safe profile
+## 2. What is worth running next
 
-## 4. Not worth running right now
+### Highest-ROI next benchmark question
+
+None of the previously open heavy questions remain urgent.
+
+The next useful runs should be tied to a new code change or a new hypothesis, not reruns of already-closed policy questions.
+
+### Good next candidates, if code changes land
+
+1. `gpt-oss-20b` decode-side A/B
+- compare a concrete decode-path patch against the fresh March 3 baseline
+
+2. next `MiniMax locality` A/B
+- only after a smarter locality idea lands
+- for example weighted hot experts or prompt+early-decode feedback
+
+3. `Qwen3-30B-A3B` runtime refresh
+- useful as a clean comparison point if a new runtime or dashboard-facing claim needs it
+
+## 3. What is not worth rerunning right now
 
 Do not spend time yet on:
 
-1. wide `MiniMax` hot-budget matrix
-2. `MiniMax rtr=on`
-3. `SER` matrix
-4. wider `Qwen3MoE` prompt-side packed-QKV passes
-
-Reason:
-
-- lower ROI than the active `MiniMax off vs auto` closeout
-- or blocked by missing local model path on the current host
+1. another wide `MiniMax hot-budget` matrix
+2. another `MiniMax off vs auto` pass
+3. another `tail-window=16` confirm run without a new locality hypothesis
+4. a `SER` matrix without a new supporting idea
+5. wider prompt-packed QKV reruns without a new runtime/generalization hypothesis

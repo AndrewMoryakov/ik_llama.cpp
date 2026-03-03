@@ -3,7 +3,7 @@
 Canonical benchmark documentation for this project is here.
 
 ## Documents
-- `SUMMARY_ALL.md` - consolidated current status and conclusions
+- `SUMMARY_ALL.md` - one-place current objective benchmark summary (latest numbers, reference runs, practical conclusions)
 - `INDEX.md` - run inventory and status classification
 - `current/SUMMARY_CURRENT_2026-02-27.md` - latest validated matrix snapshot (`rtr off/on/auto`, `pp/tg/pg`)
 - `current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md` - current Qwen3MoE source of truth

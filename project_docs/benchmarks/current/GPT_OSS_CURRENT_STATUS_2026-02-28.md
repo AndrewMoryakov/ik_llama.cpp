@@ -33,13 +33,17 @@ Latest relevant raw artifacts:
 - `ik_llama.cpp/bench_results/2026-02-27_1831`
 - `ik_llama.cpp/bench_results/2026-02-27_1856`
 
-2. Mixed-path and attention traces for `20b`:
+2. Fresh runtime refresh on current tree:
+- `ik_llama.cpp/bench_results/2026-03-03_060928_gptoss20b_runtime_baseline`
+- `ik_llama.cpp/bench_results/2026-03-03_061156_gptoss120b_runtime_packaging`
+
+3. Mixed-path and attention traces for `20b`:
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_fa0_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_step4_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_step4b_2026-02-28.log`
 
-3. Prompt packed-QKV experiment artifacts:
+4. Prompt packed-QKV experiment artifacts:
 - `ik_llama.cpp/bench_results/2026-02-28_prompt_packed_qkv`
 - `ik_llama.cpp/bench_results/2026-02-28_prompt_packed_qkv_arena`
 - `ik_llama.cpp/bench_results/2026-02-28_pg_window_trace`
@@ -65,13 +69,13 @@ They are one family architecturally, but not one runtime story:
 
 Current matrix supports:
 
-- `gpt-oss-20b`: `auto` or `on` stronger than `off`
-- `gpt-oss-120b`: `auto` strongest in throughput, but with large load-time cost
+- `gpt-oss-20b`: `auto` remains a strong baseline on the current tree
+- `gpt-oss-120b`: fresh runtime packaging confirms `auto` is stronger than `off` in both `TG128` and `PG512,128`
 
 Implication:
 
 - `auto` is the current throughput-first default
-- `off` still matters for startup-sensitive huge-model cases
+- `off` still matters for startup-sensitive huge-model cases, but not as the throughput-first mode
 
 ### 3. `-fa 1` materially matters for `gpt-oss-20b` mixed path
 
@@ -100,12 +104,30 @@ Implication:
 Current swap-bound matrix shows:
 
 - throughput: `auto` best
-- load probe: `off` much shorter startup wall time
+- fresh current-tree runtime packaging:
+  - `TG128`: `14.134468 -> 16.657064` with `off -> auto`
+  - `PG512,128 mixed`: `59.089030 -> 60.177522` with `off -> auto`
+- older load/startup evidence still says `off` can have shorter startup wall time
 
 Implication:
 
 - for huge `gpt-oss`, the correct question is not only "which mode has the highest t/s"
 - startup and memory-pressure behavior are part of the real runtime story
+
+### 6. Fresh `gpt-oss-20b` baseline is now available on the current tree
+
+Fresh current-tree numbers:
+
+- `TG128`: `23.707807`
+- `PG512,128`:
+  - `pp512`: `272.749618`
+  - `tg128`: `24.075077`
+  - `pp512+tg128`: `90.283185`
+
+Implication:
+
+- the next decode-side `gpt-oss-20b` line now has a fresh baseline
+- this removes the need to compare future decode-path work against older February-only numbers
 
 ## What Is Directional But Not Public-Final
 
@@ -179,6 +201,7 @@ If someone needs a practical `gpt-oss` answer right now:
 1. use `-fa 1`
 2. start with `-rtr auto` if steady-state throughput matters more than startup
 3. compare against `-rtr off` if startup wall time or memory-pressure behavior matters more
+4. do not treat `off` as the current throughput-first choice on this tree
 
 Do not present prompt packed-QKV as a stable public optimization for `gpt-oss` yet.
 

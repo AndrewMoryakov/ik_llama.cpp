@@ -45,6 +45,17 @@ Use these as the active interpretation layer for each main target family:
 - `current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
 - `current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 
+### Consolidated Current Objective Summary
+
+Use:
+
+- `SUMMARY_ALL.md`
+
+Reason:
+
+- it gathers the current objective benchmark numbers for `Qwen3MoE`, `gpt-oss-20b`, `gpt-oss-120b`, and `MiniMax` in one place
+- it is the shortest current answer to "what are the latest numbers and what do they imply operationally"
+
 ---
 
 ## Historical Runs (do not treat as current truth)

@@ -54,12 +54,16 @@ Latest relevant raw artifacts:
 - `ik_llama.cpp/bench_results/2026-03-01_223439_minimax_hot_budget_long`
 - `ik_llama.cpp/bench_results/2026-03-01_224347_minimax_policy_closeout`
 
+7. Locality confirm run on realistic workloads:
+- `ik_llama.cpp/bench_results/2026-03-03_001015_minimax_locality_confirm`
+
 Supporting narrative documents:
 
 - `MINIMAX_REFRESH_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
 - `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
+- `MINIMAX_LOCALITY_TAIL_WINDOW_2026-03-02.md`
 - `../../models/MINIMAX_M2_5_RUNTIME.md`
 
 ## What Is Confirmed Right Now
@@ -151,6 +155,26 @@ Implication:
 - but larger budgets are **not** currently justified as a new default
 - the practical current answer is back to legacy `16`
 
+### 7. `tail-window=16` did not become a practical new MiniMax baseline
+
+Longer confirm run on realistic workloads:
+
+`TG128`
+
+- baseline: `1.332637`
+- `tail-window=16`: `1.282882`
+
+`PG512,128`
+
+- baseline mixed: `3.991484`
+- `tail-window=16`: `4.030163`
+
+Implication:
+
+- `tail-window=16` keeps a small positive mixed-path signal
+- but the gain is too small and comes with prompt-side and `TG128` regressions
+- this remains a research-only locality idea, not a new baseline
+
 ## What Is Only Directional For Now
 
 The statements below are useful, but they are not yet strong enough to publish as final public recommendations.
@@ -185,10 +209,9 @@ It follows from:
 
 These questions remain open:
 
-1. whether `auto` remains better on longer and heavier mixed workloads
-2. final `hot expert` budget for realistic longer mixed runs
-3. whether `MiniMax auto + tuned hot expert budget` produces a stable long-run gain
-4. how much of MiniMax performance is still left in expert locality and paging behavior
+1. which smarter locality idea should replace plain `tail-window=16` as the next MiniMax runtime candidate
+2. whether improved hot-expert selection can raise `prompt -> decode` overlap without hurting `TG`
+3. how much of MiniMax performance is still left in expert locality and paging behavior
 
 ## What This Means For Development Priority
 
@@ -208,6 +231,7 @@ The next expensive MiniMax validation pass should now move past pure policy clos
 1. `rtr=off` and `rtr=auto` already form the practical MiniMax policy pair
 2. further expensive runs should test locality-oriented hypotheses, not reopen the old broken-policy question
 3. any larger hot-expert budget should remain research-only until it survives a more realistic mixed run
+4. `tail-window=16` should not be promoted; the next locality step should be a smarter selection strategy
 
 ### Broader strategy meaning
 
@@ -225,6 +249,7 @@ If someone needs a practical MiniMax answer **right now**:
 2. for mixed prompt+generation, also test `rtr=auto`; it is now a valid mixed-path branch on the fixed tree
 3. leave `IK_LLAMA_HOT_EXPERT_BUDGET` unset unless you are intentionally reproducing MiniMax-specific research
 4. treat larger budgets as research-only, not as defaults
+5. treat `tail-window=16` as research-only, not as a practical recommendation
 
 ## Related Documents
 
@@ -232,5 +257,6 @@ If someone needs a practical MiniMax answer **right now**:
 - `MINIMAX_HOT_EXPERT_BUDGET_QUICKCHECK_2026-02-28.md`
 - `MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
 - `MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
+- `MINIMAX_LOCALITY_TAIL_WINDOW_2026-03-02.md`
 - `../../models/MINIMAX_M2_5_RUNTIME.md`
 - `../../strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`

@@ -1,0 +1,28 @@
+{
+  "started": "2026-03-03T06:09:27",
+  "queue": [
+    {
+      "label": "gptoss20b_runtime_baseline",
+      "model": "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+      "rtr": "auto",
+      "scenarios": [
+        "tg:128",
+        "pg:512:128"
+      ],
+      "reps": 3
+    },
+    {
+      "label": "gptoss120b_runtime_packaging",
+      "model": "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-120b-GGUF\\gpt-oss-120b-MXFP4-00001-of-00002.gguf",
+      "rtr": [
+        "off",
+        "auto"
+      ],
+      "scenarios": [
+        "tg:128",
+        "pg:512:128"
+      ],
+      "reps": 1
+    }
+  ]
+}
