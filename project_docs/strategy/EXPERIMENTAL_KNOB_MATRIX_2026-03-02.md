@@ -35,6 +35,7 @@
 |---|---|---|---|---|---|
 | `SER` (`ser_enabled`, `ser_min`, `ser_thresh`) | `MoE` | `generic MoE runtime path` | `research-only` | `medium` | может не дать win, а при неудачном пороге менять router-side behavior без практической пользы |
 | `Hot Expert Budget` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | лишнее давление на RAM, удержание неправильного hot set |
+| `Hot Expert Budget Mult` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `research-only` | `medium` | слишком агрессивный множитель может раздуть hot set и увеличить RAM pressure без устойчивой пользы |
 | `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | knob подходит классу моделей, но benchmark-backed signal вне MiniMax пока слабый или отсутствует |
 | `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | path теперь может реально включаться на compatible MoE, но без validation может дать шумный или отрицательный win |
 | `Merge QKV` | `attention arch-specific` | `accepted broadly, effect arch-sensitive` | `research-only` | `medium` | слабый или отрицательный win из-за неудачного attention/layout path |

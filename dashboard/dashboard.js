@@ -93,6 +93,7 @@ const LANG = {
     p_mla: 'Режим MLA', d_mla: 'Multi-head Latent Attention — режим работы KV-кеша для моделей, поддерживающих MLA (DeepSeek и т.п.). 3 = автовыбор оптимального',
     p_ser: 'Smart Expert Reduction', d_ser: 'Экспериментальная router-side опция: движок может отбросить очень слабых экспертов и не тратить на них память/доступ, сохранив минимум min_experts. Идея особенно интересна для huge swap-bound MoE, но это пока A/B-территория, не baseline.',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'Сколько «горячих» экспертов после prompt пытаться удерживать ближе к памяти. Это влияет не на качество модели, а на то, какие experts runtime старается не отпускать перед decode. Для обычного MiniMax запуска начинайте с 0: большие бюджеты пока не стали новым default.',
+    p_hot_budget_mult: 'Hot Expert Budget Mult', d_hot_budget_mult: 'Множитель поверх внутреннего hot-expert baseline runtime. Он не меняет модель и не переучивает router, а только делает hot-набор более или менее агрессивным. Используйте только для controlled MoE locality A/B.',
     p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'Как именно runtime решает, какие эксперты считать hot после prompt. full-prompt = смотреть на весь prompt. tail-window = смотреть только на конец prompt. Это меняет логику выбора experts для раннего decode: последние токены prompt могут лучше предсказывать первые ответы модели.',
     p_hot_tail: 'Tail Window', d_hot_tail: 'Размер хвоста prompt для режима tail-window. Например, 16 означает: выбирать hot experts только по последним 16 токенам prompt, а не по всему prompt. Малое окно = более локальный и агрессивный прогноз; большое = ближе к full-prompt.',
     p_exp_preset: 'Экспериментальный пресет', d_exp_preset: 'Готовые наборы исследовательских ручек. Используйте их как старт для A/B, а не как validated default.',
@@ -182,6 +183,8 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV — экспериментальная опция. Она model-sensitive и не является validated default для текущего релизного слоя.',
     w_hot_budget_experimental: 'Hot Expert Budget — экспериментальный env-knob. Для обычного MiniMax запуска оставляйте 0; более крупные бюджеты пока не стали validated default.',
     w_hot_budget_family: 'Hot Expert Budget относится к huge-MoE locality. По механике он шире, чем одна family, но текущий runtime fully wired сегодня прежде всего на MiniMax-path. На других MoE это пока research A/B, а не готовое правило.',
+    w_hot_budget_mult_experimental: 'Hot Expert Budget Mult — экспериментальный MoE locality knob. Он не меняет фиксированный budget, а масштабирует внутренний hot-expert baseline runtime.',
+    w_hot_budget_mult_family: 'Hot Expert Budget Mult относится к huge-MoE locality. По механике он шире одной family, но benchmark-backed guidance пока еще research-only.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная MoE-locality ветка. Она не меняет веса модели, а только меняет то, по какой части prompt runtime выбирает hot experts.',
     w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Текущий runtime-path уже может реально включаться на compatible MoE, но benchmark-backed validation пока в основном MiniMax-first. Для остальных MoE считайте это research-only, пока нет отдельной validation.',
     w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
@@ -527,6 +530,7 @@ const LANG = {
     p_mla: 'MLA Mode', d_mla: 'Multi-head Latent Attention — KV cache mode for models supporting MLA (DeepSeek etc.). 3 = auto-select optimal',
     p_ser: 'Smart Expert Reduction', d_ser: 'Experimental router-side option: the engine may drop very weak experts and avoid spending memory/access on them while still keeping at least min_experts. This is most interesting for huge swap-bound MoE, but it is still A/B territory, not a baseline.',
     p_hot_budget: 'Hot Expert Budget', d_hot_budget: 'How many “hot” experts the runtime should try to keep closer to memory after the prompt. This does not change model quality directly; it changes which experts the engine tries to retain before decode. For normal MiniMax use, start with 0: larger budgets have not become a new default.',
+    p_hot_budget_mult: 'Hot Expert Budget Mult', d_hot_budget_mult: 'A multiplier over the runtime hot-expert baseline. It does not change the model itself; it scales how aggressively runtime grows the hot set. Use it only for controlled MoE locality A/B.',
     p_hot_selection: 'Hot Expert Selection', d_hot_selection: 'How the runtime decides which experts become hot after the prompt. full-prompt = look at the whole prompt. tail-window = look only at the end of the prompt. This changes the expert-selection logic for early decode: the last prompt tokens may predict the first answer tokens better than the full prompt.',
     p_hot_tail: 'Tail Window', d_hot_tail: 'How large the prompt tail is when tail-window mode is used. For example, 16 means: choose hot experts only from the last 16 prompt tokens, not from the whole prompt. Smaller windows are more local and aggressive; larger ones behave more like full-prompt.',
     opt_tab_validated: 'Validated',
@@ -615,6 +619,8 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV is experimental. It is model-sensitive and not part of the validated default layer.',
     w_hot_budget_experimental: 'Hot Expert Budget is an experimental env knob. For normal MiniMax use, leave it at 0; larger budgets have not become a validated default.',
     w_hot_budget_family: 'Hot Expert Budget belongs to huge-MoE locality. Mechanically it is broader than one family, but the current runtime path is fully wired today mainly on the MiniMax path. On other MoE families treat it as research A/B, not as a ready-made rule.',
+    w_hot_budget_mult_experimental: 'Hot Expert Budget Mult is an experimental MoE locality knob. It does not set a fixed budget; it scales the internal runtime hot-expert baseline.',
+    w_hot_budget_mult_family: 'Hot Expert Budget Mult belongs to huge-MoE locality. Mechanically it is broader than a single family, but benchmark-backed guidance is still research-only.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MoE locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
     w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. The current runtime path can already activate on compatible MoE, but benchmark-backed validation is still mostly MiniMax-first. For other MoE families treat it as research-only until more validation exists.',
     w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
@@ -983,6 +989,7 @@ function hasExperimentalKnobs(s = state) {
     s.prompt_packed_qkv ||
     (s.experimental_preset && s.experimental_preset !== 'none') ||
     (s.hot_expert_budget || 0) > 0 ||
+    (s.hot_expert_budget_mult || 0) > 0 ||
     (s.hot_expert_selection && s.hot_expert_selection !== 'default') ||
     (s.hot_expert_selection === 'tail-window' && (s.hot_expert_tail_window || 0) > 0)
   );
@@ -1051,9 +1058,19 @@ const RULES = [
     msg: 'w_hot_budget_experimental',
   },
   {
+    id: 'hot_budget_mult_experimental', severity: 'info', params: ['hot_expert_budget_mult'],
+    test: (s) => (s.hot_expert_budget_mult || 0) > 0,
+    msg: 'w_hot_budget_mult_experimental',
+  },
+  {
     id: 'hot_budget_family', severity: 'info', params: ['hot_expert_budget'],
     test: (s, p) => (s.hot_expert_budget || 0) > 0 && isExperimentalRuntimeLimited('hot_expert_budget', s, p),
     msg: 'w_hot_budget_family',
+  },
+  {
+    id: 'hot_budget_mult_family', severity: 'info', params: ['hot_expert_budget_mult'],
+    test: (s, p) => (s.hot_expert_budget_mult || 0) > 0 && isExperimentalRuntimeLimited('hot_expert_budget_mult', s, p),
+    msg: 'w_hot_budget_mult_family',
   },
   {
     id: 'hot_selection_experimental', severity: 'info', params: ['hot_expert_selection', 'hot_expert_tail_window'],
@@ -1163,6 +1180,7 @@ const DEFAULTS = {
   cache_type_k: 'f16', cache_type_v: 'f16', mla_attn: 3,
   ser_enabled: false, ser_min: 4, ser_thresh: 0.05,
   hot_expert_budget: 0,
+  hot_expert_budget_mult: 0,
   hot_expert_selection: 'default',
   hot_expert_tail_window: 16,
   experimental_preset: 'none',
@@ -1394,6 +1412,13 @@ const EXPERIMENTAL_PARAM_META = {
     validation: 'partial-minimax',
     risk: 'medium',
     failureMode: 'extra-ram-or-wrong-hot-set'
+  },
+  hot_expert_budget_mult: {
+    applicability: 'moe-huge',
+    runtimeSupport: 'moe-generic',
+    validation: 'research',
+    risk: 'medium',
+    failureMode: 'oversized-hot-set-or-extra-ram'
   },
   hot_expert_selection: {
     applicability: 'moe-huge',
@@ -1689,6 +1714,7 @@ const PARAM_CONTROL_MAP = {
   ser_min: 'p-ser_min',
   ser_thresh: 'p-ser_thresh',
   hot_expert_budget: 'p-hot_expert_budget',
+  hot_expert_budget_mult: 'p-hot_expert_budget_mult',
   hot_expert_selection: 'p-hot_expert_selection',
   hot_expert_tail_window: 'p-hot_expert_tail_window',
   experimental_preset: 'experimental-preset-picker',
@@ -1739,6 +1765,7 @@ const WARNING_PARAM_TO_PANE = {
   ser_min: 'optimization',
   ser_thresh: 'optimization',
   hot_expert_budget: 'optimization',
+  hot_expert_budget_mult: 'optimization',
   hot_expert_selection: 'optimization',
   hot_expert_tail_window: 'optimization',
   experimental_preset: 'optimization',
@@ -1806,7 +1833,7 @@ function jumpToParam(param, paneOverride = '') {
     if (pane === 'optimization') {
       const experimentalParams = new Set([
         'ser_enabled', 'ser_min', 'ser_thresh',
-        'hot_expert_budget', 'hot_expert_selection', 'hot_expert_tail_window',
+        'hot_expert_budget', 'hot_expert_budget_mult', 'hot_expert_selection', 'hot_expert_tail_window',
         'live_observability', 'experimental_preset', 'experimental_preset_link_validated',
         'merge_qkv', 'prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range',
       ]);
@@ -2158,6 +2185,7 @@ const EXPERIMENTAL_PRESETS = {
     familyHint: ['minimax'],
     experimental: {
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'tail-window',
       hot_expert_tail_window: 16,
       merge_qkv: false,
@@ -2185,6 +2213,7 @@ const EXPERIMENTAL_PRESETS = {
     familyHint: ['minimax'],
     experimental: {
       hot_expert_budget: 24,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'tail-window',
       hot_expert_tail_window: 16,
       merge_qkv: false,
@@ -2208,6 +2237,7 @@ const EXPERIMENTAL_PRESETS = {
     familyHint: ['qwen3moe'],
     experimental: {
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'default',
       hot_expert_tail_window: 16,
       merge_qkv: false,
@@ -2230,6 +2260,7 @@ const EXPERIMENTAL_PRESETS = {
     familyHint: ['gpt-oss'],
     experimental: {
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'default',
       hot_expert_tail_window: 16,
       merge_qkv: false,
@@ -2275,6 +2306,7 @@ const EXPERIMENTAL_PRESETS = {
       ser_min: 4,
       ser_thresh: 0.05,
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'default',
       hot_expert_tail_window: 16,
       prompt_packed_qkv: false,
@@ -2300,6 +2332,7 @@ const EXPERIMENTAL_PRESETS = {
       ser_min: 3,
       ser_thresh: 0.10,
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'default',
       hot_expert_tail_window: 16,
       prompt_packed_qkv: false,
@@ -2327,6 +2360,7 @@ const EXPERIMENTAL_PRESETS = {
       prompt_packed_qkv_range: '',
       ser_enabled: false,
       hot_expert_budget: 0,
+      hot_expert_budget_mult: 0,
       hot_expert_selection: 'default',
       hot_expert_tail_window: 16,
     },
@@ -2521,6 +2555,9 @@ function buildExperimentalCliArgs(s = state) {
   const args = [];
   if ((s.hot_expert_budget || 0) > 0) {
     args.push('--experimental', `hot-expert-budget=${s.hot_expert_budget}`);
+  }
+  if ((s.hot_expert_budget_mult || 0) > 0) {
+    args.push('--experimental', `hot-expert-budget-mult=${s.hot_expert_budget_mult}`);
   }
   if (s.hot_expert_selection && s.hot_expert_selection !== 'default') {
     args.push('--experimental', `hot-expert-selection=${String(s.hot_expert_selection)}`);
@@ -4047,6 +4084,30 @@ const HELP = {
 <div class="tip">What this changes: how many experts runtime tries to keep “warm” after the prompt. Where it helps: huge swap-bound MoE if early decode reuses a narrow hot set. Where it can hurt: extra RAM pressure and retention of the wrong experts. When to touch it: mainly for MiniMax-class tests and only as a controlled experiment.</div>
 <div class="tip">CLI example: <span class="hl">--experimental hot-expert-budget=16</span></div>
 <div class="see-also">See also: <span>-rtr</span> (runtime repack), <span>-ser</span> (router pruning), <span>model type</span> (Dense vs MoE)</div>`,
+  },
+  hot_expert_budget_mult: {
+    ru: `<h4>Hot Expert Budget Mult (--experimental hot-expert-budget-mult=M)</h4>
+<div class="beginner-section"><div class="label">Для новичков</div>Это не фиксированное число hot experts, а множитель поверх внутреннего baseline runtime. Он не меняет модель и не меняет router. Он только говорит runtime: делай hot-набор более агрессивным, чем обычно.</div>
+<p><b>0</b> = не задавать множитель, оставить runtime baseline.</p>
+<p><b>M &gt; 0</b> = увеличить hot-набор относительно внутренней политики модели.</p>
+<div class="bench">Практический смысл:
+• fixed budget = грубый фиксированный лимит
+• budget mult = более мягкая регулировка поверх baseline runtime
+• это может быть полезнее, когда модели не нужен один и тот же hot limit на всех prompts</div>
+<div class="tip">Что меняет: агрессивность роста hot-набора в runtime. Где помогает: MoE locality A/B, когда fixed budget слишком груб. Где может навредить: лишнее удержание experts и рост RAM pressure. Когда трогать: только в controlled tests после baseline.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-budget-mult=1.5</span></div>
+<div class="see-also">См. также: <span>Hot Expert Budget</span>, <span>Hot Expert Selection</span>, <span>Tail Window</span></div>`,
+    en: `<h4>Hot Expert Budget Mult (--experimental hot-expert-budget-mult=M)</h4>
+<div class="beginner-section"><div class="label">For beginners</div>This is not a fixed number of hot experts. It is a multiplier on top of the internal runtime baseline. It does not change the model and does not change the router. It only tells runtime to make the hot set more aggressive than usual.</div>
+<p><b>0</b> = do not set a multiplier, keep the runtime baseline.</p>
+<p><b>M &gt; 0</b> = enlarge the hot set relative to the model's internal policy.</p>
+<div class="bench">Practical meaning:
+• fixed budget = a coarse hard limit
+• budget mult = a softer scaling over the runtime baseline
+• this can be more useful when the model does not want the same hot limit on every prompt</div>
+<div class="tip">What this changes: how aggressively runtime grows the hot set. Where it helps: MoE locality A/B when a fixed budget is too crude. Where it can hurt: retaining too many experts and increasing RAM pressure. When to touch it: only in controlled tests after a baseline.</div>
+<div class="tip">CLI example: <span class="hl">--experimental hot-expert-budget-mult=1.5</span></div>
+<div class="see-also">See also: <span>Hot Expert Budget</span>, <span>Hot Expert Selection</span>, <span>Tail Window</span></div>`,
   },
   hot_expert_selection: {
     ru: `<h4>Hot Expert Selection (--experimental hot-expert-selection=...)</h4>

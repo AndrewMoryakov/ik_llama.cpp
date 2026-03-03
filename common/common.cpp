@@ -351,6 +351,7 @@ static bool common_set_process_env(const std::string & key, const std::string & 
 static bool common_apply_experimental_cli_overrides(const gpt_params & params, std::string * err = nullptr) {
     static const std::unordered_map<std::string, std::string> allowed = {
         { "hot-expert-budget",         "IK_LLAMA_HOT_EXPERT_BUDGET" },
+        { "hot-expert-budget-mult",    "IK_LLAMA_HOT_EXPERT_BUDGET_MULT" },
         { "hot-expert-selection",      "IK_LLAMA_HOT_EXPERT_SELECTION" },
         { "hot-expert-tail-window",    "IK_LLAMA_HOT_EXPERT_TAIL_WINDOW" },
         { "prompt-packed-qkv",         "IK_LLAMA_PROMPT_PACKED_QKV" },
@@ -363,7 +364,7 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         if (it == allowed.end()) {
             if (err) {
                 *err = string_format(
-                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range)",
+                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range)",
                         kv.first.c_str());
             }
             return false;
@@ -2364,7 +2365,7 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     options.push_back({ "*",         "-khad,  --k-cache-hadamard,",     "Use Hadamard transform for K-cache (default: %d)", params.k_cache_hadamard});
     options.push_back({ "*",           "       --experimental KEY=VALUE",
                                                                         "set a repeatable experimental runtime override.\n"
-                                                                        "supported keys: hot-expert-budget, hot-expert-selection, hot-expert-tail-window,\n"
+                                                                        "supported keys: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window,\n"
                                                                         "prompt-packed-qkv, prompt-packed-preset, prompt-packed-range" });
     options.push_back({ "*",         "-smf16, --split-mode-f16,",       "Use f16 for data exchange between GPUs (default: %d)", true});
     options.push_back({ "*",         "-smf32, --split-mode-f32,",       "Use f32 for data exchange between GPUs (default: %d)", false});

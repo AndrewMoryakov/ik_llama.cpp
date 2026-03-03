@@ -94,6 +94,12 @@ Canonical matrix for this layer:
 - по текущему runtime-path manual path уже может включаться на совместимых split-QKV моделях
 - `auto` policy и benchmark-backed validation сегодня все еще лучше всего развиты на `Qwen3MoE / gpt-oss`
 
+И `Hot Expert Budget Mult` теперь нужно читать так же:
+
+- по механике это knob класса `MoE / huge-MoE`
+- по текущему runtime-path это generic `MoE / huge-MoE hot-expert path`
+- по validation это пока `research-only`
+
 ## Из каких частей он состоит
 
 ### 1. `dashboard/dashboard.html`

@@ -50,12 +50,17 @@
 | `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | Это не MiniMax-only идея по природе, а runtime strategy для expert locality | class-capable runtime path with honest fallback and validation matrix |
 | `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | Это selection strategy для hot experts, а не property одной family | available to compatible MoE paths, validated family by family |
 | `Hot Expert Budget` | `MoE / huge-MoE` | `generic MoE hot-expert path` | Это runtime budget policy для удержания hot set, не family-specific mechanism | class-level knob with per-family validation guidance |
+| `Hot Expert Budget Mult` | `MoE / huge-MoE` | `generic MoE hot-expert path` | Это более мягкий способ масштабировать hot set поверх baseline runtime, не прибитый к одной family | class-level knob with CLI/UI/runtime parity and research validation guidance |
 
 Практический смысл:
 
 - это одна цельная `hot experts / locality` линия;
 - именно она ближе всего к главной huge-MoE цели форка;
-- здесь generalized support уже частично начат и должен быть доведен последовательно.
+- здесь generalized support уже доведен до целостного runtime блока:
+  - `Hot Expert Budget`
+  - `Hot Expert Budget Mult`
+  - `Hot Expert Selection`
+  - `Tail Window`
 
 ### 1.2 Split-QKV line
 

@@ -347,7 +347,7 @@ Result:
 
 ### Текущий статус после закрытия Phase 1
 
-`Phase 2` уже начата.
+`Phase 2` теперь закрыта как bounded runtime-generalization milestone.
 
 Текущая рабочая ветка:
 
@@ -402,12 +402,31 @@ Result:
    - `Qwen3-1.7B`
    - `Mistral-7B`
 
+Уже сделан четвертый bounded runtime-slice:
+
+- `Hot Expert Budget Mult` promoted from env-only control to first-class `--experimental` runtime knob
+
+Что именно это дало:
+
+1. `hot_expert_budget_mult` теперь проходит через:
+   - CLI
+   - dashboard
+   - docs / knob matrix
+2. `hot experts` line теперь завершена как единый class-based experimental block:
+   - `Hot Expert Budget`
+   - `Hot Expert Budget Mult`
+   - `Hot Expert Selection`
+   - `Tail Window`
+3. semantic layer `Phase 1` и runtime layer `Phase 2` теперь согласованы по этой линии end-to-end
+
 Практический смысл:
 
-- `Phase 2` теперь имеет уже два реальных generalized runtime slices:
+- `Phase 2` теперь имеет три реальные generalized runtime slices:
   - `Hot Expert Selection / Tail Window`
   - `Prompt Packed QKV` manual path
+  - `Hot Expert Budget Mult` as a first-class class-level experimental runtime control
 - validation по-прежнему уже, чем runtime support
+- это уже достаточная stopping point для перехода в `Phase 3`
 
 ## Полная фазная цепочка после текущего этапа
 
@@ -419,11 +438,11 @@ Result:
 
 2. `Phase 2`
 - runtime generalization
-- сначала `Hot Expert Selection / Tail Window`
-- затем `Prompt Packed QKV`
-- потом decision point:
-  - продолжать ли расширение class-based runtime support
-  - или переходить в `Phase 3` targeted validation
+- закрыта на bounded scope:
+  - `Hot Expert Selection / Tail Window`
+  - `Hot Expert Budget / Budget Mult`
+  - `Prompt Packed QKV` manual path
+- следующий шаг уже не новая semantic rework и не бесконечное widening, а `Phase 3` targeted validation
 
 ### Текущий active Phase 2 slice
 
