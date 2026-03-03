@@ -78,6 +78,12 @@
 - `validated` не означает `universal`
 - `runtime support today` может быть уже, чем theoretical applicability, или уже шире validation
 
+Отдельное правило для defaults:
+
+- class-level experimental availability не отменяет family-specific defaults
+- если у family уже есть tuned baseline/default, dashboard должен сохранять его
+- generalized knobs открываются шире для совместимого класса моделей, но это не значит, что они автоматически становятся default для всех
+
 Canonical matrix for this layer:
 
 - `../strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`

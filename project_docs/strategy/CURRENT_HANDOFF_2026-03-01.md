@@ -428,6 +428,17 @@ Result:
 - validation по-прежнему уже, чем runtime support
 - это уже достаточная stopping point для перехода в `Phase 3`
 
+### Важное правило после Phase 2
+
+Class-based support не должен ломать family-specific defaults.
+
+Правильная политика теперь такая:
+
+1. если у конкретной family уже есть tuned default в оригинальном `ik_llama` или в подтвержденной линии форка, этот default сохраняется
+2. generalized runtime path лишь делает knob доступным более широкому классу моделей
+3. `auto`-policy, baseline presets и validated defaults могут оставаться family-specific
+4. class-level availability не равна class-level default
+
 ## Полная фазная цепочка после текущего этапа
 
 Чтобы не терять нить, текущая последовательность фаз сейчас такая:
