@@ -1867,52 +1867,16 @@ function renderOverviewSummary(active = []) {
 function renderModelBadges() {
   const el = document.getElementById('model-badges');
   if (!el) return;
+  const layer = window.IKLLamaEvidenceLayer;
+  const badges = layer?.getModelBadges?.(
+    buildEvidenceContext(state, currentProfile),
+    currentLang,
+    { detectModelFamily, isSwapBound, hasExperimentalKnobs }
+  ) || [];
 
-  const family = detectModelFamily(state);
-  const familyClass = family === 'qwen3moe'
-    ? 'family-qwen'
-    : family === 'gpt-oss'
-      ? 'family-gptoss'
-      : family === 'minimax'
-        ? 'family-minimax'
-        : 'family-generic';
-  const familyText = family === 'qwen3moe'
-    ? t('badge_family_qwen')
-    : family === 'gpt-oss'
-      ? t('badge_family_gptoss')
-      : family === 'minimax'
-        ? t('badge_family_minimax')
-        : t('badge_family_other');
-
-  const profile = currentProfile || { totalRamGb: 0 };
-  const swapBadge = isSwapBound(state, profile) ? t('badge_path_swap') : t('badge_path_inram');
-  const workloadBadge = state.workload_profile === 'tg'
-    ? t('badge_path_tg')
-    : state.workload_profile === 'pp'
-      ? t('badge_path_pp')
-      : t('badge_path_mixed');
-  const validationStatus = getFamilyValidationStatus(state);
-  const statusClass = validationStatus === 'validated'
-    ? 'status-validated'
-    : validationStatus === 'partial'
-      ? 'status-partial'
-      : 'status-unknown';
-  const statusText = validationStatus === 'validated'
-    ? t('badge_status_validated')
-    : validationStatus === 'partial'
-      ? t('badge_status_partial')
-      : t('badge_status_unknown');
-  const experimentalBadge = hasExperimentalKnobs(state)
-    ? `<span class="model-badge status-experimental">${t('badge_status_exp_knobs')}</span>`
-    : '';
-
-  el.innerHTML = `
-    <span class="model-badge ${familyClass}">${t('badge_family')}: ${familyText}</span>
-    <span class="model-badge family-generic">${t('badge_path')}: ${swapBadge}</span>
-    <span class="model-badge family-generic">${workloadBadge}</span>
-    <span class="model-badge ${statusClass}">${t('badge_status')}: ${statusText}</span>
-    ${experimentalBadge}
-  `;
+  el.innerHTML = badges.map((badge) => `
+    <span class="model-badge ${badge.className || 'family-generic'}" title="${escapeHtml(badge.title || '')}">${escapeHtml(badge.label || '')}</span>
+  `).join('');
 }
 
 function renderDots(paramSeverity) {

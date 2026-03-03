@@ -92,7 +92,8 @@
 1. product-level preset bundles;
 2. family/runtime guidance for auto-config;
 3. standard preset definitions;
-4. overview action-hints for the top-level product flow.
+4. overview action-hints for the top-level product flow;
+5. model badges/status line for the top-level product flow.
 
 ## Что не входит в evidence layer
 
@@ -126,7 +127,8 @@
 4. tested-on / failure-mode summaries;
 5. standard preset definitions;
 6. runtime profile defaults and family-guidance reasoning;
-7. overview family/validation summaries and product-facing notes.
+7. overview family/validation summaries and product-facing notes;
+8. model badges for family/path/workload/status and experimental-active state.
 
 Практическое следствие:
 

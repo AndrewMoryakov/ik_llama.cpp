@@ -383,6 +383,30 @@ Dashboard не должен жить своей жизнью.
 
 Если сначала менять UI-claims, а benchmark truth отстает, knowledge layer начнет врать пользователю.
 
+## Data-driven evidence layer
+
+Сейчас `dashboard` берет из `dashboard/evidence-layer.js` не только:
+
+1. experimental knob evidence;
+2. experimental presets;
+3. standard presets;
+4. runtime profiles;
+5. overview summaries и next-actions;
+
+но и:
+
+6. `model badges/status line`
+   - family
+   - memory/path regime
+   - workload emphasis
+   - validation status
+   - experimental-active state
+
+Практическое правило:
+
+- product semantics живут в registry;
+- `dashboard.js` только рендерит текущий state и делает live DOM-routing.
+
 ## Что dashboard не должен делать
 
 Dashboard не должен:

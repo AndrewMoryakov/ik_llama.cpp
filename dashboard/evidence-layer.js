@@ -196,6 +196,32 @@
     }
   };
 
+  const MODEL_BADGE_META = {
+    family: {
+      qwen3moe: { labelRu: 'Семейство: Qwen3MoE', labelEn: 'Family: Qwen3MoE', className: 'family-qwen' },
+      'gpt-oss': { labelRu: 'Семейство: gpt-oss', labelEn: 'Family: gpt-oss', className: 'family-gptoss' },
+      minimax: { labelRu: 'Семейство: MiniMax M2.5', labelEn: 'Family: MiniMax M2.5', className: 'family-minimax' },
+      other: { labelRu: 'Семейство: Не определено', labelEn: 'Family: Not detected', className: 'family-generic' }
+    },
+    path: {
+      inram: { labelRu: 'Путь: in-RAM профиль', labelEn: 'Path: in-RAM profile', className: 'family-generic' },
+      swap: { labelRu: 'Путь: swap-bound профиль', labelEn: 'Path: swap-bound profile', className: 'family-generic' }
+    },
+    workload: {
+      tg: { labelRu: 'TG-only фокус', labelEn: 'TG-only focus', className: 'family-generic' },
+      pp: { labelRu: 'PP фокус', labelEn: 'PP focus', className: 'family-generic' },
+      mixed: { labelRu: 'mixed-path важен', labelEn: 'mixed-path matters', className: 'family-generic' }
+    },
+    status: {
+      validated: { labelRu: 'Статус: validated baseline', labelEn: 'Status: validated baseline', className: 'status-validated' },
+      partial: { labelRu: 'Статус: research / partial', labelEn: 'Status: research / partial', className: 'status-partial' },
+      unknown: { labelRu: 'Статус: unknown family', labelEn: 'Status: unknown family', className: 'status-unknown' }
+    },
+    experimental: {
+      active: { labelRu: 'experimental knobs active', labelEn: 'experimental knobs active', className: 'status-experimental' }
+    }
+  };
+
   const OVERVIEW_ACTIONS = {
     model: {
       titleRu: 'Проверьте модель',
@@ -546,7 +572,67 @@
     const modelType = ctx.modelType || (ctx.state && ctx.state.model_type) || 'dense';
     const workload = ctx.workload || (ctx.state && ctx.state.workload_profile) || 'mixed';
     const isSwapBound = typeof ctx.isSwapBound === 'boolean' ? ctx.isSwapBound : (helpers.isSwapBound ? helpers.isSwapBound(ctx.state || {}, ctx.profile || {}) : false);
-    return { ...ctx, family, modelPath, modelType, workload, isSwapBound };
+    const hasExperimentalKnobs = typeof ctx.hasExperimentalKnobs === 'boolean'
+      ? ctx.hasExperimentalKnobs
+      : (helpers.hasExperimentalKnobs ? helpers.hasExperimentalKnobs(ctx.state || {}) : false);
+    return { ...ctx, family, modelPath, modelType, workload, isSwapBound, hasExperimentalKnobs };
+  }
+
+  function getModelBadges(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const familyMeta = MODEL_BADGE_META.family[ctx.family] || MODEL_BADGE_META.family.other;
+    const pathMeta = ctx.isSwapBound ? MODEL_BADGE_META.path.swap : MODEL_BADGE_META.path.inram;
+    const workloadMeta = MODEL_BADGE_META.workload[ctx.workload] || MODEL_BADGE_META.workload.mixed;
+    const validationStatus = getFamilyValidationStatus(ctx, helpers);
+    const statusMeta = MODEL_BADGE_META.status[validationStatus] || MODEL_BADGE_META.status.unknown;
+    const familyNote = getFamilyValidationNote(ctx, lang, helpers);
+
+    const badges = [
+      {
+        id: 'family',
+        label: lang === 'ru' ? familyMeta.labelRu : familyMeta.labelEn,
+        className: familyMeta.className,
+        title: familyNote
+      },
+      {
+        id: 'path',
+        label: lang === 'ru' ? pathMeta.labelRu : pathMeta.labelEn,
+        className: pathMeta.className,
+        title: ctx.isSwapBound
+          ? (lang === 'ru' ? 'Текущий memory regime ближе к swap-bound сценарию.' : 'The current memory regime is closer to a swap-bound scenario.')
+          : (lang === 'ru' ? 'Текущий memory regime ближе к in-RAM сценарию.' : 'The current memory regime is closer to an in-RAM scenario.')
+      },
+      {
+        id: 'workload',
+        label: lang === 'ru' ? workloadMeta.labelRu : workloadMeta.labelEn,
+        className: workloadMeta.className,
+        title: ctx.workload === 'tg'
+          ? (lang === 'ru' ? 'Текущий workload ориентирован на decode-only скорость.' : 'The current workload is focused on decode-only speed.')
+          : ctx.workload === 'pp'
+            ? (lang === 'ru' ? 'Текущий workload ориентирован на prompt processing.' : 'The current workload is focused on prompt processing.')
+            : (lang === 'ru' ? 'Текущий workload оценивает mixed prompt + generation path.' : 'The current workload evaluates the mixed prompt + generation path.')
+      },
+      {
+        id: 'status',
+        label: lang === 'ru' ? statusMeta.labelRu : statusMeta.labelEn,
+        className: statusMeta.className,
+        title: familyNote
+      }
+    ];
+
+    if (ctx.hasExperimentalKnobs) {
+      const expMeta = MODEL_BADGE_META.experimental.active;
+      badges.push({
+        id: 'experimental',
+        label: lang === 'ru' ? expMeta.labelRu : expMeta.labelEn,
+        className: expMeta.className,
+        title: lang === 'ru'
+          ? 'В текущем профиле активны экспериментальные ручки. Сравнивайте их с validated baseline.'
+          : 'The current profile has experimental knobs enabled. Compare them against the validated baseline.'
+      });
+    }
+
+    return badges;
   }
 
   function getApplicabilityBadge(paramId, rawCtx, lang) {
@@ -791,7 +877,7 @@
     EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE, STANDARD_PRESET_EVIDENCE, FAMILY_VALIDATION_EVIDENCE,
     getKnobEvidence, getPresetEvidence, getApplicabilityBadge, getRuntimeSupportBadge, getValidationBadge, getConfidenceBadge,
     listTestedOn, explainFailureMode, listExperimentalPresets, listStandardPresets, getStandardPreset, getPresetRiskLabel, getPresetScopeLabel,
-    getFamilyValidationStatus, getFamilyValidationNote, getOverviewFamilySummary, getOverviewValidationSummary, getOverviewActions,
+    getFamilyValidationStatus, getFamilyValidationNote, getOverviewFamilySummary, getOverviewValidationSummary, getOverviewActions, getModelBadges,
     getAutoConfigRtrGuidance, getHotExpertGuidance, resolveRuntimeProfile
   };
 })(window);
