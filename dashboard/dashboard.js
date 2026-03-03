@@ -1689,29 +1689,50 @@ function renderOverviewSummary(active = []) {
       ? 'loading'
       : (document.getElementById('proc-status')?.textContent?.includes('exit') ? 'stopped' : 'idle')));
 
-  const familyText = family === 'qwen3moe'
-    ? t('badge_family_qwen')
-    : family === 'gpt-oss'
-      ? t('badge_family_gptoss')
-      : family === 'minimax'
-        ? t('badge_family_minimax')
-        : t('ov_family_unknown_value');
-  const familyEvidenceNote = window.IKLLamaEvidenceLayer?.getFamilyValidationNote?.(
-    { state, meta: lastModelMeta, family, modelPath: state.model || '', modelType: state.model_type, workload: state.workload_profile, isSwapBound: swap },
+  const evidenceCtx = {
+    state,
+    meta: lastModelMeta,
+    family,
+    modelPath: state.model || '',
+    modelType: state.model_type,
+    workload: state.workload_profile,
+    isSwapBound: swap,
+    modelSizeGb: state.model_size_gb || 0,
+    hasExperimentalKnobs: hasExperimentalKnobs(state)
+  };
+  const familySummary = window.IKLLamaEvidenceLayer?.getOverviewFamilySummary?.(
+    evidenceCtx,
     currentLang,
     { detectModelFamily, isSwapBound }
-  ) || '';
-  const familyNote = family === 'other'
-    ? t('ov_family_unknown_note')
-    : (familyEvidenceNote || (state.model_size_gb > 0 ? `${state.model_size_gb} GB` : (currentLang === 'ru' ? 'Размер модели пока не определён' : 'Model size is not set yet')));
-  const validationText = validation === 'validated'
-    ? t('ov_validation_validated')
-    : validation === 'partial'
-      ? t('ov_validation_partial')
-      : t('ov_validation_unknown_value');
-  const validationNote = validation === 'unknown'
-    ? t('ov_validation_unknown_note')
-    : (familyEvidenceNote || (hasExperimentalKnobs(state) ? t('badge_status_exp_knobs') : (currentLang === 'ru' ? 'Без экспериментальных ручек' : 'No experimental knobs active')));
+  ) || {
+    value: family === 'qwen3moe'
+      ? t('badge_family_qwen')
+      : family === 'gpt-oss'
+        ? t('badge_family_gptoss')
+        : family === 'minimax'
+          ? t('badge_family_minimax')
+          : t('ov_family_unknown_value'),
+    note: family === 'other'
+      ? t('ov_family_unknown_note')
+      : (state.model_size_gb > 0 ? `${state.model_size_gb} GB` : (currentLang === 'ru' ? 'Размер модели пока не определён' : 'Model size is not set yet')),
+    tone: ''
+  };
+  const validationSummary = window.IKLLamaEvidenceLayer?.getOverviewValidationSummary?.(
+    evidenceCtx,
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || {
+    status: validation,
+    value: validation === 'validated'
+      ? t('ov_validation_validated')
+      : validation === 'partial'
+        ? t('ov_validation_partial')
+        : t('ov_validation_unknown_value'),
+    note: validation === 'unknown'
+      ? t('ov_validation_unknown_note')
+      : (hasExperimentalKnobs(state) ? t('badge_status_exp_knobs') : (currentLang === 'ru' ? 'Без экспериментальных ручек' : 'No experimental knobs active')),
+    tone: ''
+  };
   const runtimeText = runtimeState === 'offline'
     ? t('ov_runtime_offline')
     : runtimeState === 'ready'
@@ -1729,7 +1750,7 @@ function renderOverviewSummary(active = []) {
         ? t('ov_mem_inram')
         : t('ov_mem_unknown');
 
-  const familyClass = validation === 'validated' ? 'accent' : validation === 'partial' ? 'warn' : '';
+  const familyClass = familySummary.tone || (validation === 'validated' ? 'accent' : validation === 'partial' ? 'warn' : '');
   const memoryClass = memState === 'swap' ? 'error' : memState === 'near' ? 'warn' : memState === 'inram' ? 'accent' : '';
   const warnClass = active.some(r => r.severity === 'error') ? 'error' : active.some(r => r.severity === 'warning') ? 'warn' : 'accent';
   const workloadText = state.workload_profile === 'tg'
@@ -1760,8 +1781,8 @@ function renderOverviewSummary(active = []) {
   hero.innerHTML = `
     <div class="overview-hero-card ${familyClass}">
       <div class="overview-hero-label">${t('ov_family')}</div>
-      <div class="overview-hero-value">${familyText}</div>
-      <div class="overview-hero-note">${familyNote}</div>
+      <div class="overview-hero-value">${familySummary.value}</div>
+      <div class="overview-hero-note">${familySummary.note}</div>
       <div class="overview-hero-actions">
         ${!state.model
           ? `<button class="btn-accent overview-hero-btn" onclick="browseModelFile()">${t('ov_browse_model')}</button>`
@@ -1776,10 +1797,10 @@ function renderOverviewSummary(active = []) {
         <button class="btn-ghost overview-hero-btn" onclick="jumpToParam('model_size_gb', 'model')">${t('ov_go_model_size')}</button>
       </div>
     </div>
-    <div class="overview-hero-card ${familyClass}">
+    <div class="overview-hero-card ${validationSummary.tone || familyClass}">
       <div class="overview-hero-label">${t('ov_validation')}</div>
-      <div class="overview-hero-value">${validationText}</div>
-      <div class="overview-hero-note">${validationNote}</div>
+      <div class="overview-hero-value">${validationSummary.value}</div>
+      <div class="overview-hero-note">${validationSummary.note}</div>
       <div class="overview-hero-actions">
         <button class="btn-ghost overview-hero-btn" onclick="jumpToParam('repack_tensors', 'optimization')">${t('ov_go_rtr')}</button>
       </div>

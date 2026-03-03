@@ -115,7 +115,8 @@
 3. validation/confidence tooltips;
 4. tested-on / failure-mode summaries;
 5. standard preset definitions;
-6. runtime profile defaults and family-guidance reasoning.
+6. runtime profile defaults and family-guidance reasoning;
+7. overview family/validation summaries and product-facing notes.
 
 Практическое следствие:
 
@@ -123,7 +124,9 @@
   - validation,
   - confidence,
   - runtime-support badges,
-  - family-validation summaries.
+  - family-validation summaries,
+  - overview family summaries,
+  - overview validation summaries.
 
 Если такой дублирующий слой появляется, его нужно либо удалить, либо заменить thin-wrapper вызовом в `evidence-layer.js`.
 
@@ -178,6 +181,17 @@
 3. `title`
 4. `defaults`
 5. `reasons`
+
+### Overview summary entry
+
+Каждый overview-oriented evidence entry должен уметь вернуть:
+
+1. `value`
+2. `note`
+3. `tone`
+4. при необходимости `status`
+
+Это позволяет держать `Overview` как product-facing summary panel на том же registry-driven слое, а не в ad-hoc ветках `dashboard.js`.
 
 Это тот слой, который позволяет держать:
 

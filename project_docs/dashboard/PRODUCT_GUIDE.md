@@ -113,7 +113,8 @@ Canonical matrix for this layer:
 2. хранить standard presets и их confidence/validation как данные, а не как hardcoded bundles в `dashboard.js`;
 3. хранить family/runtime guidance и auto-config profiles как registry, а не как ad-hoc policy ветки в `dashboard.js`;
 4. позволять добавлять новые benchmark findings как данные, а не как новые ad-hoc ветвления в `dashboard.js`;
-5. держать product semantics согласованной с benchmark truth и handoff docs.
+5. держать product semantics согласованной с benchmark truth и handoff docs;
+6. формировать `Overview` family/validation summaries из того же registry, а не из отдельной product-логики в `dashboard.js`.
 
 Операционное правило:
 

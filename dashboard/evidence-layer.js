@@ -154,6 +154,48 @@
     }
   };
 
+  const FAMILY_OVERVIEW_META = {
+    qwen3moe: {
+      valueRu: 'Qwen3MoE',
+      valueEn: 'Qwen3MoE',
+      noteRu: 'Для этой family уже есть подтвержденная baseline/runtime линия.',
+      noteEn: 'This family already has a validated baseline/runtime line.'
+    },
+    'gpt-oss': {
+      valueRu: 'gpt-oss',
+      valueEn: 'gpt-oss',
+      noteRu: 'Для gpt-oss есть подтвержденный baseline, но practical value отдельных knobs уже различается между 20b и 120b.',
+      noteEn: 'gpt-oss has a validated baseline, but the practical value of individual knobs already differs between 20b and 120b.'
+    },
+    minimax: {
+      valueRu: 'MiniMax M2.5',
+      valueEn: 'MiniMax M2.5',
+      noteRu: 'Huge-MoE линия подтверждена, но часть runtime guidance все еще остается research/partial.',
+      noteEn: 'The huge-MoE line is confirmed, but part of the runtime guidance is still research/partial.'
+    },
+    other: {
+      valueRu: 'Не определено',
+      valueEn: 'Not detected',
+      noteRu: 'Семейство пока не определено. Выберите GGUF и дайте dashboard прочитать путь и размер модели.',
+      noteEn: 'The family is not detected yet. Pick a GGUF and let the dashboard read model path and size first.'
+    }
+  };
+
+  const OVERVIEW_VALIDATION_META = {
+    validated: {
+      valueRu: 'Подтверждено',
+      valueEn: 'Validated'
+    },
+    partial: {
+      valueRu: 'Частично',
+      valueEn: 'Partial'
+    },
+    unknown: {
+      valueRu: 'Нет validated-линии',
+      valueEn: 'No validated line'
+    }
+  };
+
   const AUTOCONFIG_RTR_POLICIES = [
     {
       id: 'minimax-swap',
@@ -516,6 +558,55 @@
     return lang === 'ru' ? entry.noteRu : entry.noteEn;
   }
 
+  function getOverviewFamilySummary(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const meta = FAMILY_OVERVIEW_META[ctx.family] || FAMILY_OVERVIEW_META.other;
+    if (ctx.family === 'other') {
+      if (ctx.modelSizeGb > 0) {
+        return {
+          value: lang === 'ru' ? meta.valueRu : meta.valueEn,
+          note: `${ctx.modelSizeGb} GB`,
+          tone: ''
+        };
+      }
+      return {
+        value: lang === 'ru' ? meta.valueRu : meta.valueEn,
+        note: lang === 'ru' ? meta.noteRu : meta.noteEn,
+        tone: ''
+      };
+    }
+    return {
+      value: lang === 'ru' ? meta.valueRu : meta.valueEn,
+      note: lang === 'ru' ? meta.noteRu : meta.noteEn,
+      tone: getFamilyValidationStatus(ctx, helpers) === 'validated' ? 'accent' : 'warn'
+    };
+  }
+
+  function getOverviewValidationSummary(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const status = getFamilyValidationStatus(ctx, helpers);
+    const meta = OVERVIEW_VALIDATION_META[status] || OVERVIEW_VALIDATION_META.unknown;
+    let note = '';
+    if (status === 'unknown') {
+      note = lang === 'ru'
+        ? 'Для этой модели еще нет подтвержденной линии. Проверьте family detection и сравните базовый runtime-профиль вручную.'
+        : 'This model has no validated line yet. Confirm family detection and compare the baseline runtime profile manually.';
+    } else if (status === 'validated' || status === 'partial') {
+      note = getFamilyValidationNote(ctx, lang, helpers);
+      if (ctx.hasExperimentalKnobs) {
+        note += lang === 'ru'
+          ? ' Экспериментальные ручки активны.'
+          : ' Experimental knobs are active.';
+      }
+    }
+    return {
+      status,
+      value: lang === 'ru' ? meta.valueRu : meta.valueEn,
+      note,
+      tone: status === 'validated' ? 'accent' : status === 'partial' ? 'warn' : ''
+    };
+  }
+
   function getAutoConfigRtrGuidance(rawCtx, lang, helpers) {
     const ctx = buildContext(rawCtx || {}, helpers || {});
     const policy = AUTOCONFIG_RTR_POLICIES.find((item) => item.matches(ctx)) || AUTOCONFIG_RTR_POLICIES[AUTOCONFIG_RTR_POLICIES.length - 1];
@@ -625,6 +716,7 @@
     EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE, STANDARD_PRESET_EVIDENCE, FAMILY_VALIDATION_EVIDENCE,
     getKnobEvidence, getPresetEvidence, getApplicabilityBadge, getRuntimeSupportBadge, getValidationBadge, getConfidenceBadge,
     listTestedOn, explainFailureMode, listExperimentalPresets, listStandardPresets, getStandardPreset, getPresetRiskLabel, getPresetScopeLabel,
-    getFamilyValidationStatus, getFamilyValidationNote, getAutoConfigRtrGuidance, getHotExpertGuidance, resolveRuntimeProfile
+    getFamilyValidationStatus, getFamilyValidationNote, getOverviewFamilySummary, getOverviewValidationSummary,
+    getAutoConfigRtrGuidance, getHotExpertGuidance, resolveRuntimeProfile
   };
 })(window);
