@@ -182,8 +182,8 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV — экспериментальная опция. Она model-sensitive и не является validated default для текущего релизного слоя.',
     w_hot_budget_experimental: 'Hot Expert Budget — экспериментальный env-knob. Для обычного MiniMax запуска оставляйте 0; более крупные бюджеты пока не стали validated default.',
     w_hot_budget_family: 'Hot Expert Budget относится к huge-MoE locality. По механике он шире, чем одна family, но текущий runtime fully wired сегодня прежде всего на MiniMax-path. На других MoE это пока research A/B, а не готовое правило.',
-    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная locality-ветка для MiniMax. Она не меняет веса модели, а только меняет то, по какой части prompt выбираются hot experts.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Но текущий runtime-path fully enabled сегодня прежде всего для MiniMax. Для остальных MoE считайте это research-only, пока нет отдельной generalization и validation.',
+    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная MoE-locality ветка. Она не меняет веса модели, а только меняет то, по какой части prompt runtime выбирает hot experts.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Текущий runtime-path уже может реально включаться на compatible MoE, но benchmark-backed validation пока в основном MiniMax-first. Для остальных MoE считайте это research-only, пока нет отдельной validation.',
     w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
     w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Это шире, чем одна family, но текущая runtime-поддержка и auto-policy сегодня лучше всего проработаны для Qwen3MoE и gpt-oss. Для остальных семей это пока исследовательский режим.',
     w_prompt_packed_range: 'Задан явный Prompt Packed range. Это advanced override поверх preset и его стоит включать только для осознанного A/B.',
@@ -615,8 +615,8 @@ const LANG = {
     w_mqkv_experimental: 'Merge QKV is experimental. It is model-sensitive and not part of the validated default layer.',
     w_hot_budget_experimental: 'Hot Expert Budget is an experimental env knob. For normal MiniMax use, leave it at 0; larger budgets have not become a validated default.',
     w_hot_budget_family: 'Hot Expert Budget belongs to huge-MoE locality. Mechanically it is broader than one family, but the current runtime path is fully wired today mainly on the MiniMax path. On other MoE families treat it as research A/B, not as a ready-made rule.',
-    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MiniMax locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. But the current runtime path is fully enabled today mainly for MiniMax. For other MoE families treat it as research-only until runtime generalization and validation exist.',
+    w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MoE locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. The current runtime path can already activate on compatible MoE, but benchmark-backed validation is still mostly MiniMax-first. For other MoE families treat it as research-only until more validation exists.',
     w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
     w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. That is broader than a single family, but current runtime support and auto-policy are best developed today for Qwen3MoE and gpt-oss. Treat other families as research mode for now.',
     w_prompt_packed_range: 'An explicit Prompt Packed range is set. This is an advanced override on top of the preset and should only be used for deliberate A/B checks.',
@@ -1390,24 +1390,24 @@ const EXPERIMENTAL_PARAM_META = {
   },
   hot_expert_budget: {
     applicability: 'moe-huge',
-    runtimeSupport: 'minimax-path',
+    runtimeSupport: 'moe-generic',
     validation: 'partial-minimax',
     risk: 'medium',
     failureMode: 'extra-ram-or-wrong-hot-set'
   },
   hot_expert_selection: {
     applicability: 'moe-huge',
-    runtimeSupport: 'minimax-path',
+    runtimeSupport: 'moe-generic',
     validation: 'partial-minimax',
     risk: 'medium',
-    failureMode: 'inactive-or-misleading'
+    failureMode: 'noisy-or-misleading-win'
   },
   hot_expert_tail_window: {
     applicability: 'moe-huge',
-    runtimeSupport: 'minimax-tail-window',
+    runtimeSupport: 'moe-generic',
     validation: 'partial-minimax',
     risk: 'medium',
-    failureMode: 'inactive-outside-minimax'
+    failureMode: 'noisy-or-negative-win'
   },
   merge_qkv: {
     applicability: 'arch-specific',
@@ -1570,28 +1570,6 @@ function getSupportBadgeMeta(param, s = state, p = currentProfile) {
       }
       return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
         ru ? 'Текущий runtime-path поддерживает этот knob на generic MoE. Но benchmark-backed validation еще неравномерна.' : 'Current runtime supports this knob on generic MoE paths, although benchmark-backed validation is still uneven.');
-    case 'minimax-path':
-      if (!isMoe) {
-        return out(ru ? 'Runtime: n/a' : 'Runtime: n/a', 'support-inactive',
-          ru ? 'Это knob для MoE locality; на dense-моделях он неактивен по механике.' : 'This is a MoE locality knob; it is mechanically inactive on dense models.');
-      }
-      if (family === 'minimax') {
-        return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
-          ru ? 'Текущий runtime-path fully wired на MiniMax. Именно здесь knob реально включается и осмысленно влияет на поведение.' : 'Current runtime is fully wired for MiniMax. This is where the knob is actually active and meaningfully changes behavior.');
-      }
-      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
-        ru ? 'По механике knob подходит классу huge-MoE, но текущий runtime-path сегодня MiniMax-first. На других MoE это пока research territory.' : 'Mechanically the knob belongs to huge-MoE locality, but today the runtime path is MiniMax-first. On other MoE families this is still research territory.');
-    case 'minimax-tail-window':
-      if (!isMoe) {
-        return out(ru ? 'Runtime: n/a' : 'Runtime: n/a', 'support-inactive',
-          ru ? 'Tail-window относится к MoE expert locality и не имеет смысла на dense-моделях.' : 'Tail-window belongs to MoE expert locality and is not meaningful on dense models.');
-      }
-      if (family === 'minimax') {
-        return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
-          ru ? 'Tail-window path сегодня реально активен на MiniMax. Здесь knob не просто принимается, а действительно меняет hot-expert selection.' : 'The tail-window path is actually active on MiniMax today. Here the knob does not merely parse; it really changes hot-expert selection.');
-      }
-      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
-        ru ? 'Идея tail-window шире, чем одна family, но в текущем коде этот path реально включается только на MiniMax.' : 'The tail-window idea is broader than a single family, but in the current code this path is actually enabled only on MiniMax.');
     case 'split-qkv-family-first':
       if (family === 'qwen3moe' || family === 'gpt-oss') {
         return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
@@ -2523,7 +2501,7 @@ function renderAdvancedHints() {
     <div class="advanced-hint">
       <div class="advanced-hint-title">MiniMax</div>
       <div class="advanced-hint-body">${t('note_minimax_hot_budget')}</div>
-      <div class="advanced-hint-body" style="margin-top:8px">${currentLang === 'ru' ? 'Если хотите проверять новую locality-идею, начните с Hot Expert Selection = tail-window и Tail Window = 16. Это исследовательский режим, не validated default.' : 'If you want to test the new locality idea, start with Hot Expert Selection = tail-window and Tail Window = 16. This is a research mode, not a validated default.'}</div>
+      <div class="advanced-hint-body" style="margin-top:8px">${currentLang === 'ru' ? 'Если хотите проверять новую MoE-locality идею, начните с Hot Expert Selection = tail-window и Tail Window = 16. Это исследовательский режим, не validated default.' : 'If you want to test the new MoE locality idea, start with Hot Expert Selection = tail-window and Tail Window = 16. This is a research mode, not a validated default.'}</div>
     </div>
   `;
   el.classList.add('visible');
@@ -4107,7 +4085,7 @@ const HELP = {
 <p><b>Большое окно</b> — ближе к поведению full-prompt, но эффект locality может стать слабее.</p>
 <div class="bench">Текущий рабочий research-кандидат для MiniMax mixed-path: <span class="hl">16</span>. Это не validated default, а лишь первый promising A/B-результат.
 <br>Интуитивно: вместо вопроса «какие experts были важны для всего prompt?» runtime задаёт более узкий вопрос: «какие experts были важны для самого конца prompt, из которого сейчас начнётся ответ?»</div>
-<div class="tip">Используйте только вместе с Hot Expert Selection = tail-window. Если не тестируете MiniMax locality специально, оставьте как есть.</div>
+<div class="tip">Используйте только вместе с Hot Expert Selection = tail-window. Если вы не тестируете MoE locality специально, оставьте как есть.</div>
 <div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window --experimental hot-expert-tail-window=16</span></div>
 <div class="see-also">См. также: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
     en: `<h4>Tail Window (--experimental hot-expert-tail-window=N)</h4>
@@ -4116,7 +4094,7 @@ const HELP = {
 <p><b>Large window</b> — closer to full-prompt behavior, but the locality effect may become weaker.</p>
 <div class="bench">Current working research candidate for MiniMax mixed-path: <span class="hl">16</span>. This is not a validated default, only the first promising A/B result.
 <br>Intuitively: instead of asking “which experts mattered for the whole prompt?”, runtime asks the narrower question “which experts mattered for the very end of the prompt, where the answer is about to begin?”</div>
-<div class="tip">Use this only together with Hot Expert Selection = tail-window. If you are not testing MiniMax locality on purpose, leave it alone.</div>
+<div class="tip">Use this only together with Hot Expert Selection = tail-window. If you are not testing MoE locality on purpose, leave it alone.</div>
 <div class="tip">CLI example: <span class="hl">--experimental hot-expert-selection=tail-window --experimental hot-expert-tail-window=16</span></div>
     <div class="see-also">See also: <span>Hot Expert Selection</span>, <span>Hot Expert Budget</span></div>`,
   },

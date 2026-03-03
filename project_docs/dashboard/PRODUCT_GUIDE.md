@@ -76,7 +76,7 @@
 
 - `applicability` не означает `validated`
 - `validated` не означает `universal`
-- `runtime support today` может быть уже, чем theoretical applicability
+- `runtime support today` может быть уже, чем theoretical applicability, или уже шире validation
 
 Canonical matrix for this layer:
 
@@ -85,7 +85,7 @@ Canonical matrix for this layer:
 Именно поэтому `Tail Window` и похожие knobs теперь должны читаться так:
 
 - по механике это knob класса `MoE / huge-MoE locality`
-- по текущему runtime-path это сегодня `MiniMax-first`
+- по текущему runtime-path это сегодня уже generic `MoE / huge-MoE hot-expert path`
 - по validation это сейчас подтверждено только на `MiniMax`
 
 ## Из каких частей он состоит

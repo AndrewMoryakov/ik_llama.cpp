@@ -34,9 +34,9 @@
 | Knob | Applicability | Runtime support today | Validated on | Risk | Failure mode |
 |---|---|---|---|---|---|
 | `SER` (`ser_enabled`, `ser_min`, `ser_thresh`) | `MoE` | `generic MoE runtime path` | `research-only` | `medium` | может не дать win, а при неудачном пороге менять router-side behavior без практической пользы |
-| `Hot Expert Budget` | `MoE / huge-MoE` | `MiniMax-first path` | `MiniMax partial` | `medium` | лишнее давление на RAM, удержание неправильного hot set |
-| `Hot Expert Selection` | `MoE / huge-MoE` | `MiniMax-first path` | `MiniMax partial` | `medium` | knob подходит классу моделей, но вне MiniMax today может быть research-only без сильного runtime effect |
-| `Tail Window` | `MoE / huge-MoE` | `MiniMax-only tail-window path` | `MiniMax partial` | `medium` | вне MiniMax текущий код не включает реальный tail-window selection path |
+| `Hot Expert Budget` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | лишнее давление на RAM, удержание неправильного hot set |
+| `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | knob подходит классу моделей, но benchmark-backed signal вне MiniMax пока слабый или отсутствует |
+| `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | path теперь может реально включаться на compatible MoE, но без validation может дать шумный или отрицательный win |
 | `Merge QKV` | `attention arch-specific` | `accepted broadly, effect arch-sensitive` | `research-only` | `medium` | слабый или отрицательный win из-за неудачного attention/layout path |
 | `Prompt Packed QKV` | `Split-QKV` | `Qwen3MoE / gpt-oss-first runtime path` | `Qwen3MoE`, `gpt-oss` partial | `high` | дополнительная RAM, более долгий load/startup, prompt-only gain без strong end-to-end win |
 | `Prompt Packed preset` | `Split-QKV` | `Qwen3MoE / gpt-oss-first runtime path` | `Qwen3MoE`, `gpt-oss` partial | `high` | family-неподходящий preset или suboptimal layer subset |
@@ -54,13 +54,13 @@
 Правильная интерпретация такая:
 
 - по механике это knob класса `MoE / huge-MoE locality`
-- по текущему runtime today это `MiniMax-only tail-window path`
+- по текущему runtime today это `generic MoE hot-expert path`
 - по validation это сейчас `MiniMax partial`
 
 То есть:
 
 - knob нельзя называть "только MiniMax по природе"
-- но нельзя и делать вид, что current runtime уже одинаково поддерживает его на всех MoE
+- но нельзя и делать вид, что one-family validation уже превращает его в validated default на всех MoE
 
 ### 2. Пример: `Prompt Packed QKV`
 

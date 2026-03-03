@@ -258,11 +258,25 @@ static const char * llama_hot_expert_selection_mode_name(llama_hot_expert_select
     return "default";
 }
 
-static bool llama_hot_expert_selection_supports_tail_window(llm_arch arch) {
-    return arch == LLM_ARCH_MINIMAX_M2;
+static bool llama_model_supports_hot_expert_runtime(const llama_model & model) {
+    if (model.hparams.n_expert == 0 || model.hparams.n_expert_used == 0) {
+        return false;
+    }
+
+    for (const auto & layer : model.layers) {
+        if (layer.ffn_down_exps || layer.ffn_up_exps || layer.ffn_gate_exps || layer.ffn_up_gate_exps) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
-static bool llama_hot_expert_use_tail_window(llm_arch arch) {
+static bool llama_hot_expert_selection_supports_tail_window(const llama_model & model) {
+    return llama_model_supports_hot_expert_runtime(model);
+}
+
+static bool llama_hot_expert_use_tail_window(const llama_model & model) {
     if (llama_hot_expert_tail_window() <= 0) {
         return false;
     }
@@ -273,7 +287,7 @@ static bool llama_hot_expert_use_tail_window(llm_arch arch) {
         return false;
     }
 
-    if (!llama_hot_expert_selection_supports_tail_window(arch)) {
+    if (!llama_hot_expert_selection_supports_tail_window(model)) {
         return false;
     }
 
@@ -281,7 +295,7 @@ static bool llama_hot_expert_use_tail_window(llm_arch arch) {
 }
 
 static void llama_hot_expert_log_selection_support(const llama_model & model) {
-    if (model.hparams.n_expert == 0 || model.hparams.n_expert_used == 0) {
+    if (!llama_model_supports_hot_expert_runtime(model)) {
         return;
     }
 
@@ -295,8 +309,8 @@ static void llama_hot_expert_log_selection_support(const llama_model & model) {
             return;
         }
 
-        if (!llama_hot_expert_selection_supports_tail_window(model.arch)) {
-            LLAMA_LOG_WARN("%s: hot expert selection 'tail-window[%d]' belongs to MoE / huge-MoE locality, but current runtime tail-window path is enabled only on MiniMax today; falling back to full-prompt counting for arch=%s\n",
+        if (!llama_hot_expert_selection_supports_tail_window(model)) {
+            LLAMA_LOG_WARN("%s: hot expert selection 'tail-window[%d]' belongs to MoE / huge-MoE locality, but the current model does not expose a compatible hot-expert runtime path; falling back to full-prompt counting for arch=%s\n",
                     __func__, tail_window, llama_model_arch_name(model.arch));
             return;
         }
@@ -312,8 +326,8 @@ static void llama_hot_expert_log_selection_support(const llama_model & model) {
         return;
     }
 
-    if (tail_window > 0 && !llama_hot_expert_selection_supports_tail_window(model.arch)) {
-        LLAMA_LOG_INFO("%s: IK_LLAMA_HOT_EXPERT_TAIL_WINDOW=%d is set, but the current runtime tail-window path is not active for arch=%s; using default full-prompt counting\n",
+    if (tail_window > 0 && !llama_hot_expert_selection_supports_tail_window(model)) {
+        LLAMA_LOG_INFO("%s: IK_LLAMA_HOT_EXPERT_TAIL_WINDOW=%d is set, but the current model does not expose a compatible tail-window path for arch=%s; using default full-prompt counting\n",
                 __func__, tail_window, llama_model_arch_name(model.arch));
     }
 }
@@ -2885,7 +2899,7 @@ static bool llm_load_tensors(
             s_hot_trace_decode_calls = 0;
             s_hot_selection_mode = llama_hot_expert_selection_mode_current();
             s_hot_tail_window_active = false;
-            s_hot_tail_window_size = llama_hot_expert_use_tail_window(model.arch) ? llama_hot_expert_tail_window() : 0;
+            s_hot_tail_window_size = llama_hot_expert_use_tail_window(model) ? llama_hot_expert_tail_window() : 0;
             memset(s_hot_locked, 0, sizeof(s_hot_locked));
             ggml_moe_reset_expert_locked();
             ggml_moe_reset_expert_hits();
@@ -4325,7 +4339,7 @@ static int llama_decode_internal(
 
     bool warned_qnext_mixed_repeat = false;
     bool hot_tail_window_reset = false;
-    const bool use_hot_tail_window = !s_hot_committed && llama_hot_expert_use_tail_window(model.arch);
+    const bool use_hot_tail_window = !s_hot_committed && llama_hot_expert_use_tail_window(model);
     const uint32_t hot_tail_window = use_hot_tail_window ? (uint32_t) llama_hot_expert_tail_window() : 0;
     s_hot_tail_window_active = false;
     s_hot_tail_window_size = use_hot_tail_window ? (int) hot_tail_window : 0;
