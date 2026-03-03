@@ -71,7 +71,18 @@
 3. `Confidence`
 4. `values`
 
-То есть evidence layer теперь покрывает не только research knobs, но и product-level preset bundles.
+Для runtime guidance / family defaults теперь также фиксируются:
+
+1. `family/regime matching`
+2. `baseline defaults`
+3. `reasons`
+4. `family-specific policy notes`
+
+То есть evidence layer теперь покрывает не только research knobs, но и:
+
+1. product-level preset bundles;
+2. family/runtime guidance for auto-config;
+3. standard preset definitions.
 
 ## Что не входит в evidence layer
 
@@ -80,14 +91,16 @@
 1. runtime capabilities;
 2. benchmark raw artifacts;
 3. release-facing claims;
-4. family defaults как runtime-policy;
-5. низкоуровневую архитектурную логику `ik_llama`.
+4. низкоуровневую архитектурную логику `ik_llama`;
 
 Иными словами:
 
 - runtime truth живет в коде;
 - benchmark truth живет в benchmark docs и raw results;
-- evidence layer связывает это в usable product semantics.
+- evidence layer связывает это в usable product semantics для:
+  - knobs
+  - presets
+  - family/runtime guidance.
 
 ## Где сейчас живет executable source of truth
 
@@ -101,7 +114,8 @@
 2. preset badges;
 3. validation/confidence tooltips;
 4. tested-on / failure-mode summaries;
-5. standard preset definitions.
+5. standard preset definitions;
+6. runtime profile defaults and family-guidance reasoning.
 
 ## Каноническая схема
 
@@ -144,6 +158,23 @@
 5. `validation`
 6. `confidence`
 7. `values`
+
+### Runtime profile entry
+
+Каждый runtime profile / family guidance entry должен иметь:
+
+1. `id`
+2. `matches(...)`
+3. `title`
+4. `defaults`
+5. `reasons`
+
+Это тот слой, который позволяет держать:
+
+- family-specific defaults
+- regime-specific auto-config guidance
+
+в registry, а не в ad-hoc ветках `dashboard.js`.
 
 ## Правила интерпретации
 
@@ -206,6 +237,7 @@
 - `confidence`
 - `failureMode`, если появились новые отрицательные сигналы
 - preset confidence/validation, если findings влияют на preset recommendation
+- runtime profile guidance, если findings меняют family/regime baseline
 
 3. затем, если нужно, обновляются:
 - presets

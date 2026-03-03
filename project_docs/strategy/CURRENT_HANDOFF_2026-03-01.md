@@ -143,6 +143,7 @@ It already covers:
 1. experimental knobs
 2. experimental presets
 3. standard dashboard presets
+4. runtime profiles / family-regime auto-config guidance
 
 This means new findings should now be integrated by updating the evidence registry rather than adding new hardcoded `if/else` semantics across `dashboard.js`.
 

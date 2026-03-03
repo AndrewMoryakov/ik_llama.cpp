@@ -3023,6 +3023,31 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   const isSwapBound = modelSizeGb > totalRam * 0.9;
   const contextLen = modelInfo.context_length || 0;
   const family = detectModelFamily({ ...state, model_type: isMoE ? 'moe' : 'dense' }, modelInfo);
+  const evidenceCtx = {
+    state: { ...state, model_type: isMoE ? 'moe' : 'dense' },
+    meta: modelInfo,
+    family,
+    modelPath: state.model || '',
+    modelType: isMoE ? 'moe' : 'dense',
+    workload: 'mixed',
+    isSwapBound
+  };
+  const runtimeProfile = window.IKLLamaEvidenceLayer?.resolveRuntimeProfile?.(
+    evidenceCtx,
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || {
+    id: 'fallback',
+    defaults: {
+      workload_profile: 'mixed',
+      flash_attn: true,
+      merge_up_gate_exps: false,
+      cache_type_k: 'q8_0',
+      cache_type_v: isSwapBound ? 'q8_0' : 'f16',
+      graph_reuse: true
+    },
+    reasons: []
+  };
 
   const params = {};
   const reasons = [];
@@ -3060,20 +3085,25 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
     });
   }
 
-  // --- Flash Attention: always ON ---
-  params.flash_attn = true;
-
-  // --- Workload profile ---
-  params.workload_profile = isSwapBound ? 'mixed' : 'mixed';
-  reasons.push({
-    param: 'workload_profile', value: 'mixed',
-    ru: 'Профиль нагрузки: mixed (PG). Это основной пользовательский сценарий, и именно под него сейчас собраны главные выводы',
-    en: 'Workload profile: mixed (PG). This is the main user-facing scenario and the main source of current conclusions',
+  // --- Runtime profile defaults ---
+  params.workload_profile = runtimeProfile.defaults.workload_profile;
+  params.flash_attn = runtimeProfile.defaults.flash_attn;
+  params.merge_up_gate_exps = runtimeProfile.defaults.merge_up_gate_exps;
+  params.cache_type_k = runtimeProfile.defaults.cache_type_k;
+  params.cache_type_v = runtimeProfile.defaults.cache_type_v;
+  params.graph_reuse = runtimeProfile.defaults.graph_reuse;
+  runtimeProfile.reasons.forEach((entry) => {
+    reasons.push({
+      param: entry.param,
+      value: entry.value,
+      ru: currentLang === 'ru' ? entry.text : entry.text,
+      en: currentLang === 'en' ? entry.text : entry.text,
+    });
   });
 
   // --- Runtime Repack ---
   const rtrGuidance = window.IKLLamaEvidenceLayer?.getAutoConfigRtrGuidance?.(
-    { state: { ...state, model_type: isMoE ? 'moe' : 'dense' }, meta: modelInfo, family, modelPath: state.model || '', modelType: isMoE ? 'moe' : 'dense', workload: 'mixed', isSwapBound },
+    evidenceCtx,
     currentLang,
     { detectModelFamily, isSwapBound }
   );
@@ -3087,42 +3117,14 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
     });
   });
 
-  // --- Merge Up+Gate ---
-  if (isMoE && !isSwapBound) {
-    params.merge_up_gate_exps = false; // muge is safe but rarely helps, keep off by default
-    reasons.push({
-      param: 'merge_up_gate_exps', value: 'OFF',
-      ru: 'muge OFF: незначительный прирост для in-RAM MoE',
-      en: 'muge OFF: minimal gain for in-RAM MoE',
-    });
-  } else if (isMoE && isSwapBound) {
-    params.merge_up_gate_exps = false;
-    reasons.push({
-      param: 'merge_up_gate_exps', value: 'OFF',
-      ru: 'muge OFF: swap-bound MoE, сильного плюса не подтверждено, риск деградации высокий',
-      en: 'muge OFF: swap-bound MoE, no strong upside confirmed and regression risk is high',
-    });
-  } else {
-    params.merge_up_gate_exps = false;
-  }
-
-  // --- KV Cache types ---
-  params.cache_type_k = 'q8_0';
-  reasons.push({
-    param: 'cache_type_k', value: 'q8_0',
-    ru: 'ctk q8_0: текущий лучший baseline для KV-кеша — сильно экономит память без заметной деградации в текущих validated профилях',
-    en: 'ctk q8_0: current best KV-cache baseline — saves a lot of memory without meaningful regression in the current validated profiles',
-  });
-
-  if (isSwapBound || (contextLen > 65536)) {
+  // --- KV Cache context override for huge/long context ---
+  if (contextLen > 65536 && params.cache_type_v !== 'q8_0') {
     params.cache_type_v = 'q8_0';
     reasons.push({
       param: 'cache_type_v', value: 'q8_0',
-      ru: 'ctv q8_0: swap-bound или длинный контекст — экономия V-кеша',
-      en: 'ctv q8_0: swap-bound or long context — saving V-cache',
+      ru: 'ctv q8_0: очень длинный контекст — дополнительно ужимаем V-cache поверх baseline.',
+      en: 'ctv q8_0: very long context — tighten the V-cache further on top of the baseline.'
     });
-  } else {
-    params.cache_type_v = 'f16';
   }
 
   // --- SER for swap-bound MoE ---
@@ -3138,9 +3140,6 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   } else {
     params.ser_enabled = false;
   }
-
-  // --- Graph Reuse: always ON ---
-  params.graph_reuse = true;
 
   // --- GPU layers ---
   params.n_gpu_layers = 0;
@@ -3164,7 +3163,7 @@ function computeOptimalParams(modelInfo, modelSizeGb, profile) {
   }
 
   const hotGuidance = window.IKLLamaEvidenceLayer?.getHotExpertGuidance?.(
-    { state: { ...state, model_type: isMoE ? 'moe' : 'dense' }, meta: modelInfo, family, modelPath: state.model || '', modelType: isMoE ? 'moe' : 'dense', workload: 'mixed', isSwapBound },
+    evidenceCtx,
     currentLang,
     { detectModelFamily, isSwapBound }
   );

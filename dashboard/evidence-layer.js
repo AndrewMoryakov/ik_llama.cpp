@@ -266,6 +266,159 @@
     }
   ];
 
+  const RUNTIME_PROFILE_EVIDENCE = [
+    {
+      id: 'qwen3moe-baseline',
+      matches: (ctx) => ctx.family === 'qwen3moe' && !ctx.isSwapBound,
+      titleRu: 'Qwen3MoE baseline',
+      titleEn: 'Qwen3MoE baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: для Qwen3MoE current guidance строится вокруг prompt+generation, а не вокруг TG-only.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: для Qwen3MoE это current validated baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: сильного validated upside для этого baseline нет.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current baseline для экономии KV-памяти без заметной деградации.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: in-RAM Qwen3MoE не требует агрессивного урезания V-cache.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как базовый runtime path.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: current Qwen3MoE guidance is built around prompt+generation rather than TG-only.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: this is the current validated baseline for Qwen3MoE.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: there is no strong validated upside for this baseline.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current baseline to save KV memory without a noticeable regression.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: in-RAM Qwen3MoE does not require aggressive V-cache reduction.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the default runtime path.' }
+        ]
+      }
+    },
+    {
+      id: 'gptoss20b-baseline',
+      matches: (ctx) => ctx.family === 'gpt-oss' && getModelSizeTag(ctx) === '20b',
+      titleRu: 'gpt-oss-20b baseline',
+      titleEn: 'gpt-oss-20b baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: для gpt-oss-20b current baseline оценивается по prompt+generation, а не только по TG.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline для gpt-oss-20b.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: пока не является validated default.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: current baseline для 20b режима.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как базовый runtime path.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: the current gpt-oss-20b baseline is judged by prompt+generation, not TG alone.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline for gpt-oss-20b.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: it is not a validated default yet.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: current baseline for the 20b regime.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the default runtime path.' }
+        ]
+      }
+    },
+    {
+      id: 'gptoss120b-throughput',
+      matches: (ctx) => ctx.family === 'gpt-oss' && getModelSizeTag(ctx) === '120b',
+      titleRu: 'gpt-oss-120b throughput-first',
+      titleEn: 'gpt-oss-120b throughput-first',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: именно здесь сейчас видна practical value для huge gpt-oss.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: оставляем как throughput baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: current throughput-first baseline не опирается на этот knob.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: huge-model baseline требует экономии KV.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: на 120b экономия V-cache уже practically useful.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как baseline runtime path.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: this is where practical value is currently visible for huge gpt-oss.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: keep it as the throughput baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: the current throughput-first baseline does not rely on this knob.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: the huge-model baseline needs KV savings.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: V-cache savings are already practically useful on 120b.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the baseline runtime path.' }
+        ]
+      }
+    },
+    {
+      id: 'minimax-safe',
+      matches: (ctx) => ctx.family === 'minimax',
+      titleRu: 'MiniMax safe baseline',
+      titleEn: 'MiniMax safe baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: MiniMax нужно оценивать по real prompt+generation, а не только по TG.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current safe baseline для MiniMax.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: huge-MoE baseline остается консервативным.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: huge-model baseline требует экономии KV.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: для MiniMax это safer huge-model baseline.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как baseline runtime path.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: MiniMax should be judged by real prompt+generation rather than TG only.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current safe baseline for MiniMax.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: the huge-MoE baseline remains conservative.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: the huge-model baseline needs KV savings.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: this is a safer huge-model baseline for MiniMax.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the baseline runtime path.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-moe',
+      matches: (ctx) => ctx.modelType === 'moe',
+      titleRu: 'Generic MoE baseline',
+      titleEn: 'Generic MoE baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: это safest current starting point для неизвестной MoE family.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current generic MoE baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: пока не предполагаем validated upside на неизвестной family.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current generic KV baseline for MoE.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: conservative MoE baseline for memory efficiency.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как generic runtime baseline.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: this is the safest current starting point for an unknown MoE family.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current generic MoE baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: do not assume a validated upside on an unknown family yet.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current generic KV baseline for MoE.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: conservative MoE baseline for memory efficiency.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the generic runtime baseline.' }
+        ]
+      }
+    },
+    {
+      id: 'generic-dense',
+      matches: () => true,
+      titleRu: 'Generic dense baseline',
+      titleEn: 'Generic dense baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: generic user-facing baseline.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current dense baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: dense-моделям этот knob не нужен.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: practical dense baseline for KV.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: V-cache не урезаем агрессивно без причины.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: держим включенным как baseline runtime path.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: generic user-facing baseline.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current dense baseline.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: dense models do not need this knob.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: practical dense baseline for KV.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: do not reduce the V-cache aggressively without a reason.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the baseline runtime path.' }
+        ]
+      }
+    }
+  ];
+
   function getModelSizeTag(ctx) {
     const path = String(ctx.modelPath || '').toLowerCase();
     if (path.includes('120b')) return '120b';
@@ -381,6 +534,18 @@
     };
   }
 
+  function resolveRuntimeProfile(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const profile = RUNTIME_PROFILE_EVIDENCE.find((item) => item.matches(ctx)) || RUNTIME_PROFILE_EVIDENCE[RUNTIME_PROFILE_EVIDENCE.length - 1];
+    const reasons = (lang === 'ru' ? profile.reasons.ru : profile.reasons.en).map((entry) => ({ param: entry.param, value: entry.value, text: entry.text }));
+    return {
+      id: profile.id,
+      title: lang === 'ru' ? profile.titleRu : profile.titleEn,
+      defaults: { ...profile.defaults },
+      reasons
+    };
+  }
+
   function getKnobEvidence(paramId, rawCtx, lang, helpers) {
     const entry = EXPERIMENTAL_KNOB_EVIDENCE[paramId];
     if (!entry) return null;
@@ -460,6 +625,6 @@
     EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE, STANDARD_PRESET_EVIDENCE, FAMILY_VALIDATION_EVIDENCE,
     getKnobEvidence, getPresetEvidence, getApplicabilityBadge, getRuntimeSupportBadge, getValidationBadge, getConfidenceBadge,
     listTestedOn, explainFailureMode, listExperimentalPresets, listStandardPresets, getStandardPreset, getPresetRiskLabel, getPresetScopeLabel,
-    getFamilyValidationStatus, getFamilyValidationNote, getAutoConfigRtrGuidance, getHotExpertGuidance
+    getFamilyValidationStatus, getFamilyValidationNote, getAutoConfigRtrGuidance, getHotExpertGuidance, resolveRuntimeProfile
   };
 })(window);
