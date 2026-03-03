@@ -337,3 +337,78 @@ Still deferred:
 1. optional dedicated `MiniMax` validation slice, когда будет отдельное окно времени
 2. confirm/productize `Prompt Packed QKV` for `gpt-oss-120b`
 3. сместить `gpt-oss-20b` mainline в decode-side optimization, а не в дальнейший prompt-only tuning
+
+---
+
+## Unfinished follow-up from the current Phase 3 pass
+
+The current pass closed the first non-MiniMax generalized validation cycle, but it also left three concrete follow-up lines.
+
+### 1. `gpt-oss-120b prompt-packed confirm`
+
+Goal:
+
+- prove that `Prompt Packed QKV back-half` on `gpt-oss-120b` is a stable practical win and not a single good run
+
+What to run:
+
+1. baseline:
+   - standard runtime path
+2. experiment:
+   - `prompt-packed=on`
+   - `preset=back-half`
+3. workloads:
+   - `pp512`
+   - `pg512,128`
+4. repeats:
+   - preferably `r=3`
+
+What counts as success:
+
+1. mixed-path advantage remains positive
+2. decode does not regress materially
+3. result stays practical, not merely prompt-side
+
+### 2. `gpt-oss-120b prompt-packed productization`
+
+This starts only after the confirm step.
+
+Goal:
+
+- turn the confirmed result into usable product-layer guidance
+
+What to do:
+
+1. raise `Validation` / `Confidence` for `gpt-oss-120b`
+2. decide whether a dedicated `gpt-oss-120b` preset is warranted
+3. reflect the result in:
+   - benchmark current-status docs
+   - `PRODUCT_GUIDE`
+   - dashboard guidance / confidence layer
+4. keep this as a model-specific practical branch, not a universal `Split-QKV` default
+
+What counts as success:
+
+1. `gpt-oss-120b` gets a clear, honest recommendation
+2. `gpt-oss-20b` and `Qwen3` do not inherit that default automatically
+
+### 3. `gpt-oss-20b decode-side optimization handoff`
+
+The current `Phase 3` result for `gpt-oss-20b` is not “keep tuning prompt-packed”, but a handoff to the next technical line.
+
+What the current result means:
+
+1. `Prompt Packed QKV` on `gpt-oss-20b` improves prompt-side behavior
+2. mixed-path practical value stays weak / near-neutral
+
+Practical consequence:
+
+- the next mainline technical priority for `gpt-oss-20b` is `decode-side optimization`, not more prompt-only tuning
+
+What to do next:
+
+1. keep the fresh `gpt-oss-20b` baseline as the new reference
+2. move to decode-side profiling
+3. select the first narrow decode bottleneck
+
+This is not a separate benchmark question to keep open inside prompt-packed work. It is the correct handoff from current `Phase 3` into the next technical line.

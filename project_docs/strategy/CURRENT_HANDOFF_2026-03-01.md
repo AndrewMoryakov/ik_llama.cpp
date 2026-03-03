@@ -132,6 +132,10 @@ Practical meaning:
 2. continue it specifically as a promising huge-model branch for `gpt-oss-120b`
 3. for `gpt-oss-20b`, the next mainline technical priority remains decode-side optimization, not more prompt-packed tuning
 
+Canonical follow-up for this unfinished tail:
+
+- `project_docs/strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
+
 ## Что уже отброшено
 
 ### MiniMax hot-expert default > 16
