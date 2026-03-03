@@ -37,13 +37,16 @@ Latest relevant raw artifacts:
 - `ik_llama.cpp/bench_results/2026-03-03_060928_gptoss20b_runtime_baseline`
 - `ik_llama.cpp/bench_results/2026-03-03_061156_gptoss120b_runtime_packaging`
 
-3. Mixed-path and attention traces for `20b`:
+3. Phase 3 generalized-runtime validation:
+- `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
+
+4. Mixed-path and attention traces for `20b`:
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_fa0_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_step4_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_step4b_2026-02-28.log`
 
-4. Prompt packed-QKV experiment artifacts:
+5. Prompt packed-QKV experiment artifacts:
 - `ik_llama.cpp/bench_results/2026-02-28_prompt_packed_qkv`
 - `ik_llama.cpp/bench_results/2026-02-28_prompt_packed_qkv_arena`
 - `ik_llama.cpp/bench_results/2026-02-28_pg_window_trace`
@@ -129,6 +132,53 @@ Implication:
 - the next decode-side `gpt-oss-20b` line now has a fresh baseline
 - this removes the need to compare future decode-path work against older February-only numbers
 
+### 7. Phase 3 confirms different practical value for generalized knobs inside the family
+
+#### `Hot Expert Selection / Tail Window` on `gpt-oss-20b`
+
+Short Phase 3 sanity on `pg128,32`:
+
+- baseline `pp128+tg32`: `79.594862`
+- `full-prompt`: `79.246333`
+- `tail-window=16`: `80.978128`
+
+And on `tg128`:
+
+- baseline: `21.942375`
+- `tail-window=16`: `22.013617`
+
+Implication:
+
+- generalized `tail-window=16` is not empty outside `MiniMax`
+- but the signal on `gpt-oss-20b` is still small and should remain `partial / promising`, not a default
+
+#### `Prompt Packed QKV` on `gpt-oss-20b`
+
+Phase 3 results:
+
+- `pp512`: `272.100196 -> 284.094653` (`baseline -> back-half`)
+- `pg512,128` mixed: `87.285178 -> 86.838406`
+
+Implication:
+
+- prompt-side gain is real
+- practical mixed-path value on `20b` is still neutral or slightly negative
+- this is not a family-wide public fast path yet
+
+#### `Prompt Packed QKV` on `gpt-oss-120b`
+
+Phase 3 results:
+
+- `pp512`: `150.405577 -> 161.931084`
+- `tg128`: `16.121140 -> 16.516430`
+- `pg512,128` mixed: `56.995574 -> 58.590794`
+
+Implication:
+
+- this is the strongest practical `Prompt Packed QKV` result so far
+- on `gpt-oss-120b`, back-half prompt-packed now looks like a real throughput-positive branch
+- this does not automatically promote the same path for `20b`
+
 ## What Is Directional But Not Public-Final
 
 ### 1. `gpt-oss-20b` decode-side mixed path is the most promising next engine target
@@ -142,13 +192,27 @@ Reason:
 
 But this is still not a closed result yet.
 
-### 2. Prompt packed-QKV is not a stable public `gpt-oss` fast path
+### 2. Prompt packed-QKV is not one single `gpt-oss` story
 
-Current stable effect on `gpt-oss-20b` is small:
+Current Phase 3 interpretation must be split by regime:
 
-- `pg512,128`: about `+0.53%`
+1. `gpt-oss-20b`
+- prompt-side signal only
+- mixed-path practical value still weak
 
-So the idea is technically interesting, but not ready for public positioning as a meaningful family-level win.
+2. `gpt-oss-120b`
+- prompt-side gain confirmed
+- mixed-path gain also confirmed
+
+So the knob should not be described as either:
+
+- "family-wide winner"
+- or "not useful for gpt-oss at all"
+
+The honest current statement is:
+
+- `Prompt Packed QKV` now has a real positive branch on `gpt-oss-120b`
+- but remains partial/neutral on `gpt-oss-20b`
 
 ### 3. The best future huge-model package for `gpt-oss-120b` is still open
 
@@ -169,8 +233,9 @@ is still not fully closed.
 These questions remain open:
 
 1. final architecture-specific fast path for `gpt-oss-20b`
-2. final public huge-model runtime package for `gpt-oss-120b`
-3. whether the next real `gpt-oss` engine win comes from decode-side attention work, sliding-window handling, or another runtime path
+2. whether `Prompt Packed QKV` on `gpt-oss-120b` survives a dedicated confirm run
+3. final public huge-model runtime package for `gpt-oss-120b`
+4. whether the next real `gpt-oss` engine win comes from decode-side attention work, sliding-window handling, or another runtime path
 
 ## What This Means For Development Priority
 
@@ -183,7 +248,8 @@ These questions remain open:
 So the next priorities are:
 
 1. `gpt-oss-20b` decode-side mixed-path work
-2. `gpt-oss-120b` runtime-policy / startup / throughput packaging
+2. `gpt-oss-120b` confirm / productize `Prompt Packed QKV` as a huge-model branch
+3. `gpt-oss-120b` runtime-policy / startup / throughput packaging
 
 ## Current Practical Recommendation
 
@@ -196,6 +262,8 @@ If someone needs a practical `gpt-oss` answer right now:
 3. use `-rtr auto`
 4. evaluate `pg512,128`, not only `tg128`
 
+Treat `Prompt Packed QKV` as experimental only; it is not yet a practical default for `20b`.
+
 ### For `gpt-oss-120b`
 
 1. use `-fa 1`
@@ -203,7 +271,7 @@ If someone needs a practical `gpt-oss` answer right now:
 3. compare against `-rtr off` if startup wall time or memory-pressure behavior matters more
 4. do not treat `off` as the current throughput-first choice on this tree
 
-Do not present prompt packed-QKV as a stable public optimization for `gpt-oss` yet.
+`Prompt Packed QKV` with `back-half` should now be treated as a promising huge-model experimental branch for `120b`, not as a family-wide default.
 
 ## Related Documents
 

@@ -186,9 +186,9 @@ const LANG = {
     w_hot_budget_mult_experimental: 'Hot Expert Budget Mult — экспериментальный MoE locality knob. Он не меняет фиксированный budget, а масштабирует внутренний hot-expert baseline runtime.',
     w_hot_budget_mult_family: 'Hot Expert Budget Mult относится к huge-MoE locality. По механике он шире одной family, но benchmark-backed guidance пока еще research-only.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная MoE-locality ветка. Она не меняет веса модели, а только меняет то, по какой части prompt runtime выбирает hot experts.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Текущий runtime-path уже может реально включаться на compatible MoE, но benchmark-backed validation пока в основном MiniMax-first. Для остальных MoE считайте это research-only, пока нет отдельной validation.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Runtime-path уже widened на compatible MoE. По текущим бенчмаркам MiniMax остается основным huge-MoE кейсом, а на gpt-oss-20b есть слабый, но положительный signal. Для остальных MoE это пока research-only.',
     w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
-    w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Ручной runtime-path теперь может включаться шире, чем одна family, но auto-policy и benchmark-backed validation сегодня лучше всего проработаны для Qwen3MoE и gpt-oss. Для остальных семей это пока исследовательский режим.',
+    w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Ручной runtime-path widened beyond one family, но practical value сейчас разная: strongest signal уже есть на gpt-oss-120b, на Qwen3MoE и gpt-oss-20b это в основном prompt-side gain при слабом mixed-path эффекте. Для остальных split-QKV семей это пока research-only.',
     w_prompt_packed_range: 'Задан явный Prompt Packed range. Это advanced override поверх preset и его стоит включать только для осознанного A/B.',
     w_exp_preset_link: 'Связка экспериментального пресета с проверенными настройками включена. При выборе preset dashboard может менять Flash Attention, RTR, Graph Reuse и другие validated knobs.',
     badge_family: 'Семейство',
@@ -622,9 +622,9 @@ const LANG = {
     w_hot_budget_mult_experimental: 'Hot Expert Budget Mult is an experimental MoE locality knob. It does not set a fixed budget; it scales the internal runtime hot-expert baseline.',
     w_hot_budget_mult_family: 'Hot Expert Budget Mult belongs to huge-MoE locality. Mechanically it is broader than a single family, but benchmark-backed guidance is still research-only.',
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MoE locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
-    w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. The current runtime path can already activate on compatible MoE, but benchmark-backed validation is still mostly MiniMax-first. For other MoE families treat it as research-only until more validation exists.',
+    w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. The runtime path is now widened to compatible MoE. Current benchmarks still center on MiniMax, while gpt-oss-20b only shows a small positive signal so far. Treat other MoE families as research-only until more validation exists.',
     w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
-    w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. The manual runtime path can now activate more broadly than a single family, but auto-policy and benchmark-backed validation are still best developed today for Qwen3MoE and gpt-oss. Treat other families as research mode for now.',
+    w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. The manual runtime path is now broader than a single family, but practical value differs: the strongest signal is already on gpt-oss-120b, while Qwen3MoE and gpt-oss-20b mainly show prompt-side gains with weak mixed-path value. Treat other split-QKV families as research mode for now.',
     w_prompt_packed_range: 'An explicit Prompt Packed range is set. This is an advanced override on top of the preset and should only be used for deliberate A/B checks.',
     w_exp_preset_link: 'The experimental preset is linked to validated settings. Selecting a preset may change Flash Attention, RTR, Graph Reuse, or other validated knobs.',
     badge_family: 'Family',
@@ -947,6 +947,11 @@ const PRESETS = {
 // ============================================================
 function isSwapBound(s, p) {
   return p.totalRamGb > 0 && s.model_size_gb > 0 && s.model_size_gb > p.totalRamGb * 0.9;
+}
+
+function modelPathContains(s = state, needle = '') {
+  const path = String((s && s.model) || '').toLowerCase();
+  return !!needle && path.includes(String(needle).toLowerCase());
 }
 
 function getRtrMode(s = state) {
@@ -1409,7 +1414,7 @@ const EXPERIMENTAL_PARAM_META = {
   hot_expert_budget: {
     applicability: 'moe-huge',
     runtimeSupport: 'moe-generic',
-    validation: 'partial-minimax',
+    validation: 'partial-hot-experts',
     risk: 'medium',
     failureMode: 'extra-ram-or-wrong-hot-set'
   },
@@ -1423,14 +1428,14 @@ const EXPERIMENTAL_PARAM_META = {
   hot_expert_selection: {
     applicability: 'moe-huge',
     runtimeSupport: 'moe-generic',
-    validation: 'partial-minimax',
+    validation: 'partial-hot-experts',
     risk: 'medium',
     failureMode: 'noisy-or-misleading-win'
   },
   hot_expert_tail_window: {
     applicability: 'moe-huge',
     runtimeSupport: 'moe-generic',
-    validation: 'partial-minimax',
+    validation: 'partial-hot-experts',
     risk: 'medium',
     failureMode: 'noisy-or-negative-win'
   },
@@ -1444,21 +1449,21 @@ const EXPERIMENTAL_PARAM_META = {
   prompt_packed_qkv: {
     applicability: 'split-qkv',
     runtimeSupport: 'split-qkv-generic-auto-family-first',
-    validation: 'partial-split-qkv',
+    validation: 'phase3-split-qkv',
     risk: 'high',
     failureMode: 'extra-ram-load-time'
   },
   prompt_packed_qkv_preset: {
     applicability: 'split-qkv',
     runtimeSupport: 'split-qkv-generic-auto-family-first',
-    validation: 'partial-split-qkv',
+    validation: 'phase3-split-qkv',
     risk: 'high',
     failureMode: 'suboptimal-range'
   },
   prompt_packed_qkv_range: {
     applicability: 'split-qkv',
     runtimeSupport: 'split-qkv-generic-auto-family-first',
-    validation: 'partial-split-qkv',
+    validation: 'phase3-split-qkv',
     risk: 'high',
     failureMode: 'manual-misconfiguration'
   },
@@ -1633,10 +1638,33 @@ function getValidationBadgeMeta(param, s = state) {
       }
       return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
         ru ? 'Вне MiniMax сейчас нет достаточного benchmark-backed сигнала. Это research-only territory.' : 'Outside MiniMax there is not enough benchmark-backed signal yet. This remains research-only territory.');
-    case 'partial-split-qkv':
+    case 'partial-hot-experts':
+      if (family === 'minimax') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'Есть benchmark-backed сигнал на MiniMax. Для huge-MoE это уже живая линия, но это еще не validated default.' : 'There is benchmark-backed signal on MiniMax. This is a live huge-MoE line, but it is still not a validated default.');
+      }
+      if (family === 'gpt-oss') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'На gpt-oss-20b уже есть положительный Phase 3 signal для tail-window, но он слабый и пока не меняет baseline.' : 'There is already a positive Phase 3 signal for tail-window on gpt-oss-20b, but it is weak and does not change the baseline yet.');
+      }
+      return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
+        ru ? 'Вне MiniMax и gpt-oss-20b это пока research-only territory: runtime path widened, но отдельной validation еще нет.' : 'Outside MiniMax and gpt-oss-20b this remains research-only: the runtime path is widened, but separate validation is still missing.');
+    case 'phase3-split-qkv':
+      if (family === 'gpt-oss' && modelPathContains(s, '120b')) {
+        return out(ru ? 'Проверка: полезно' : 'Signal: useful', 'validation-validated',
+          ru ? 'На gpt-oss-120b Prompt Packed QKV уже дал сильный положительный Phase 3 signal. Это главный practical candidate внутри generalized split-QKV line.' : 'Prompt Packed QKV already produced a strong positive Phase 3 signal on gpt-oss-120b. This is the main practical candidate inside the generalized split-QKV line.');
+      }
+      if (family === 'gpt-oss') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'На gpt-oss-20b prompt-side gain подтвержден, но mixed-path practical value пока нейтральна. Держите это как experiment, не как default.' : 'Prompt-side gain is confirmed on gpt-oss-20b, but mixed-path practical value is still neutral. Keep this experimental, not as a default.');
+      }
+      if (family === 'qwen3moe') {
+        return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
+          ru ? 'На Qwen3MoE prompt-side gain подтвержден, но mixed-path practical value пока слабая. Это partial line, не promoted default.' : 'Prompt-side gain is confirmed on Qwen3MoE, but mixed-path practical value is still weak. This remains a partial line, not a promoted default.');
+      }
       if (family === 'qwen3moe' || family === 'gpt-oss') {
         return out(ru ? 'Проверка: частично' : 'Signal: partial', 'validation-partial',
-          ru ? 'Есть benchmark-backed сигнал на Qwen3MoE / gpt-oss, но knob остается experimental и не считается validated default.' : 'There is benchmark-backed signal on Qwen3MoE / gpt-oss, but the knob remains experimental and is not a validated default.');
+          ru ? 'Есть benchmark-backed сигнал на split-QKV test families, но полезность зависит от конкретной family и workload.' : 'There is benchmark-backed signal on split-QKV test families, but practical value still depends strongly on family and workload.');
       }
       return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
         ru ? 'Вне текущих split-QKV test-families это пока исследовательский режим без отдельной validation, даже если runtime-path уже может включаться.' : 'Outside the current split-QKV test families this remains a research mode without separate validation, even if the runtime path can now activate.');
@@ -1652,6 +1680,62 @@ function getValidationBadgeMeta(param, s = state) {
     default:
       return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
         ru ? 'По этому knob validation пока не завершена.' : 'Validation for this knob is not complete yet.');
+  }
+}
+
+function getConfidenceBadgeMeta(param, s = state) {
+  const family = detectModelFamily(s);
+  const ru = currentLang === 'ru';
+  const out = (label, className, title) => ({ label, className, title });
+
+  switch (param) {
+    case 'hot_expert_budget':
+    case 'hot_expert_selection':
+    case 'hot_expert_tail_window':
+      if (family === 'minimax') {
+        return out(ru ? 'Увер.: средняя' : 'Conf.: medium', 'confidence-medium',
+          ru ? 'Tested on: MiniMax. Есть benchmark-backed signal, но этого еще недостаточно для promoted default.' : 'Tested on: MiniMax. There is benchmark-backed signal, but not enough yet for a promoted default.');
+      }
+      if (family === 'gpt-oss') {
+        return out(ru ? 'Увер.: низкая' : 'Conf.: low', 'confidence-low',
+          ru ? 'Tested on: gpt-oss-20b. Signal положительный, но слабый и пока не baseline-changing.' : 'Tested on: gpt-oss-20b. The signal is positive but weak and not baseline-changing yet.');
+      }
+      return out(ru ? 'Увер.: нет' : 'Conf.: none', 'confidence-none',
+        ru ? 'Tested on: MiniMax, gpt-oss-20b. Для остальных MoE это пока не validation, а открытая research territory.' : 'Tested on: MiniMax, gpt-oss-20b. For other MoE families this is still open research territory rather than validation.');
+    case 'prompt_packed_qkv':
+    case 'prompt_packed_qkv_preset':
+    case 'prompt_packed_qkv_range':
+      if (family === 'gpt-oss' && modelPathContains(s, '120b')) {
+        return out(ru ? 'Увер.: высокая' : 'Conf.: high', 'confidence-high',
+          ru ? 'Tested on: gpt-oss-120b. Это strongest practical signal в current Phase 3: prompt, mixed и decode уже показали полезный сдвиг.' : 'Tested on: gpt-oss-120b. This is the strongest practical signal in current Phase 3: prompt, mixed, and decode all moved in a useful direction.');
+      }
+      if (family === 'gpt-oss') {
+        return out(ru ? 'Увер.: низкая' : 'Conf.: low', 'confidence-low',
+          ru ? 'Tested on: gpt-oss-20b. Prompt-side gain подтвержден, но mixed-path practical value почти нейтральна.' : 'Tested on: gpt-oss-20b. Prompt-side gain is confirmed, but mixed-path practical value is close to neutral.');
+      }
+      if (family === 'qwen3moe') {
+        return out(ru ? 'Увер.: низкая' : 'Conf.: low', 'confidence-low',
+          ru ? 'Tested on: Qwen3-30B-A3B. Prompt-side gain подтвержден, но mixed-path practical value слабая.' : 'Tested on: Qwen3-30B-A3B. Prompt-side gain is confirmed, but mixed-path practical value is weak.');
+      }
+      return out(ru ? 'Увер.: нет' : 'Conf.: none', 'confidence-none',
+        ru ? 'Tested on: gpt-oss-120b, gpt-oss-20b, Qwen3-30B-A3B. Для других split-QKV моделей knob доступен, но уверенного benchmark-backed guidance пока нет.' : 'Tested on: gpt-oss-120b, gpt-oss-20b, Qwen3-30B-A3B. The knob is available for other split-QKV models, but there is no strong benchmark-backed guidance yet.');
+    case 'merge_qkv':
+      return out(ru ? 'Увер.: нет' : 'Conf.: none', 'confidence-none',
+        ru ? 'Tested on: partial/internal only. Это architecture-sensitive line без уверенного family-wide signal.' : 'Tested on: partial/internal only. This remains an architecture-sensitive line without strong family-wide signal.');
+    case 'ser_enabled':
+    case 'ser_min':
+    case 'ser_thresh':
+    case 'hot_expert_budget_mult':
+      return out(ru ? 'Увер.: нет' : 'Conf.: none', 'confidence-none',
+        ru ? 'Tested on: research-only. Параметр доступен для экспериментов, но уверенного benchmark-backed guidance пока нет.' : 'Tested on: research-only. The knob is available for experimentation, but there is no strong benchmark-backed guidance yet.');
+    case 'live_observability':
+    case 'experimental_preset':
+    case 'experimental_preset_link_validated':
+      return out(ru ? 'Увер.: helper' : 'Conf.: helper', 'confidence-helper',
+        ru ? 'Это UI/helper слой. Для него важна usability, а не benchmark confidence в runtime sense.' : 'This is a UI/helper layer. Usability matters here rather than runtime benchmark confidence.');
+    default:
+      return out(ru ? 'Увер.: нет' : 'Conf.: none', 'confidence-none',
+        ru ? 'Для этого knob отдельная confidence-модель пока не собрана.' : 'A dedicated confidence model has not been assembled for this knob yet.');
   }
 }
 
@@ -1692,6 +1776,16 @@ function renderParameterApplicability() {
         validationBadge.textContent = validationMeta.label;
         validationBadge.title = validationMeta.title;
         strip.appendChild(validationBadge);
+      }
+
+      const confidenceMeta = getConfidenceBadgeMeta(param);
+      if (confidenceMeta) {
+        const confidenceBadge = document.createElement('span');
+        confidenceBadge.className = `param-confidence-badge ${confidenceMeta.className}`;
+        confidenceBadge.dataset.confidenceParam = param;
+        confidenceBadge.textContent = confidenceMeta.label;
+        confidenceBadge.title = confidenceMeta.title;
+        strip.appendChild(confidenceBadge);
       }
     }
   }

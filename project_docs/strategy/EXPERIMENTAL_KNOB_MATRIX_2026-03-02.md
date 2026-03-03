@@ -4,7 +4,7 @@
 
 Это canonical matrix для `Phase 1`.
 
-Он фиксирует для каждого experimental knob пять вещей:
+Он фиксирует для каждого experimental knob шесть вещей:
 
 1. `Applicability`
 - для какого класса моделей knob имеет смысл по механике
@@ -15,10 +15,13 @@
 3. `Validated on`
 - где уже есть benchmark-backed signal
 
-4. `Risk`
+4. `Confidence`
+- насколько уверенно можно ожидать практическую пользу именно на уже протестированных моделях
+
+5. `Risk`
 - насколько knob безопасен как user-facing experiment
 
-5. `Failure mode`
+6. `Failure mode`
 - что чаще всего идет не так, если включить knob вне правильного класса или без A/B
 
 Ключевое правило:
@@ -31,20 +34,20 @@
 
 ## Матрица
 
-| Knob | Applicability | Runtime support today | Validated on | Risk | Failure mode |
+| Knob | Applicability | Runtime support today | Validated on | Confidence | Risk | Failure mode |
 |---|---|---|---|---|---|
-| `SER` (`ser_enabled`, `ser_min`, `ser_thresh`) | `MoE` | `generic MoE runtime path` | `research-only` | `medium` | может не дать win, а при неудачном пороге менять router-side behavior без практической пользы |
-| `Hot Expert Budget` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | лишнее давление на RAM, удержание неправильного hot set |
-| `Hot Expert Budget Mult` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `research-only` | `medium` | слишком агрессивный множитель может раздуть hot set и увеличить RAM pressure без устойчивой пользы |
-| `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | knob подходит классу моделей, но benchmark-backed signal вне MiniMax пока слабый или отсутствует |
-| `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | path теперь может реально включаться на compatible MoE, но без validation может дать шумный или отрицательный win |
-| `Merge QKV` | `attention arch-specific` | `accepted broadly, effect arch-sensitive` | `research-only` | `medium` | слабый или отрицательный win из-за неудачного attention/layout path |
-| `Prompt Packed QKV` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `Qwen3MoE`, `gpt-oss` partial | `high` | дополнительная RAM, более долгий load/startup, prompt-only gain без strong end-to-end win |
-| `Prompt Packed preset` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `Qwen3MoE`, `gpt-oss` partial | `high` | family-неподходящий preset или suboptimal layer subset |
-| `Prompt Packed range` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `research-only outside current families` | `high` | ручной диапазон может ухудшить RAM/load time или не дать useful prompt win |
-| `Live Observability` | `All` | `dashboard-only tooling` | `helper/tooling` | `low` | лишний trace noise, если нужен максимально чистый benchmark |
-| `Experimental preset` | `All` | `dashboard helper` | `helper/tooling` | `low` | может включить bundle, который пользователь не до конца понимает |
-| `Link preset to validated settings` | `All` | `dashboard helper` | `helper/tooling` | `low` | пресет может перестроить validated baseline шире, чем ожидал пользователь |
+| `SER` (`ser_enabled`, `ser_min`, `ser_thresh`) | `MoE` | `generic MoE runtime path` | `research-only` | `none` | `medium` | может не дать win, а при неудачном пороге менять router-side behavior без практической пользы |
+| `Hot Expert Budget` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium on MiniMax; none elsewhere` | `medium` | лишнее давление на RAM, удержание неправильного hot set |
+| `Hot Expert Budget Mult` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `research-only` | `none` | `medium` | слишком агрессивный множитель может раздуть hot set и увеличить RAM pressure без устойчивой пользы |
+| `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial`, `gpt-oss-20b partial` | `medium on MiniMax; low on gpt-oss-20b; none elsewhere` | `medium` | knob подходит классу моделей, но benchmark-backed signal пока слабый и не baseline-changing |
+| `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial`, `gpt-oss-20b partial` | `medium on MiniMax; low on gpt-oss-20b; none elsewhere` | `medium` | path теперь может реально включаться на compatible MoE, но signal пока слабый и легко уходит в шум или мелкий регресс |
+| `Merge QKV` | `attention arch-specific` | `accepted broadly, effect arch-sensitive` | `research-only` | `none` | `medium` | слабый или отрицательный win из-за неудачного attention/layout path |
+| `Prompt Packed QKV` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `gpt-oss-120b useful`, `Qwen3MoE partial`, `gpt-oss-20b partial` | `high on gpt-oss-120b; low on Qwen3MoE/gpt-oss-20b; none elsewhere` | `high` | дополнительная RAM, более долгий load/startup, и на части families prompt-side gain без strong mixed-path value |
+| `Prompt Packed preset` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `gpt-oss-120b useful`, `Qwen3MoE partial`, `gpt-oss-20b partial` | `high on gpt-oss-120b; low on Qwen3MoE/gpt-oss-20b; none elsewhere` | `high` | family-неподходящий preset или suboptimal layer subset |
+| `Prompt Packed range` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `research-only outside current families` | `none outside tested families` | `high` | ручной диапазон может ухудшить RAM/load time или не дать useful prompt win |
+| `Live Observability` | `All` | `dashboard-only tooling` | `helper/tooling` | `helper` | `low` | лишний trace noise, если нужен максимально чистый benchmark |
+| `Experimental preset` | `All` | `dashboard helper` | `helper/tooling` | `helper` | `low` | может включить bundle, который пользователь не до конца понимает |
+| `Link preset to validated settings` | `All` | `dashboard helper` | `helper/tooling` | `helper` | `low` | пресет может перестроить validated baseline шире, чем ожидал пользователь |
 
 ---
 

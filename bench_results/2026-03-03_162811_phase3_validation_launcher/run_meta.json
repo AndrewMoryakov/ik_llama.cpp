@@ -1,0 +1,6 @@
+{
+  "script": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\scripts\\bench-phase3-validation.ps1",
+  "branch": "feature/runtime-generalization",
+  "started": "2026-03-03T16:28:11",
+  "note": "Phase 3 targeted validation without MiniMax; GPT-OSS 120b prioritized as important line"
+}

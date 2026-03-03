@@ -1640,7 +1640,8 @@ details[open] > summary::after {
 }
 
 .param-support-badge,
-.param-validation-badge {
+.param-validation-badge,
+.param-confidence-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1698,6 +1699,36 @@ details[open] > summary::after {
 }
 
 .param-validation-badge.validation-helper {
+  background: rgba(99,220,199,0.12);
+  border-color: rgba(99,220,199,0.26);
+  color: #cef9ef;
+}
+
+.param-confidence-badge.confidence-high {
+  background: rgba(93,228,160,0.16);
+  border-color: rgba(93,228,160,0.34);
+  color: #d8ffe6;
+}
+
+.param-confidence-badge.confidence-medium {
+  background: rgba(112,173,255,0.16);
+  border-color: rgba(112,173,255,0.30);
+  color: #dcebff;
+}
+
+.param-confidence-badge.confidence-low {
+  background: rgba(255,195,113,0.16);
+  border-color: rgba(255,195,113,0.32);
+  color: #ffe4bc;
+}
+
+.param-confidence-badge.confidence-none {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.14);
+  color: var(--text-secondary);
+}
+
+.param-confidence-badge.confidence-helper {
   background: rgba(99,220,199,0.12);
   border-color: rgba(99,220,199,0.26);
   color: #cef9ef;

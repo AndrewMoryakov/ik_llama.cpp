@@ -111,6 +111,8 @@ Operational meaning:
 
 1. This is the fresh current-tree baseline for the next decode-side `gpt-oss-20b` line.
 2. `rtr=auto` remains a strong default starting point.
+3. Phase 3 also shows that `tail-window=16` is mildly positive but still only partial on `20b`.
+4. `Prompt Packed QKV` improves prompt throughput on `20b`, but mixed-path value remains neutral/slightly negative.
 
 ## gpt-oss-120b (`gpt-oss-120b-MXFP4-00001-of-00002`)
 
@@ -127,6 +129,20 @@ Operational meaning:
 
 1. On the current tree, `rtr=auto` is the throughput-first winner.
 2. `rtr=off` still matters for conservative startup-sensitive packaging, not for peak steady-state throughput.
+
+### Phase 3 generalized prompt-packed validation
+
+| Scenario | Test | baseline | `Prompt Packed back-half` |
+|---|---|---:|---:|
+| `pp512` | `pp512` | `150.405577` | `161.931084` |
+| `pg512,128` | `pp512` | `149.989209` | `161.300053` |
+| `pg512,128` | `tg128` | `16.121140` | `16.516430` |
+| `pg512,128` | `pp512+tg128` | `56.995574` | `58.590794` |
+
+Operational meaning:
+
+1. This is the strongest practical `Prompt Packed QKV` result on the current tree.
+2. For `gpt-oss-120b`, `Prompt Packed QKV` now looks like a real huge-model branch worth continuing.
 
 ## MiniMax M2.5
 
@@ -163,7 +179,24 @@ Operational meaning:
 
 ---
 
-## 3. Current Practical Conclusions
+## 3. Current Phase 3 Takeaways
+
+### Confirmed useful
+
+1. `Prompt Packed QKV` on `gpt-oss-120b`
+
+### Partial / promising
+
+1. `Hot Expert Selection / Tail Window` on `gpt-oss-20b`
+
+### Neutral / weak practical value
+
+1. `Prompt Packed QKV` on `gpt-oss-20b`
+2. `Prompt Packed QKV` on `Qwen3-30B-A3B`
+
+---
+
+## 4. Current Practical Conclusions
 
 ### Qwen3MoE
 
@@ -178,12 +211,15 @@ Operational meaning:
 - use `fa=1`
 - use `rtr=auto`
 - use this March 3 baseline for future decode-side A/B
+- keep `Prompt Packed QKV` experimental only
+- treat `tail-window=16` as promising but not baseline-changing
 
 ### gpt-oss-120b
 
 - use `fa=1`
 - start with `rtr=auto` if throughput matters more than startup cost
 - compare against `off` only when conservative startup-sensitive packaging matters
+- `Prompt Packed QKV back-half` is now worth treating as a serious huge-model experimental branch
 
 ### MiniMax
 
@@ -193,26 +229,29 @@ Operational meaning:
 
 ---
 
-## 4. What Is Closed vs Open
+## 5. What Is Closed vs Open
 
 ### Closed benchmark questions
 
 1. `MiniMax off vs auto`
 2. `MiniMax tail-window=16` as a candidate new baseline
 3. `gpt-oss-120b off vs auto` throughput-first packaging question on the current tree
+4. first generalized `Prompt Packed QKV` validation pass
 
 ### Open next lines
 
 1. `gpt-oss-20b` decode-side optimization
-2. smarter `MiniMax locality` ideas beyond plain `tail-window=16`
-3. optional fresh `Qwen3MoE` runtime refresh only if needed for a new comparison point
+2. `gpt-oss-120b` confirm/productize `Prompt Packed QKV`
+3. smarter `MiniMax locality` ideas beyond plain `tail-window=16`
+4. optional fresh `Qwen3MoE` runtime refresh only if needed for a new comparison point
 
 ---
 
-## 5. Related Source-of-Truth Notes
+## 6. Related Source-of-Truth Notes
 
 - `current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
 - `current/MINIMAX_OFF_VS_AUTO_CLOSEOUT_2026-03-02.md`
 - `current/MINIMAX_LOCALITY_TAIL_WINDOW_2026-03-02.md`
+- `current/PHASE3_GENERALIZED_VALIDATION_2026-03-03.md`

@@ -1,0 +1,66 @@
+{
+    "phase":  "phase3",
+    "purpose":  "targeted validation without minimax",
+    "started":  "2026-03-03T16:28:13",
+    "threads":  16,
+    "flash_attn":  1,
+    "muge":  0,
+    "cases":  [
+                  {
+                      "label":  "gptoss20b_hot_experts",
+                      "model":  "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+                      "rtr":  "auto",
+                      "reps":  2,
+                      "scenarios":  [
+                                        "pg:128:32"
+                                    ],
+                      "configs":  [
+                                      "baseline",
+                                      "full_prompt",
+                                      "tail_window_16"
+                                  ]
+                  },
+                  {
+                      "label":  "gptoss20b_prompt_packed",
+                      "model":  "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+                      "rtr":  "auto",
+                      "reps":  3,
+                      "scenarios":  [
+                                        "pp:512",
+                                        "pg:512:128"
+                                    ],
+                      "configs":  [
+                                      "baseline",
+                                      "prompt_packed_back_half"
+                                  ]
+                  },
+                  {
+                      "label":  "gptoss120b_prompt_packed",
+                      "model":  "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-120b-GGUF\\gpt-oss-120b-MXFP4-00001-of-00002.gguf",
+                      "rtr":  "auto",
+                      "reps":  1,
+                      "scenarios":  [
+                                        "pp:512",
+                                        "pg:512:128"
+                                    ],
+                      "configs":  [
+                                      "baseline",
+                                      "prompt_packed_back_half"
+                                  ]
+                  },
+                  {
+                      "label":  "qwen30ba3b_prompt_packed",
+                      "model":  "Z:\\files\\gguf\\lmstudio-community\\Qwen3-30B-A3B-GGUF\\Qwen3-30B-A3B-Q4_K_M.gguf",
+                      "rtr":  "auto",
+                      "reps":  3,
+                      "scenarios":  [
+                                        "pp:512",
+                                        "pg:512:128"
+                                    ],
+                      "configs":  [
+                                      "baseline",
+                                      "prompt_packed_front_half"
+                                  ]
+                  }
+              ]
+}

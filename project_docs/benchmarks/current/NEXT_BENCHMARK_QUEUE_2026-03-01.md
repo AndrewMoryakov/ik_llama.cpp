@@ -94,13 +94,50 @@ Meaning:
 1. `rtr=auto` is the current throughput-first mode on this tree
 2. `off` still matters only for more conservative startup-sensitive packaging
 
-## 2. What is worth running next
+## 2. Latest completed generalized-validation run
+
+### Phase 3 validation without MiniMax
+
+Status: `completed`
+
+Launcher:
+
+- `ik_llama.cpp/bench_results/2026-03-03_162811_phase3_validation_launcher`
+
+Run:
+
+- `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
+
+Scope:
+
+1. `gpt-oss-20b`
+   - hot-expert sanity
+   - prompt-packed validation
+2. `gpt-oss-120b`
+   - prompt-packed heavy sanity
+3. `Qwen3-30B-A3B`
+   - prompt-packed validation
+
+Note:
+
+- `MiniMax` is intentionally deferred from this pass to keep the queue within a practical time window.
+
+Key outcome:
+
+1. `gpt-oss-120b prompt-packed back-half` is the strongest new practical signal from this pass
+2. `gpt-oss-20b tail-window=16` is promising but weak
+3. `gpt-oss-20b` and `Qwen3-30B-A3B` prompt-packed remain mostly prompt-side wins, not clear mixed-path wins
+
+## 3. What is worth running next
 
 ### Highest-ROI next benchmark question
 
 None of the previously open heavy questions remain urgent.
 
-The next useful runs should be tied to a new code change or a new hypothesis, not reruns of already-closed policy questions.
+The next useful runs should be tied to one of two follow-ups:
+
+1. dedicated confirm/productization run for `gpt-oss-120b prompt-packed back-half`
+2. next `gpt-oss-20b` decode-side line
 
 ### Good next candidates, if code changes land
 
@@ -114,7 +151,7 @@ The next useful runs should be tied to a new code change or a new hypothesis, no
 3. `Qwen3-30B-A3B` runtime refresh
 - useful as a clean comparison point if a new runtime or dashboard-facing claim needs it
 
-## 3. What is not worth rerunning right now
+## 4. What is not worth rerunning right now
 
 Do not spend time yet on:
 

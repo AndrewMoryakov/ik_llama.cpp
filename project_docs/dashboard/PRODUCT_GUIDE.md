@@ -53,7 +53,7 @@
 
 ## Как читать experimental knobs
 
-Для experimental-параметров dashboard теперь явно разводит три разные оси:
+Для experimental-параметров dashboard теперь явно разводит четыре разные оси:
 
 1. `Applicability`
 - для какого класса моделей knob вообще имеет смысл по механике
@@ -72,11 +72,16 @@
 - где уже есть benchmark-backed сигнал
 - это не то же самое, что applicability и не то же самое, что runtime support
 
+4. `Confidence`
+- насколько уверенно можно ожидать practical value именно на уже протестированных моделях и режимах
+- это не блокировка knob, а только честная степень уверенности
+
 Ключевое правило для dashboard:
 
 - `applicability` не означает `validated`
 - `validated` не означает `universal`
 - `runtime support today` может быть уже, чем theoretical applicability, или уже шире validation
+- `confidence` относится только к уже протестированным model/regime combinations и не должна блокировать experiment на других совместимых моделях
 
 Отдельное правило для defaults:
 
@@ -87,18 +92,31 @@
 Canonical matrix for this layer:
 
 - `../strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
+- `../strategy/PARAMETER_GENERALIZATION_PRINCIPLES_2026-03-03.md`
 
 Именно поэтому `Tail Window` и похожие knobs теперь должны читаться так:
 
 - по механике это knob класса `MoE / huge-MoE locality`
 - по текущему runtime-path это сегодня уже generic `MoE / huge-MoE hot-expert path`
-- по validation это сейчас подтверждено только на `MiniMax`
+- по validation это сейчас подтверждено на `MiniMax` и частично на `gpt-oss-20b`
+- по confidence:
+  - `MiniMax`: medium
+  - `gpt-oss-20b`: low
+  - остальные совместимые `MoE`: knob доступен, но без сильной benchmark-backed уверенности
 
 И `Prompt Packed QKV` теперь нужно читать в той же логике:
 
 - по механике это knob класса `Split-QKV`
 - по текущему runtime-path manual path уже может включаться на совместимых split-QKV моделях
 - `auto` policy и benchmark-backed validation сегодня все еще лучше всего развиты на `Qwen3MoE / gpt-oss`
+- при этом свежий `Phase 3` показал, что practical value внутри одной family тоже может различаться:
+  - `gpt-oss-120b`: clear positive branch
+  - `gpt-oss-20b`: prompt-side gain but weak mixed-path value
+- по confidence:
+  - `gpt-oss-120b`: high
+  - `gpt-oss-20b`: low
+  - `Qwen3MoE`: low
+  - другие совместимые `Split-QKV` модели: knob доступен, но уверенность пока не claim-ится
 
 И `Hot Expert Budget Mult` теперь нужно читать так же:
 

@@ -42,6 +42,9 @@ Latest relevant raw artifacts:
 - `ik_llama.cpp/bench_results/2026-02-28_prompt_packed_qkv_arena`
 - `ik_llama.cpp/bench_results/2026-02-28_pg_window_trace`
 
+4. Phase 3 generalized-runtime validation:
+- `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
+
 Supporting narrative documents:
 
 - `SUMMARY_CURRENT_2026-02-27.md`
@@ -106,17 +109,17 @@ Implication:
 
 ## What Is Directional But Not Public-Final
 
-### 1. Prompt packed-QKV is structurally real but not yet a public fast path
+### 1. Prompt packed-QKV remains structurally real but not yet a public fast path
 
 What is already true:
 
 - prompt graph work drops materially
 - prompt-side and small mixed-path gains are measurable
 
-But current stable results are still modest:
+Phase 3 confirms the same pattern on the current tree:
 
-- `pp512`: about `+1.71%`
-- `pg512,128`: about `+1.47%`
+- `pp512`: `284.994612 -> 311.178162` (`baseline -> front-half`)
+- `pg512,128` mixed: `101.874129 -> 102.146926`
 
 That is useful engineering evidence, but not a strong public headline result yet.
 

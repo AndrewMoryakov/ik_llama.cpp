@@ -59,6 +59,11 @@ Knobs:
 - лучший кейс для проверки `hot experts / locality`;
 - уже есть baseline и history по `off vs auto`, `budget`, `tail-window`.
 
+Current execution note:
+
+- deferred for a later dedicated window because huge-model confirm runs are expensive;
+- not part of the current active Phase 3 pass.
+
 ### B. `gpt-oss-20b`
 
 Зачем:
@@ -74,12 +79,13 @@ Knobs:
 - основной runtime target для `Prompt Packed QKV`;
 - подходит для `Split-QKV` validation.
 
-### D. `gpt-oss-120b` (опционально)
+### D. `gpt-oss-120b`
 
 Зачем:
 
-- только как heavy confirm/packaging target;
-- не как главный инструмент для широкой Phase 3 matrix.
+- важная линия сама по себе, не только packaging target;
+- позволяет проверить, survives ли generalized support на большом `gpt-oss` режиме;
+- используется в текущем active Phase 3 pass.
 
 ---
 
@@ -242,10 +248,21 @@ Workload:
 
 Сначала только дешевые targeted runs:
 
-1. `MiniMax hot experts`
-2. `gpt-oss-20b hot experts sanity`
-3. `Qwen3 prompt-packed`
-4. `gpt-oss-20b prompt-packed`
+1. `gpt-oss-20b hot experts sanity`
+2. `gpt-oss-20b prompt-packed`
+3. `gpt-oss-120b prompt-packed`
+4. `Qwen3 prompt-packed`
+
+Completed non-MiniMax execution subset:
+
+1. `gpt-oss-20b hot experts sanity`
+2. `gpt-oss-20b prompt-packed`
+3. `gpt-oss-120b prompt-packed`
+4. `Qwen3-30B-A3B prompt-packed`
+
+Still deferred:
+
+- full `MiniMax` validation slice
 
 ### Step 2. Narrow confirm runs
 
@@ -309,15 +326,14 @@ Workload:
 
 ## Practical conclusion
 
-Правильный порядок такой:
+Первый non-MiniMax `Phase 3` pass уже дал полезную развилку:
 
-1. сначала `MiniMax`
-2. затем `Qwen3`
-3. затем `gpt-oss-20b`
-4. `gpt-oss-120b` только как optional heavy confirm/packaging target
+1. generalized `Prompt Packed QKV` подтвердился как реально полезная huge-model branch на `gpt-oss-120b`
+2. `Prompt Packed QKV` на `gpt-oss-20b` и `Qwen3-30B-A3B` остался в основном prompt-side, без сильного mixed-path value
+3. generalized `tail-window=16` на `gpt-oss-20b` дал слабый, но положительный signal
 
-Это дает нормальный balance между:
+Следующий правильный порядок теперь такой:
 
-- huge-MoE target,
-- class-based runtime validation,
-- временем benchmark-ов.
+1. optional dedicated `MiniMax` validation slice, когда будет отдельное окно времени
+2. confirm/productize `Prompt Packed QKV` for `gpt-oss-120b`
+3. сместить `gpt-oss-20b` mainline в decode-side optimization, а не в дальнейший prompt-only tuning

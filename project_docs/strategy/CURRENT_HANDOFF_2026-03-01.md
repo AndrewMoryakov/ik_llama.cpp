@@ -102,6 +102,36 @@ Practical meaning:
 2. `gpt-oss-120b` now clearly leans toward `rtr=auto` as the throughput-first mode on the current tree
 3. `off` remains relevant mainly for startup-sensitive or more conservative huge-model packaging
 
+### 4. Phase 3 without MiniMax is now closed
+
+Raw artifacts:
+
+- `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
+
+Practical results:
+
+1. `gpt-oss-20b hot experts / tail-window=16`
+- positive but weak signal
+- not baseline-changing
+
+2. `gpt-oss-20b prompt-packed back-half`
+- prompt-side gain confirmed
+- mixed-path practical value still neutral/slightly negative
+
+3. `gpt-oss-120b prompt-packed back-half`
+- strong practical positive signal
+- current best new generalized-knob result from Phase 3
+
+4. `Qwen3-30B-A3B prompt-packed front-half`
+- prompt-side gain confirmed
+- mixed-path practical value still weak
+
+Practical meaning:
+
+1. do not broadly promote `Prompt Packed QKV` as a family-wide default
+2. continue it specifically as a promising huge-model branch for `gpt-oss-120b`
+3. for `gpt-oss-20b`, the next mainline technical priority remains decode-side optimization, not more prompt-packed tuning
+
 ## Что уже отброшено
 
 ### MiniMax hot-expert default > 16
@@ -458,6 +488,10 @@ Class-based support не должен ломать family-specific defaults.
 Canonical plan for the next step:
 
 - `project_docs/strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
+
+Canonical principles for the whole parameter-generalization task:
+
+- `project_docs/strategy/PARAMETER_GENERALIZATION_PRINCIPLES_2026-03-03.md`
 
 ### Текущий active Phase 2 slice
 
