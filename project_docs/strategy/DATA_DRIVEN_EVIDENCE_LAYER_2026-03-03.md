@@ -117,6 +117,16 @@
 5. standard preset definitions;
 6. runtime profile defaults and family-guidance reasoning.
 
+Практическое следствие:
+
+- `dashboard/dashboard.js` не должен держать параллельные hardcoded semantic tables для:
+  - validation,
+  - confidence,
+  - runtime-support badges,
+  - family-validation summaries.
+
+Если такой дублирующий слой появляется, его нужно либо удалить, либо заменить thin-wrapper вызовом в `evidence-layer.js`.
+
 ## Каноническая схема
 
 ### Knob entry
