@@ -455,6 +455,10 @@ Class-based support не должен ломать family-specific defaults.
   - `Prompt Packed QKV` manual path
 - следующий шаг уже не новая semantic rework и не бесконечное widening, а `Phase 3` targeted validation
 
+Canonical plan for the next step:
+
+- `project_docs/strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
+
 ### Текущий active Phase 2 slice
 
 Сейчас mainline работа уже прошла два первых bounded slices:
