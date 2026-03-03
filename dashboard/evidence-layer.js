@@ -205,6 +205,7 @@
       labelRu: 'К модели',
       labelEn: 'Go to model',
       pane: 'model',
+      defaultParam: 'model',
       accent: false
     },
     performance: {
@@ -215,6 +216,7 @@
       labelRu: 'К потокам',
       labelEn: 'Go to threads',
       pane: 'performance',
+      defaultParam: 'threads',
       accent: false
     },
     optimization: {
@@ -225,6 +227,7 @@
       labelRu: 'К RTR',
       labelEn: 'Go to RTR',
       pane: 'optimization',
+      defaultParam: 'repack_tensors',
       accent: false
     },
     launch: {
@@ -235,6 +238,7 @@
       labelRu: 'К запуску',
       labelEn: 'Go to launch',
       pane: 'launch',
+      defaultParam: '',
       accent: true
     },
     runtime: {
@@ -245,6 +249,7 @@
       labelRu: 'К Runtime',
       labelEn: 'Go to runtime',
       pane: 'runtime',
+      defaultParam: '',
       accent: true
     }
   };
@@ -671,6 +676,7 @@
         body: lang === 'ru' ? item.bodyRu : item.bodyEn,
         label: lang === 'ru' ? item.labelRu : item.labelEn,
         pane: item.pane,
+        defaultParam: item.defaultParam || '',
         accent: item.accent
       };
     });

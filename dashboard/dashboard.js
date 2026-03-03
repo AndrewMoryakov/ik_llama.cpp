@@ -1771,9 +1771,6 @@ function renderOverviewSummary(active = []) {
     { label: t('ov_quick_mmap'), value: state.use_mmap ? 'ON' : 'OFF', tone: '', param: 'use_mmap', pane: 'advanced' },
     { label: t('ov_quick_hot'), value: hotBudgetText, tone: (state.hot_expert_budget || 0) > 0 ? 'warn' : '', param: 'hot_expert_budget', pane: 'optimization' },
   ];
-  const modelActionParam = pickActionParam(active, 'model', 'model');
-  const perfActionParam = pickActionParam(active, 'performance', 'threads');
-  const optActionParam = pickActionParam(active, 'optimization', 'repack_tensors');
   const runtimeHeroButton = interactionReady || runtimeState === 'loading'
     ? `<button class="btn-ghost overview-hero-btn" onclick="setWorkspacePane('runtime')">${t('ov_go_runtime')}</button>`
     : `<button class="btn-ghost overview-hero-btn" onclick="setWorkspacePane('launch')">${t('ov_go_launch')}</button>`;
@@ -1842,10 +1839,8 @@ function renderOverviewSummary(active = []) {
     { detectModelFamily, isSwapBound }
   ) || [];
   const actionList = actionSeed.map((item) => {
-    if (item.id === 'model') return { ...item, param: modelActionParam };
-    if (item.id === 'performance') return { ...item, param: perfActionParam };
-    if (item.id === 'optimization') return { ...item, param: optActionParam };
-    return item;
+    const param = item.pane ? pickActionParam(active, item.pane, item.defaultParam || '') : (item.defaultParam || '');
+    return { ...item, param };
   });
 
   actions.innerHTML = `

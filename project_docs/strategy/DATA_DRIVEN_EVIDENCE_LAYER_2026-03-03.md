@@ -84,7 +84,8 @@
 2. `body`
 3. `label`
 4. `pane`
-5. `accent`
+5. `defaultParam`
+6. `accent`
 
 То есть evidence layer теперь покрывает не только research knobs, но и:
 
