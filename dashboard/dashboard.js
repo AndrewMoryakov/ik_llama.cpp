@@ -1832,14 +1832,21 @@ function renderOverviewSummary(active = []) {
     </div>
   `;
 
-  const actionList = [
-    { title: t('ov_action_model_title'), body: t('ov_action_model_body'), label: t('ov_go_model'), pane: 'model', param: modelActionParam },
-    { title: t('ov_action_perf_title'), body: t('ov_action_perf_body'), label: t('ov_go_threads'), pane: 'performance', param: perfActionParam },
-    { title: t('ov_action_opt_title'), body: t('ov_action_opt_body'), label: t('ov_go_rtr'), pane: 'optimization', param: optActionParam },
-    interactionReady || runtimeState === 'loading'
-      ? { title: t('ov_action_runtime_title'), body: t('ov_action_runtime_body'), label: t('ov_go_runtime'), pane: 'runtime', accent: true }
-      : { title: t('ov_action_launch_title'), body: t('ov_action_launch_body'), label: t('ov_go_launch'), pane: 'launch', accent: true },
-  ];
+  const actionSeed = window.IKLLamaEvidenceLayer?.getOverviewActions?.(
+    {
+      ...evidenceCtx,
+      interactionReady,
+      runtimeState
+    },
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || [];
+  const actionList = actionSeed.map((item) => {
+    if (item.id === 'model') return { ...item, param: modelActionParam };
+    if (item.id === 'performance') return { ...item, param: perfActionParam };
+    if (item.id === 'optimization') return { ...item, param: optActionParam };
+    return item;
+  });
 
   actions.innerHTML = `
     <div class="overview-actions-head">

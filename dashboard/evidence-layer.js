@@ -196,6 +196,59 @@
     }
   };
 
+  const OVERVIEW_ACTIONS = {
+    model: {
+      titleRu: 'Проверьте модель',
+      titleEn: 'Check the model',
+      bodyRu: 'Уточните путь, размер и family detection. От этого зависит весь остальной профиль.',
+      bodyEn: 'Confirm path, size, and family detection. Everything else depends on that.',
+      labelRu: 'К модели',
+      labelEn: 'Go to model',
+      pane: 'model',
+      accent: false
+    },
+    performance: {
+      titleRu: 'Сведите performance baseline',
+      titleEn: 'Lock the performance baseline',
+      bodyRu: 'Проверьте workload, потоки, контекст и batching до тонкой оптимизации.',
+      bodyEn: 'Check workload, threads, context, and batching before fine-grained optimization.',
+      labelRu: 'К потокам',
+      labelEn: 'Go to threads',
+      pane: 'performance',
+      accent: false
+    },
+    optimization: {
+      titleRu: 'Сверьте runtime policy',
+      titleEn: 'Review runtime policy',
+      bodyRu: 'Сравните RTR, KV cache и MoE knobs с текущими validated выводами.',
+      bodyEn: 'Compare RTR, KV cache, and MoE knobs against the current validated conclusions.',
+      labelRu: 'К RTR',
+      labelEn: 'Go to RTR',
+      pane: 'optimization',
+      accent: false
+    },
+    launch: {
+      titleRu: 'Соберите и запустите команду',
+      titleEn: 'Build and launch',
+      bodyRu: 'Проверьте сгенерированную команду, затем стартуйте процесс из рабочего launch-pane.',
+      bodyEn: 'Review the generated command, then start the process from the launch pane.',
+      labelRu: 'К запуску',
+      labelEn: 'Go to launch',
+      pane: 'launch',
+      accent: true
+    },
+    runtime: {
+      titleRu: 'Следите за runtime',
+      titleEn: 'Watch runtime',
+      bodyRu: 'После запуска переходите в Runtime: там интерактивные панели, логи и live observability.',
+      bodyEn: 'After launch, move to Runtime for interactive panels, logs, and live observability.',
+      labelRu: 'К Runtime',
+      labelEn: 'Go to runtime',
+      pane: 'runtime',
+      accent: true
+    }
+  };
+
   const AUTOCONFIG_RTR_POLICIES = [
     {
       id: 'minimax-swap',
@@ -607,6 +660,22 @@
     };
   }
 
+  function getOverviewActions(rawCtx, lang, helpers) {
+    const ctx = buildContext(rawCtx || {}, helpers || {});
+    const runtimeKey = (ctx.interactionReady || ctx.runtimeState === 'loading') ? 'runtime' : 'launch';
+    return ['model', 'performance', 'optimization', runtimeKey].map((id) => {
+      const item = OVERVIEW_ACTIONS[id];
+      return {
+        id,
+        title: lang === 'ru' ? item.titleRu : item.titleEn,
+        body: lang === 'ru' ? item.bodyRu : item.bodyEn,
+        label: lang === 'ru' ? item.labelRu : item.labelEn,
+        pane: item.pane,
+        accent: item.accent
+      };
+    });
+  }
+
   function getAutoConfigRtrGuidance(rawCtx, lang, helpers) {
     const ctx = buildContext(rawCtx || {}, helpers || {});
     const policy = AUTOCONFIG_RTR_POLICIES.find((item) => item.matches(ctx)) || AUTOCONFIG_RTR_POLICIES[AUTOCONFIG_RTR_POLICIES.length - 1];
@@ -716,7 +785,7 @@
     EXPERIMENTAL_KNOB_EVIDENCE, EXPERIMENTAL_PRESET_EVIDENCE, STANDARD_PRESET_EVIDENCE, FAMILY_VALIDATION_EVIDENCE,
     getKnobEvidence, getPresetEvidence, getApplicabilityBadge, getRuntimeSupportBadge, getValidationBadge, getConfidenceBadge,
     listTestedOn, explainFailureMode, listExperimentalPresets, listStandardPresets, getStandardPreset, getPresetRiskLabel, getPresetScopeLabel,
-    getFamilyValidationStatus, getFamilyValidationNote, getOverviewFamilySummary, getOverviewValidationSummary,
+    getFamilyValidationStatus, getFamilyValidationNote, getOverviewFamilySummary, getOverviewValidationSummary, getOverviewActions,
     getAutoConfigRtrGuidance, getHotExpertGuidance, resolveRuntimeProfile
   };
 })(window);

@@ -78,11 +78,20 @@
 3. `reasons`
 4. `family-specific policy notes`
 
+Для overview action-hints теперь также фиксируются:
+
+1. `title`
+2. `body`
+3. `label`
+4. `pane`
+5. `accent`
+
 То есть evidence layer теперь покрывает не только research knobs, но и:
 
 1. product-level preset bundles;
 2. family/runtime guidance for auto-config;
-3. standard preset definitions.
+3. standard preset definitions;
+4. overview action-hints for the top-level product flow.
 
 ## Что не входит в evidence layer
 

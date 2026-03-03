@@ -114,7 +114,8 @@ Canonical matrix for this layer:
 3. хранить family/runtime guidance и auto-config profiles как registry, а не как ad-hoc policy ветки в `dashboard.js`;
 4. позволять добавлять новые benchmark findings как данные, а не как новые ad-hoc ветвления в `dashboard.js`;
 5. держать product semantics согласованной с benchmark truth и handoff docs;
-6. формировать `Overview` family/validation summaries из того же registry, а не из отдельной product-логики в `dashboard.js`.
+6. формировать `Overview` family/validation summaries из того же registry, а не из отдельной product-логики в `dashboard.js`;
+7. формировать `Overview -> Next actions` из того же registry, а не из отдельного hardcoded product-flow в `dashboard.js`.
 
 Операционное правило:
 
