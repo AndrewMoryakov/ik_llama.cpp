@@ -185,7 +185,7 @@ const LANG = {
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window — экспериментальная MoE-locality ветка. Она не меняет веса модели, а только меняет то, по какой части prompt runtime выбирает hot experts.',
     w_hot_selection_family: 'Hot Expert Selection / Tail Window относятся к MoE locality, а не к одной модели. Текущий runtime-path уже может реально включаться на compatible MoE, но benchmark-backed validation пока в основном MiniMax-first. Для остальных MoE считайте это research-only, пока нет отдельной validation.',
     w_prompt_packed_experimental: 'Prompt Packed QKV — исследовательский prompt-path режим. Он не является validated default и может стоить дополнительной RAM и времени загрузки.',
-    w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Это шире, чем одна family, но текущая runtime-поддержка и auto-policy сегодня лучше всего проработаны для Qwen3MoE и gpt-oss. Для остальных семей это пока исследовательский режим.',
+    w_prompt_packed_family: 'Prompt Packed QKV относится к split-QKV attention-семействам. Ручной runtime-path теперь может включаться шире, чем одна family, но auto-policy и benchmark-backed validation сегодня лучше всего проработаны для Qwen3MoE и gpt-oss. Для остальных семей это пока исследовательский режим.',
     w_prompt_packed_range: 'Задан явный Prompt Packed range. Это advanced override поверх preset и его стоит включать только для осознанного A/B.',
     w_exp_preset_link: 'Связка экспериментального пресета с проверенными настройками включена. При выборе preset dashboard может менять Flash Attention, RTR, Graph Reuse и другие validated knobs.',
     badge_family: 'Семейство',
@@ -618,7 +618,7 @@ const LANG = {
     w_hot_selection_experimental: 'Hot Expert Selection / Tail Window is an experimental MoE locality path. It does not change model weights, only how the runtime chooses hot experts from the prompt.',
     w_hot_selection_family: 'Hot Expert Selection / Tail Window belong to MoE locality rather than to one model. The current runtime path can already activate on compatible MoE, but benchmark-backed validation is still mostly MiniMax-first. For other MoE families treat it as research-only until more validation exists.',
     w_prompt_packed_experimental: 'Prompt Packed QKV is a research prompt-path mode. It is not a validated default and may cost extra RAM and load time.',
-    w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. That is broader than a single family, but current runtime support and auto-policy are best developed today for Qwen3MoE and gpt-oss. Treat other families as research mode for now.',
+    w_prompt_packed_family: 'Prompt Packed QKV belongs to split-QKV attention families. The manual runtime path can now activate more broadly than a single family, but auto-policy and benchmark-backed validation are still best developed today for Qwen3MoE and gpt-oss. Treat other families as research mode for now.',
     w_prompt_packed_range: 'An explicit Prompt Packed range is set. This is an advanced override on top of the preset and should only be used for deliberate A/B checks.',
     w_exp_preset_link: 'The experimental preset is linked to validated settings. Selecting a preset may change Flash Attention, RTR, Graph Reuse, or other validated knobs.',
     badge_family: 'Family',
@@ -1072,7 +1072,7 @@ const RULES = [
   },
   {
     id: 'prompt_packed_family', severity: 'warning', params: ['prompt_packed_qkv', 'prompt_packed_qkv_preset', 'prompt_packed_qkv_range'],
-    test: (s, p) => !!s.prompt_packed_qkv && isExperimentalRuntimeLimited('prompt_packed_qkv', s, p),
+    test: (s) => !!s.prompt_packed_qkv && !['qwen3moe', 'gpt-oss'].includes(detectModelFamily(s)),
     msg: 'w_prompt_packed_family',
   },
   {
@@ -1418,21 +1418,21 @@ const EXPERIMENTAL_PARAM_META = {
   },
   prompt_packed_qkv: {
     applicability: 'split-qkv',
-    runtimeSupport: 'split-qkv-family-first',
+    runtimeSupport: 'split-qkv-generic-auto-family-first',
     validation: 'partial-split-qkv',
     risk: 'high',
     failureMode: 'extra-ram-load-time'
   },
   prompt_packed_qkv_preset: {
     applicability: 'split-qkv',
-    runtimeSupport: 'split-qkv-family-first',
+    runtimeSupport: 'split-qkv-generic-auto-family-first',
     validation: 'partial-split-qkv',
     risk: 'high',
     failureMode: 'suboptimal-range'
   },
   prompt_packed_qkv_range: {
     applicability: 'split-qkv',
-    runtimeSupport: 'split-qkv-family-first',
+    runtimeSupport: 'split-qkv-generic-auto-family-first',
     validation: 'partial-split-qkv',
     risk: 'high',
     failureMode: 'manual-misconfiguration'
@@ -1570,13 +1570,13 @@ function getSupportBadgeMeta(param, s = state, p = currentProfile) {
       }
       return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
         ru ? 'Текущий runtime-path поддерживает этот knob на generic MoE. Но benchmark-backed validation еще неравномерна.' : 'Current runtime supports this knob on generic MoE paths, although benchmark-backed validation is still uneven.');
-    case 'split-qkv-family-first':
+    case 'split-qkv-generic-auto-family-first':
       if (family === 'qwen3moe' || family === 'gpt-oss') {
         return out(ru ? 'Runtime: ok' : 'Runtime: ok', 'support-enabled',
-          ru ? 'Текущий runtime-path и family-aware presets лучше всего поддержаны сегодня именно для Qwen3MoE / gpt-oss.' : 'Current runtime support and family-aware presets are best supported today on Qwen3MoE / gpt-oss.');
+          ru ? 'Текущий runtime-path работает на split-QKV моделях, а family-aware auto-политика лучше всего поддержана сегодня для Qwen3MoE / gpt-oss.' : 'The current runtime path works on split-QKV models, and the family-aware auto-policy is best supported today on Qwen3MoE / gpt-oss.');
       }
-      return out(ru ? 'Runtime: ограничен' : 'Runtime: limited', 'support-limited',
-        ru ? 'По механике knob относится к split-QKV attention-семействам. Но текущая runtime-поддержка и auto-policy сегодня family-first для Qwen3MoE / gpt-oss.' : 'Mechanically this belongs to split-QKV attention families, but runtime support and auto-policy are currently family-first for Qwen3MoE / gpt-oss.');
+      return out(ru ? 'Runtime: ok*' : 'Runtime: ok*', 'support-enabled',
+        ru ? 'Manual/runtime path уже может работать на совместимых split-QKV моделях. Но auto-policy и benchmark-backed validation сегодня все еще family-first для Qwen3MoE / gpt-oss.' : 'The manual/runtime path can already work on compatible split-QKV models. But auto-policy and benchmark-backed validation are still family-first today for Qwen3MoE / gpt-oss.');
     case 'arch-sensitive':
       return out(ru ? 'Runtime: чувствит.' : 'Runtime: sensitive', 'support-limited',
         ru ? 'Код принимает этот knob широко, но его реальная полезность и путь выполнения зависят от attention-архитектуры модели.' : 'The code accepts this knob broadly, but the actual effect and execution path depend on the model attention architecture.');
@@ -1614,7 +1614,7 @@ function getValidationBadgeMeta(param, s = state) {
           ru ? 'Есть benchmark-backed сигнал на Qwen3MoE / gpt-oss, но knob остается experimental и не считается validated default.' : 'There is benchmark-backed signal on Qwen3MoE / gpt-oss, but the knob remains experimental and is not a validated default.');
       }
       return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
-        ru ? 'Вне текущих split-QKV test-families это пока исследовательский режим без отдельной validation.' : 'Outside the current split-QKV test families this remains a research mode without separate validation.');
+        ru ? 'Вне текущих split-QKV test-families это пока исследовательский режим без отдельной validation, даже если runtime-path уже может включаться.' : 'Outside the current split-QKV test families this remains a research mode without separate validation, even if the runtime path can now activate.');
     case 'research':
       return out(ru ? 'Проверка: research' : 'Signal: research', 'validation-research',
         ru ? 'По этому knob пока нет достаточно сильной benchmark-backing, чтобы считать его validated even on a known family.' : 'This knob does not yet have strong enough benchmark backing to be treated as validated even on a known family.');
@@ -4136,7 +4136,7 @@ const HELP = {
 • может ускорять prompt-часть
 • эффект на полный mixed path обычно меньше
 • иногда стоит дополнительной RAM и времени загрузки</div>
-<div class="tip">Что меняет: только prompt-path layout, а не всю модель. Где помогает: prompt-heavy и mixed-path A/B на split-QKV семьях. Где может навредить: RAM, load time и общая простота baseline. Когда трогать: Qwen3MoE / gpt-oss prompt-path experiments, а не общий baseline-тюнинг.</div>
+<div class="tip">Что меняет: только prompt-path layout, а не всю модель. Где помогает: prompt-heavy и mixed-path A/B на split-QKV семьях. Где может навредить: RAM, load time и общая простота baseline. Когда трогать: manual experiments на compatible split-QKV моделях; auto-policy и validation сейчас лучше всего развиты на Qwen3MoE / gpt-oss.</div>
 <div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
 <div class="see-also">См. также: <span>Preset Prompt Packed</span>, <span>Диапазон Prompt Packed</span>, <span>Flash Attention</span></div>`,
     en: `<h4>Prompt Packed QKV (--experimental prompt-packed-qkv=on)</h4>
@@ -4146,7 +4146,7 @@ const HELP = {
 • can improve the prompt side
 • the effect on full mixed path is usually smaller
 • may cost extra RAM and load time</div>
-<div class="tip">What this changes: only the prompt-path layout, not the whole model. Where it helps: prompt-heavy and mixed-path A/B on split-QKV families. Where it can hurt: RAM, load time, and baseline simplicity. When to touch it: Qwen3MoE / gpt-oss prompt-path experiments, not general baseline tuning.</div>
+<div class="tip">What this changes: only the prompt-path layout, not the whole model. Where it helps: prompt-heavy and mixed-path A/B on split-QKV families. Where it can hurt: RAM, load time, and baseline simplicity. When to touch it: manual experiments on compatible split-QKV models; auto-policy and validation are currently best developed on Qwen3MoE / gpt-oss.</div>
 <div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
 <div class="see-also">See also: <span>Prompt Packed preset</span>, <span>Prompt Packed range</span>, <span>Flash Attention</span></div>`,
   },

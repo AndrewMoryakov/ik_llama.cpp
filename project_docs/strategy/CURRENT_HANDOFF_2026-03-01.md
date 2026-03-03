@@ -61,6 +61,46 @@ Source of truth:
 - `project_docs/benchmarks/current/MINIMAX_LOCALITY_TAIL_WINDOW_2026-03-02.md`
 - `project_docs/models/MINIMAX_M2_5_RUNTIME.md`
 
+### 3. Fresh March 3 runtime refreshes
+
+#### MiniMax locality confirm
+
+The larger confirm run did not promote `tail-window=16` to a new baseline.
+
+Fresh result:
+
+- `TG128`: `1.332637 -> 1.282882` (`baseline -> tail-window=16`)
+- `PG512,128` mixed: `3.991484 -> 4.030163`
+
+Practical meaning:
+
+1. `tail-window=16` remains research-only
+2. the short `pg32,4` signal did not turn into a strong practical win on larger workloads
+3. the next MiniMax line should move toward smarter locality ideas, not promote this knob as default
+
+#### gpt-oss fresh runtime refresh
+
+Fresh current-tree runs now exist for both family regimes:
+
+- `gpt-oss-20b`: fresh `rtr=auto` baseline
+- `gpt-oss-120b`: fresh `off vs auto` packaging refresh
+
+Key numbers:
+
+- `gpt-oss-20b`
+  - `TG128`: `23.707807`
+  - `PG512,128 mixed`: `90.283185`
+
+- `gpt-oss-120b`
+  - `TG128`: `14.134468 -> 16.657064` (`off -> auto`)
+  - `PG512,128 mixed`: `59.089030 -> 60.177522` (`off -> auto`)
+
+Practical meaning:
+
+1. `gpt-oss-20b` now has a fresh baseline for the next decode-side line
+2. `gpt-oss-120b` now clearly leans toward `rtr=auto` as the throughput-first mode on the current tree
+3. `off` remains relevant mainly for startup-sensitive or more conservative huge-model packaging
+
 ## Что уже отброшено
 
 ### MiniMax hot-expert default > 16
@@ -131,6 +171,22 @@ Source of truth:
 2. поддержки для `TG-only` пока нет
 3. это все еще `research-only`, не новый default
 
+### Locality confirm on larger workloads
+
+The larger confirm run is now also closed.
+
+Result:
+
+- `tail-window=16` did **not** become a practical new baseline
+- mixed path stayed only slightly positive
+- `TG128` and prompt-side larger-workload behavior regressed
+
+Практический смысл:
+
+1. не продвигать `tail-window=16`
+2. оставить его как `research-only`
+3. следующую MiniMax runtime-line двигать в сторону smarter locality ideas instead
+
 ## Какие бенчмарки сейчас не нужны
 
 Пока не нужно:
@@ -140,6 +196,7 @@ Source of truth:
 3. `SER`
 4. новые многопараметрические комбинации
 5. повторное открытие уже закрытого MiniMax `off vs auto` вопроса без новой гипотезы
+6. повторное открытие `tail-window=16` как нового baseline без новой smarter-locality гипотезы
 
 Причина простая:
 
@@ -221,11 +278,13 @@ Source of truth:
 
 3. если есть время на дорогой прогон:
 - не переоткрывать `off vs auto` без новой гипотезы
+- не продвигать `tail-window=16` как baseline без новой гипотезы
 - идти в `expert locality / paging`
 
 4. если такого времени нет:
 - не трогать MiniMax policy
 - переходить к следующей содержательной optimization line
+- для `gpt-oss` использовать свежие March 3 baselines, а не February-only numbers
 
 ## Текущий фундаментальный приоритет: Phase 1
 
@@ -313,6 +372,42 @@ Source of truth:
 Это еще не full generalization.
 Но это уже правильная база для нее.
 
+Уже сделан второй bounded runtime-slice:
+
+- commit `29e4fa3ff`
+- `Runtime: generalize hot-expert tail-window to MoE path`
+
+Что именно это дало:
+
+1. `Tail Window` больше не привязан к одной family только по имени архитектуры
+2. hot-expert `tail-window` path теперь включается по совместимому `MoE / huge-MoE` runtime path
+3. validation не расширялась автоматически:
+   - `MiniMax` остается первой подтвержденной линией
+
+Практический смысл:
+
+- `Phase 2` уже перешла от honest logging к реальному class-based runtime widening
+
+Уже сделан третий bounded runtime-slice:
+
+- manual `Prompt Packed QKV` generalized from family-first path to capability-based `Split-QKV` path
+
+Что именно это дало:
+
+1. manual prompt-packed path теперь может активироваться на совместимых `Split-QKV` моделях вне `Qwen3MoE / gpt-oss`
+2. `auto` policy остается family-tuned:
+   - лучше всего развита для `Qwen3MoE / gpt-oss`
+3. smoke validation уже есть на:
+   - `Qwen3-1.7B`
+   - `Mistral-7B`
+
+Практический смысл:
+
+- `Phase 2` теперь имеет уже два реальных generalized runtime slices:
+  - `Hot Expert Selection / Tail Window`
+  - `Prompt Packed QKV` manual path
+- validation по-прежнему уже, чем runtime support
+
 ## Полная фазная цепочка после текущего этапа
 
 Чтобы не терять нить, текущая последовательность фаз сейчас такая:
@@ -324,19 +419,24 @@ Source of truth:
 2. `Phase 2`
 - runtime generalization
 - сначала `Hot Expert Selection / Tail Window`
-- потом `Prompt Packed QKV`
+- затем `Prompt Packed QKV`
+- потом decision point:
+  - продолжать ли расширение class-based runtime support
+  - или переходить в `Phase 3` targeted validation
 
 ### Текущий active Phase 2 slice
 
-Сейчас mainline работа идет именно по:
+Сейчас mainline работа уже прошла два первых bounded slices:
 
-- `Hot Expert Selection / Tail Window`
+1. `Hot Expert Selection / Tail Window`
+2. `Prompt Packed QKV` manual path
 
 В правильном порядке:
 
 1. capability logging и honest fallback behavior
 2. потом runtime widening from `MiniMax-first` toward class-based `MoE / huge-MoE`
-3. потом targeted short A/B
+3. затем runtime widening from family-first prompt-packed support toward class-based `Split-QKV`
+4. потом targeted short A/B
 
 3. `Phase 3`
 - targeted validation

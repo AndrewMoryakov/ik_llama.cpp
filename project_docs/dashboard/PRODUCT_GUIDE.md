@@ -88,6 +88,12 @@ Canonical matrix for this layer:
 - по текущему runtime-path это сегодня уже generic `MoE / huge-MoE hot-expert path`
 - по validation это сейчас подтверждено только на `MiniMax`
 
+И `Prompt Packed QKV` теперь нужно читать в той же логике:
+
+- по механике это knob класса `Split-QKV`
+- по текущему runtime-path manual path уже может включаться на совместимых split-QKV моделях
+- `auto` policy и benchmark-backed validation сегодня все еще лучше всего развиты на `Qwen3MoE / gpt-oss`
+
 ## Из каких частей он состоит
 
 ### 1. `dashboard/dashboard.html`

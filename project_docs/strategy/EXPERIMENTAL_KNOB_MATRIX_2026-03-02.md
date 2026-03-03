@@ -38,9 +38,9 @@
 | `Hot Expert Selection` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | knob подходит классу моделей, но benchmark-backed signal вне MiniMax пока слабый или отсутствует |
 | `Tail Window` | `MoE / huge-MoE` | `generic MoE hot-expert path` | `MiniMax partial` | `medium` | path теперь может реально включаться на compatible MoE, но без validation может дать шумный или отрицательный win |
 | `Merge QKV` | `attention arch-specific` | `accepted broadly, effect arch-sensitive` | `research-only` | `medium` | слабый или отрицательный win из-за неудачного attention/layout path |
-| `Prompt Packed QKV` | `Split-QKV` | `Qwen3MoE / gpt-oss-first runtime path` | `Qwen3MoE`, `gpt-oss` partial | `high` | дополнительная RAM, более долгий load/startup, prompt-only gain без strong end-to-end win |
-| `Prompt Packed preset` | `Split-QKV` | `Qwen3MoE / gpt-oss-first runtime path` | `Qwen3MoE`, `gpt-oss` partial | `high` | family-неподходящий preset или suboptimal layer subset |
-| `Prompt Packed range` | `Split-QKV` | `Qwen3MoE / gpt-oss-first runtime path` | `research-only outside current families` | `high` | ручной диапазон может ухудшить RAM/load time или не дать useful prompt win |
+| `Prompt Packed QKV` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `Qwen3MoE`, `gpt-oss` partial | `high` | дополнительная RAM, более долгий load/startup, prompt-only gain без strong end-to-end win |
+| `Prompt Packed preset` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `Qwen3MoE`, `gpt-oss` partial | `high` | family-неподходящий preset или suboptimal layer subset |
+| `Prompt Packed range` | `Split-QKV` | `generic split-QKV manual path; auto-policy Qwen3MoE / gpt-oss-first` | `research-only outside current families` | `high` | ручной диапазон может ухудшить RAM/load time или не дать useful prompt win |
 | `Live Observability` | `All` | `dashboard-only tooling` | `helper/tooling` | `low` | лишний trace noise, если нужен максимально чистый benchmark |
 | `Experimental preset` | `All` | `dashboard helper` | `helper/tooling` | `low` | может включить bundle, который пользователь не до конца понимает |
 | `Link preset to validated settings` | `All` | `dashboard helper` | `helper/tooling` | `low` | пресет может перестроить validated baseline шире, чем ожидал пользователь |
@@ -67,7 +67,8 @@
 Правильная интерпретация такая:
 
 - по механике это knob класса `Split-QKV`
-- по текущему runtime today это family-first path для `Qwen3MoE / gpt-oss`
+- по текущему runtime today manual-path уже может включаться на совместимых split-QKV моделях
+- но `auto` policy и benchmark-backed confidence все еще family-first для `Qwen3MoE / gpt-oss`
 - по validation это partial signal именно на этих семьях
 
 То есть:

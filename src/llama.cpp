@@ -342,6 +342,69 @@ static bool llama_prompt_packed_qkv_has_explicit_range() {
     return env && trim(env).size() > 0;
 }
 
+static bool llama_layer_supports_prompt_packed_qkv(const llama_layer & layer) {
+    if (layer.wqkv || layer.wqk || !layer.wq || !layer.wk || !layer.wv) {
+        return false;
+    }
+
+    if (layer.wq->ne[0] != layer.wk->ne[0] || layer.wq->ne[0] != layer.wv->ne[0]) {
+        return false;
+    }
+
+    return true;
+}
+
+static int llama_model_prompt_packed_qkv_compatible_layers(const llama_model & model) {
+    int count = 0;
+    for (const auto & layer : model.layers) {
+        count += llama_layer_supports_prompt_packed_qkv(layer) ? 1 : 0;
+    }
+    return count;
+}
+
+static bool llama_model_supports_prompt_packed_qkv_runtime(const llama_model & model) {
+    return llama_model_prompt_packed_qkv_compatible_layers(model) > 0;
+}
+
+static bool llama_prompt_packed_qkv_auto_family_tuned(enum llm_arch arch) {
+    switch (arch) {
+        case LLM_ARCH_QWEN3MOE:
+        case LLM_ARCH_OPENAI_MOE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void llama_prompt_packed_qkv_log_support(const llama_model & model) {
+    if (!llama_prompt_packed_qkv_enabled()) {
+        return;
+    }
+
+    const std::string preset = llama_prompt_packed_qkv_preset();
+    const bool explicit_range = llama_prompt_packed_qkv_has_explicit_range();
+    const int compatible_layers = llama_model_prompt_packed_qkv_compatible_layers(model);
+
+    if (compatible_layers <= 0) {
+        LLAMA_LOG_WARN("%s: prompt-packed-qkv belongs to split-QKV attention families, but the current model does not expose a compatible split-QKV runtime path for arch=%s; keeping the normal prompt path\n",
+                __func__, llama_model_arch_name(model.arch));
+        return;
+    }
+
+    if (!explicit_range && preset == "auto" && !llama_prompt_packed_qkv_auto_family_tuned(model.arch)) {
+        LLAMA_LOG_INFO("%s: prompt-packed-qkv manual/runtime path is available on this split-QKV model (%d compatible layers), but preset=auto remains family-tuned today; falling back to full-range packing for arch=%s\n",
+                __func__, compatible_layers, llama_model_arch_name(model.arch));
+        return;
+    }
+
+    LLAMA_LOG_INFO("%s: prompt-packed-qkv runtime path is active for %d compatible split-QKV layers on arch=%s (preset=%s%s)\n",
+            __func__,
+            compatible_layers,
+            llama_model_arch_name(model.arch),
+            preset.empty() ? "full" : preset.c_str(),
+            explicit_range ? ", explicit-range=yes" : "");
+}
+
 static std::pair<int, int> llama_prompt_packed_qkv_range(enum llm_arch arch, int n_layer) {
     if (!llama_prompt_packed_qkv_has_explicit_range()) {
         const std::string preset = llama_prompt_packed_qkv_preset();
@@ -3056,9 +3119,12 @@ static void llm_prepare_prompt_packed_qkv(llama_model & model) {
         return;
     }
 
-    if (model.arch != LLM_ARCH_QWEN3MOE && model.arch != LLM_ARCH_OPENAI_MOE) {
+    if (!llama_model_supports_prompt_packed_qkv_runtime(model)) {
+        llama_prompt_packed_qkv_log_support(model);
         return;
     }
+
+    llama_prompt_packed_qkv_log_support(model);
 
     const int n_layer = (int) model.layers.size();
     const auto [pack_start_layer, pack_end_layer] = llama_prompt_packed_qkv_range(model.arch, n_layer);
@@ -3157,6 +3223,8 @@ static void llm_prepare_prompt_packed_qkv(llama_model & model) {
     }
 
     if (plans.empty()) {
+        LLAMA_LOG_WARN("%s: prompt-packed-qkv found no compatible split-QKV layers inside requested range [%d, %d); keeping the normal prompt path\n",
+                __func__, pack_start_layer, pack_end_layer);
         return;
     }
 
