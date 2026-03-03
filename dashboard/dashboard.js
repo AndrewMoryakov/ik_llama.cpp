@@ -2611,6 +2611,221 @@ function applyExperimentalPreset(preset, options = {}) {
   }
 }
 
+// Data-driven evidence layer overrides.
+// These declarations intentionally shadow the legacy semantic helpers above,
+// so dashboard rendering uses the registry from evidence-layer.js as the
+// primary source of truth while keeping the old block as an inert fallback.
+function buildEvidenceContext(s = state, p = currentProfile) {
+  return {
+    state: s,
+    profile: p,
+    family: detectModelFamily(s),
+    modelPath: s.model || '',
+    modelType: s.model_type,
+    workload: s.workload_profile,
+    isSwapBound: isSwapBound(s, p || currentProfile || {}),
+  };
+}
+
+function getApplicabilityMeta(kind) {
+  const layer = window.IKLLamaEvidenceLayer;
+  const entry = layer?.APPLICABILITY_META?.[kind] || layer?.APPLICABILITY_META?.all;
+  if (!entry) {
+    return { label: currentLang === 'ru' ? 'Все' : 'All', className: 'app-all', title: '' };
+  }
+  return {
+    label: currentLang === 'ru' ? entry.labelRu : entry.labelEn,
+    className: entry.className,
+    title: currentLang === 'ru' ? entry.titleRu : entry.titleEn,
+  };
+}
+
+function getExperimentalApplicabilityKind(param) {
+  const layer = window.IKLLamaEvidenceLayer;
+  return layer?.EXPERIMENTAL_KNOB_EVIDENCE?.[param]?.applicability || PARAM_APPLICABILITY[param] || 'all';
+}
+
+function getSupportBadgeMeta(param, s = state, p = currentProfile) {
+  return window.IKLLamaEvidenceLayer?.getRuntimeSupportBadge?.(
+    param,
+    buildEvidenceContext(s, p),
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || null;
+}
+
+function getValidationBadgeMeta(param, s = state, p = currentProfile) {
+  return window.IKLLamaEvidenceLayer?.getValidationBadge?.(
+    param,
+    buildEvidenceContext(s, p),
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || null;
+}
+
+function getConfidenceBadgeMeta(param, s = state, p = currentProfile) {
+  return window.IKLLamaEvidenceLayer?.getConfidenceBadge?.(
+    param,
+    buildEvidenceContext(s, p),
+    currentLang,
+    { detectModelFamily, isSwapBound }
+  ) || null;
+}
+
+function listExperimentalPresets() {
+  return window.IKLLamaEvidenceLayer?.listExperimentalPresets?.() || [];
+}
+
+function getExperimentalPresetConfig(preset, s = state) {
+  const cfg = window.IKLLamaEvidenceLayer?.getPresetEvidence?.(
+    preset,
+    buildEvidenceContext(s, currentProfile),
+    currentLang,
+    t,
+    { detectModelFamily, isSwapBound }
+  );
+  if (cfg) return cfg;
+  return {
+    id: 'none',
+    titleText: currentLang === 'ru' ? 'Manual / off' : 'Manual / off',
+    description: t('exp_preset_none'),
+    note: '',
+    risk: 'low',
+    scope: 'generic',
+    riskLabel: currentLang === 'ru' ? 'Риск: низкий' : 'Risk: low',
+    scopeLabel: 'Generic',
+    testedOn: [],
+    confidenceBadge: null,
+    experimental: {},
+    validated: {},
+  };
+}
+
+function experimentalPresetScopeLabel(scope) {
+  return window.IKLLamaEvidenceLayer?.getPresetScopeLabel?.(scope, currentLang)
+    || (scope === 'moe' ? 'MoE' : scope === 'dense' ? 'Dense' : 'Generic');
+}
+
+function experimentalPresetRiskLabel(risk) {
+  return window.IKLLamaEvidenceLayer?.getPresetRiskLabel?.(risk, currentLang)
+    || (currentLang === 'ru' ? 'Риск: низкий' : 'Risk: low');
+}
+
+function renderExperimentalPresetPicker() {
+  const root = document.getElementById('experimental-preset-picker');
+  const hiddenSelect = document.getElementById('p-experimental_preset');
+  if (!root || !hiddenSelect) return;
+
+  const presets = listExperimentalPresets();
+
+  hiddenSelect.innerHTML = presets
+    .map(([id]) => {
+      const cfg = getExperimentalPresetConfig(id, state);
+      return `<option value="${id}">${cfg.titleText}</option>`;
+    })
+    .join('');
+  hiddenSelect.value = state.experimental_preset || 'none';
+
+  const selectedId = state.experimental_preset || 'none';
+  const selected = getExperimentalPresetConfig(selectedId, state);
+  const pickerKicker = currentLang === 'ru' ? 'Выбери исследовательский bundle' : 'Choose a research bundle';
+  const pickerHint = currentLang === 'ru'
+    ? 'Безопасный baseline не меняется сам по себе. Этот control только собирает воспроизводимый A/B-старт.'
+    : 'The safe baseline does not change by itself. This control only builds a reproducible A/B starting point.';
+
+  const options = presets.map(([id]) => {
+    const cfgResolved = getExperimentalPresetConfig(id, state);
+    const active = id === selectedId ? 'active' : '';
+    const confidenceChip = cfgResolved.confidenceBadge
+      ? `<span class="preset-chip ${cfgResolved.confidenceBadge.className}">${cfgResolved.confidenceBadge.label}</span>`
+      : '';
+    return `
+      <button type="button" class="exp-preset-option ${active}" onclick="selectExperimentalPreset('${id.replace(/'/g, "\\'")}')">
+        <div class="exp-preset-option-title-row">
+          <div class="exp-preset-option-title">${cfgResolved.titleText}</div>
+          <div class="exp-preset-option-meta">
+            <span class="preset-chip risk-${cfgResolved.risk}">${experimentalPresetRiskLabel(cfgResolved.risk)}</span>
+            <span class="preset-chip scope-${cfgResolved.scope}">${experimentalPresetScopeLabel(cfgResolved.scope)}</span>
+            ${confidenceChip}
+          </div>
+        </div>
+        <div class="exp-preset-option-desc">${cfgResolved.description}</div>
+      </button>
+    `;
+  }).join('');
+
+  const selectedConfidenceChip = selected.confidenceBadge
+    ? `<span class="preset-chip ${selected.confidenceBadge.className}">${selected.confidenceBadge.label}</span>`
+    : '';
+
+  root.innerHTML = `
+    <details class="exp-preset-dropdown">
+      <summary>
+        <div class="exp-preset-summary">
+          <div class="exp-preset-summary-kicker">${pickerKicker}</div>
+          <div class="exp-preset-summary-top">
+            <div class="exp-preset-summary-title">${selected.titleText}</div>
+            <div class="exp-preset-summary-meta">
+              <span class="preset-chip risk-${selected.risk}">${experimentalPresetRiskLabel(selected.risk)}</span>
+              <span class="preset-chip scope-${selected.scope}">${experimentalPresetScopeLabel(selected.scope)}</span>
+              ${selectedConfidenceChip}
+            </div>
+          </div>
+          <div class="exp-preset-summary-desc">${selected.description}</div>
+          <div class="exp-preset-summary-desc">${pickerHint}</div>
+        </div>
+      </summary>
+      <div class="exp-preset-menu">${options}</div>
+    </details>
+  `;
+}
+
+function renderExperimentalPresetHint() {
+  const el = document.getElementById('experimental-preset-hint');
+  if (!el) return;
+  const preset = state.experimental_preset || 'none';
+  const cfg = getExperimentalPresetConfig(preset, state);
+  const linkLabel = state.experimental_preset_link_validated
+    ? (currentLang === 'ru' ? 'Связка с проверенными: ON' : 'Validated link: ON')
+    : (currentLang === 'ru' ? 'Связка с проверенными: OFF' : 'Validated link: OFF');
+  const testedOnLine = cfg.testedOn?.length
+    ? `<div class="experimental-preset-hint-line"><span class="model-badge family-generic">${currentLang === 'ru' ? 'Tested on' : 'Tested on'}: ${cfg.testedOn.join(', ')}</span></div>`
+    : '';
+  const confidenceLine = cfg.confidenceBadge
+    ? `<span class="preset-chip ${cfg.confidenceBadge.className}">${cfg.confidenceBadge.label}</span>`
+    : '';
+  el.innerHTML = `
+    <div class="experimental-intro-title">${cfg.titleText}</div>
+    <div class="experimental-intro-body">${cfg.description}${cfg.note}</div>
+    <div class="experimental-preset-hint-line">
+      <span class="preset-chip risk-${cfg.risk}">${experimentalPresetRiskLabel(cfg.risk)}</span>
+      <span class="preset-chip scope-${cfg.scope}">${experimentalPresetScopeLabel(cfg.scope)}</span>
+      ${confidenceLine}
+      <span class="model-badge family-generic">${linkLabel}</span>
+    </div>
+    ${testedOnLine}
+  `;
+}
+
+function applyExperimentalPreset(preset, options = {}) {
+  const nextPreset = preset || 'none';
+  const cfg = getExperimentalPresetConfig(nextPreset, state);
+  suppressUpdate = true;
+  state.experimental_preset = nextPreset;
+  Object.assign(state, cfg.experimental || {});
+  if (state.experimental_preset_link_validated) {
+    Object.assign(state, cfg.validated || {});
+  }
+  suppressUpdate = false;
+  syncAllToDOM();
+  evaluate();
+  renderCommand();
+  saveState();
+  if (!options.reapplyOnly) {
+    setOptimizationPane('experimental');
+  }
+}
+
 function renderAdvancedHints() {
   const el = document.getElementById('advanced-hints');
   if (!el) return;
@@ -4706,6 +4921,11 @@ const GLOSSARY = [
     def: {
       ru: 'Максимальное количество токенов, которые модель «видит» одновременно. Если контекст = 8192, модель помнит ~6000 слов диалога. Превысили лимит — старые сообщения «забываются».',
       en: 'Maximum number of tokens the model "sees" at once. If context = 8192, the model remembers ~6000 words of dialog. Exceed the limit — old messages get "forgotten".',
+    }},
+  { term: { ru: 'Data-driven evidence layer', en: 'Data-driven evidence layer' },
+    def: {
+      ru: 'Отдельный слой данных в dashboard, который хранит не сами настройки модели, а знания о них: для какого класса моделей параметр применим, где runtime его реально поддерживает, где он уже проверен benchmark-ами и насколько высока практическая уверенность. Нужен, чтобы новые выводы добавлялись как данные, а не как новые разрозненные if/else по всему UI.',
+      en: 'A dedicated dashboard data layer that stores evidence about model knobs rather than the knobs themselves: which model class a parameter applies to, where runtime really supports it, where it has benchmark validation, and how high the practical confidence is. It exists so that new findings can be added as data instead of new scattered if/else branches across the UI.',
     }},
   // --- Model Architecture ---
   { cat: { ru: 'Архитектура модели', en: 'Model Architecture' },

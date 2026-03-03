@@ -93,6 +93,31 @@ Canonical matrix for this layer:
 
 - `../strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
 - `../strategy/PARAMETER_GENERALIZATION_PRINCIPLES_2026-03-03.md`
+- `../strategy/DATA_DRIVEN_EVIDENCE_LAYER_2026-03-03.md`
+
+## Data-Driven Evidence Layer
+
+`Dashboard` больше не должен хранить benchmark semantics как набор разрозненных `if/else`.
+
+Для этого введен отдельный `data-driven evidence layer`:
+
+1. executable registry для UI:
+- `../../dashboard/evidence-layer.js`
+
+2. canonical architectural explanation:
+- `../strategy/DATA_DRIVEN_EVIDENCE_LAYER_2026-03-03.md`
+
+Роль этого слоя:
+
+1. хранить `Applicability`, `Runtime support`, `Validation`, `Confidence`, `Risk`, `Tested on` и `Failure mode`;
+2. позволять добавлять новые benchmark findings как данные, а не как новые ad-hoc ветвления в `dashboard.js`;
+3. держать product semantics согласованной с benchmark truth и handoff docs.
+
+Операционное правило:
+
+- сначала обновляется benchmark truth;
+- затем evidence registry;
+- только после этого user-facing wording.
 
 Именно поэтому `Tail Window` и похожие knobs теперь должны читаться так:
 

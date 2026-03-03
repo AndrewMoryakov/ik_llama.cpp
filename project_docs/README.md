@@ -20,6 +20,7 @@ This directory is the canonical location for project-specific documentation.
 - `strategy/CURRENT_HANDOFF_2026-03-01.md`
 - `strategy/PARAMETER_GENERALIZATION_PRINCIPLES_2026-03-03.md`
 - `strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
+- `strategy/DATA_DRIVEN_EVIDENCE_LAYER_2026-03-03.md`
 - `strategy/PHASE2_KNOB_BACKLOG_2026-03-03.md`
 - `strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
 - `strategy/RESEARCH_PROMPT_TAIL_REWRITE_2026-03-02.md`

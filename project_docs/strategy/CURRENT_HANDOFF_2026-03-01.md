@@ -606,3 +606,32 @@ Source doc:
 - они быстрее дают trace-данные;
 - на них удобнее полировать `Learn / Inspect`, replay и heatmap;
 - `MiniMax` лучше оставлять для проверки huge-model behavior и swap-bound observability.
+
+## Data-driven evidence layer
+
+Для dashboard теперь введен отдельный semantic/product слой:
+
+- `project_docs/strategy/DATA_DRIVEN_EVIDENCE_LAYER_2026-03-03.md`
+
+Executable source of truth для UI:
+
+- `dashboard/evidence-layer.js`
+
+Роль этого слоя:
+
+1. хранить evidence semantics для experimental knobs и presets;
+2. развести:
+- `Applicability`
+- `Runtime support`
+- `Validation`
+- `Confidence`
+- `Risk`
+- `Tested on`
+- `Failure mode`
+3. дать возможность добавлять новые benchmark findings как data updates, а не как новые hardcoded ветки в `dashboard.js`.
+
+Это нужно держать в голове при следующих dashboard/product changes:
+
+- benchmark truth обновляется первым;
+- evidence layer вторым;
+- user-facing wording третьим.
