@@ -124,7 +124,7 @@ Note:
 
 Key outcome:
 
-1. `gpt-oss-120b prompt-packed back-half` is the strongest new practical signal from this pass
+1. `gpt-oss-120b prompt-packed back-half` survived a dedicated confirm run and now stands as a medium-confidence huge-model branch
 2. `gpt-oss-20b tail-window=16` is promising but weak
 3. `gpt-oss-20b` and `Qwen3-30B-A3B` prompt-packed remain mostly prompt-side wins, not clear mixed-path wins
 
@@ -136,7 +136,7 @@ None of the previously open heavy questions remain urgent.
 
 The next useful runs should be tied to one of two follow-ups:
 
-1. dedicated confirm/productization run for `gpt-oss-120b prompt-packed back-half`
+1. `gpt-oss-120b` productization pass for `Prompt Packed QKV back-half`
 2. next `gpt-oss-20b` decode-side line
 
 ### Good next candidates, if code changes land

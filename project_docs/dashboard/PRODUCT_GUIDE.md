@@ -139,10 +139,10 @@ Canonical matrix for this layer:
 - по текущему runtime-path manual path уже может включаться на совместимых split-QKV моделях
 - `auto` policy и benchmark-backed validation сегодня все еще лучше всего развиты на `Qwen3MoE / gpt-oss`
 - при этом свежий `Phase 3` показал, что practical value внутри одной family тоже может различаться:
-  - `gpt-oss-120b`: clear positive branch
+  - `gpt-oss-120b`: confirmed-useful, moderate branch
   - `gpt-oss-20b`: prompt-side gain but weak mixed-path value
 - по confidence:
-  - `gpt-oss-120b`: high
+  - `gpt-oss-120b`: medium
   - `gpt-oss-20b`: low
   - `Qwen3MoE`: low
   - другие совместимые `Split-QKV` модели: knob доступен, но уверенность пока не claim-ится

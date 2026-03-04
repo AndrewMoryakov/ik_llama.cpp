@@ -13,6 +13,7 @@ It answers:
 ## Raw Artifacts
 
 - `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
+- `ik_llama.cpp/bench_results/2026-03-04_061657_gptoss120b_prompt_packed_confirm`
 
 ## Scope
 
@@ -79,7 +80,31 @@ Interpretation:
 Interpretation:
 
 1. this is a real positive practical signal
-2. `Prompt Packed QKV back-half` is now worth treating as a serious huge-model experimental branch for `120b`
+2. a later dedicated confirm run kept the branch positive, but at a more moderate level
+3. the current honest status is:
+- confirmed useful
+- medium confidence
+- not a family-wide default
+
+### 3b. Dedicated confirm on `gpt-oss-120b`
+
+From `2026-03-04_061657_gptoss120b_prompt_packed_confirm`, `t=16`, `fa=1`, `rtr=auto`, `muge=0`, `r=3`.
+
+`pp512`
+
+- baseline: `161.103907`
+- `back-half`: `165.294421`
+
+`pg512,128`
+
+- baseline mixed: `60.379250`
+- back-half mixed: `60.740783`
+
+Interpretation:
+
+1. the positive signal survives confirm
+2. the branch is useful, but moderate rather than dominant
+3. productization should treat this as a medium-confidence huge-model branch
 
 ### 4. `Prompt Packed QKV` on `Qwen3-30B-A3B`
 
@@ -116,7 +141,7 @@ Interpretation:
 
 ## What This Means Next
 
-1. continue `Prompt Packed QKV` specifically for `gpt-oss-120b`
+1. continue `Prompt Packed QKV` specifically for `gpt-oss-120b`, but as a medium-confidence huge-model branch
 2. do not promote it as a family-wide default for all `gpt-oss`
 3. keep `gpt-oss-20b` mainline work focused on decode-side optimization
 4. keep `tail-window=16` as a promising but not yet baseline-worthy generalized MoE knob

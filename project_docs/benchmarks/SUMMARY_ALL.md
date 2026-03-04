@@ -141,8 +141,25 @@ Operational meaning:
 
 Operational meaning:
 
-1. This is the strongest practical `Prompt Packed QKV` result on the current tree.
-2. For `gpt-oss-120b`, `Prompt Packed QKV` now looks like a real huge-model branch worth continuing.
+1. The first Phase 3 pass showed a strong practical signal.
+2. A later dedicated confirm run kept the branch positive, but at a more moderate level.
+
+### Prompt-packed confirm
+
+From `2026-03-04_061657_gptoss120b_prompt_packed_confirm`, `t=16`, `fa=1`, `rtr=auto`, `muge=0`, `r=3`.
+
+| Scenario | Test | baseline | `Prompt Packed back-half` |
+|---|---|---:|---:|
+| `pp512` | `pp512` | `161.103907` | `165.294421` |
+| `pg512,128` | `pp512` | `158.692960` | `164.162962` |
+| `pg512,128` | `tg128` | `17.227059` | `17.240189` |
+| `pg512,128` | `pp512+tg128` | `60.379250` | `60.740783` |
+
+Operational meaning:
+
+1. The positive signal survives confirm.
+2. The practical value is real, but moderate rather than dominant.
+3. Current honest status: `confirmed useful`, `medium confidence`.
 
 ## MiniMax M2.5
 
@@ -219,7 +236,7 @@ Operational meaning:
 - use `fa=1`
 - start with `rtr=auto` if throughput matters more than startup cost
 - compare against `off` only when conservative startup-sensitive packaging matters
-- `Prompt Packed QKV back-half` is now worth treating as a serious huge-model experimental branch
+- `Prompt Packed QKV back-half` is now worth treating as a confirmed-useful, medium-confidence huge-model branch
 
 ### MiniMax
 
@@ -241,7 +258,7 @@ Operational meaning:
 ### Open next lines
 
 1. `gpt-oss-20b` decode-side optimization
-2. `gpt-oss-120b` confirm/productize `Prompt Packed QKV`
+2. `gpt-oss-120b` productize `Prompt Packed QKV`
 3. smarter `MiniMax locality` ideas beyond plain `tail-window=16`
 4. optional fresh `Qwen3MoE` runtime refresh only if needed for a new comparison point
 

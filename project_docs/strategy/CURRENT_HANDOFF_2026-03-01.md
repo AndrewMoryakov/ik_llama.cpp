@@ -119,8 +119,9 @@ Practical results:
 - mixed-path practical value still neutral/slightly negative
 
 3. `gpt-oss-120b prompt-packed back-half`
-- strong practical positive signal
-- current best new generalized-knob result from Phase 3
+- strong initial practical signal
+- dedicated confirm kept it positive, but at moderate strength
+- current honest status: confirmed useful, medium confidence
 
 4. `Qwen3-30B-A3B prompt-packed front-half`
 - prompt-side gain confirmed
@@ -129,7 +130,7 @@ Practical results:
 Practical meaning:
 
 1. do not broadly promote `Prompt Packed QKV` as a family-wide default
-2. continue it specifically as a promising huge-model branch for `gpt-oss-120b`
+2. continue it specifically as a confirmed-useful, medium-confidence huge-model branch for `gpt-oss-120b`
 3. for `gpt-oss-20b`, the next mainline technical priority remains decode-side optimization, not more prompt-packed tuning
 
 ### 5. Data-driven evidence layer

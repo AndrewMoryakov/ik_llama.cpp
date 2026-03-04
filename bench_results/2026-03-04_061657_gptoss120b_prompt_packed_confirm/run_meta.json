@@ -1,0 +1,17 @@
+{
+    "purpose":  "gpt-oss-120b prompt-packed confirm",
+    "model":  "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-120b-GGUF\\gpt-oss-120b-MXFP4-00001-of-00002.gguf",
+    "threads":  16,
+    "flash_attn":  1,
+    "muge":  0,
+    "rtr":  "auto",
+    "reps":  3,
+    "warmup":  1,
+    "cases":  [
+                  "pp512 baseline",
+                  "pp512 prompt_packed_back_half",
+                  "pg512,128 baseline",
+                  "pg512,128 prompt_packed_back_half"
+              ],
+    "started":  "2026-03-04T06:16:57"
+}

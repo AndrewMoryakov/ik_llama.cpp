@@ -40,6 +40,9 @@ Latest relevant raw artifacts:
 3. Phase 3 generalized-runtime validation:
 - `ik_llama.cpp/bench_results/2026-03-03_162813_phase3_validation`
 
+4. Dedicated `gpt-oss-120b` prompt-packed confirm:
+- `ik_llama.cpp/bench_results/2026-03-04_061657_gptoss120b_prompt_packed_confirm`
+
 4. Mixed-path and attention traces for `20b`:
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_fa0_2026-02-28.log`
@@ -175,9 +178,14 @@ Phase 3 results:
 
 Implication:
 
-- this is the strongest practical `Prompt Packed QKV` result so far
-- on `gpt-oss-120b`, back-half prompt-packed now looks like a real throughput-positive branch
-- this does not automatically promote the same path for `20b`
+- the first Phase 3 pass was strong enough to justify a dedicated confirm run
+- the dedicated confirm stayed positive but more moderate:
+  - `pp512`: `161.103907 -> 165.294421`
+  - `pg512,128` mixed: `60.379250 -> 60.740783`
+- current honest status:
+  - confirmed useful
+  - medium confidence
+  - still not a family-wide default
 
 ## What Is Directional But Not Public-Final
 
@@ -202,7 +210,7 @@ Current Phase 3 interpretation must be split by regime:
 
 2. `gpt-oss-120b`
 - prompt-side gain confirmed
-- mixed-path gain also confirmed
+- mixed-path gain also confirmed, but at moderate strength on dedicated confirm
 
 So the knob should not be described as either:
 
@@ -233,8 +241,8 @@ is still not fully closed.
 These questions remain open:
 
 1. final architecture-specific fast path for `gpt-oss-20b`
-2. whether `Prompt Packed QKV` on `gpt-oss-120b` survives a dedicated confirm run
-3. final public huge-model runtime package for `gpt-oss-120b`
+2. final public huge-model runtime package for `gpt-oss-120b`
+3. whether `Prompt Packed QKV` should become an explicit `gpt-oss-120b` productized branch in dashboard guidance/presets
 4. whether the next real `gpt-oss` engine win comes from decode-side attention work, sliding-window handling, or another runtime path
 
 ## What This Means For Development Priority
@@ -248,7 +256,7 @@ These questions remain open:
 So the next priorities are:
 
 1. `gpt-oss-20b` decode-side mixed-path work
-2. `gpt-oss-120b` confirm / productize `Prompt Packed QKV` as a huge-model branch
+2. `gpt-oss-120b` productize `Prompt Packed QKV` as a huge-model branch
 3. `gpt-oss-120b` runtime-policy / startup / throughput packaging
 
 ## Current Practical Recommendation
@@ -271,10 +279,11 @@ Treat `Prompt Packed QKV` as experimental only; it is not yet a practical defaul
 3. compare against `-rtr off` if startup wall time or memory-pressure behavior matters more
 4. do not treat `off` as the current throughput-first choice on this tree
 
-`Prompt Packed QKV` with `back-half` should now be treated as a promising huge-model experimental branch for `120b`, not as a family-wide default.
+`Prompt Packed QKV` with `back-half` should now be treated as a confirmed-useful but medium-confidence huge-model branch for `120b`, not as a family-wide default.
 
 ## Related Documents
 
 - `SUMMARY_CURRENT_2026-02-27.md`
+- `GPT_OSS120B_PROMPT_PACKED_CONFIRM_2026-03-04.md`
 - `../../runbooks/MOE_RUNTIME_PROFILES.md`
 - `../../development/ARCHITECTURE_EXECUTION_MAPS_2026-02-28.md`
