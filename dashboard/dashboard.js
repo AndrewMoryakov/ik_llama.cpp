@@ -2132,18 +2132,13 @@ function renderAdvancedHints() {
   el.classList.add('visible');
 }
 
-function buildEnvOverrides(s = state) {
-  const env = {};
-  if (s.live_observability) {
-    env.IK_LLAMA_PG_TRACE = '1';
-    env.IK_LLAMA_PG_TRACE_DECODE_WINDOW = '8';
-    env.IK_LLAMA_HOT_EXPERT_TRACE = '1';
-  }
-  return env;
-}
-
 function buildExperimentalCliArgs(s = state) {
   const args = [];
+  if (s.live_observability) {
+    args.push('--experimental', 'pg-trace=1');
+    args.push('--experimental', 'pg-trace-decode-window=8');
+    args.push('--experimental', 'hot-expert-trace=1');
+  }
   if ((s.hot_expert_budget || 0) > 0) {
     args.push('--experimental', `hot-expert-budget=${s.hot_expert_budget}`);
   }
@@ -2168,14 +2163,6 @@ function buildExperimentalCliArgs(s = state) {
   return args;
 }
 
-function renderEnvPrefix(env, shell) {
-  const entries = Object.entries(env);
-  if (!entries.length) return '';
-  if (shell === 'powershell') {
-    return entries.map(([k, v]) => `$env:${k}='${String(v).replace(/'/g, "''")}'`).join('\n') + '\n';
-  }
-  return entries.map(([k, v]) => `${k}=${String(v)}`).join(' ') + ' \\\n';
-}
 
 // ============================================================
 // === COMMAND GENERATION ===
@@ -2251,11 +2238,6 @@ function renderCommand() {
     cmd = parts.join(' ');
   } else {
     cmd = parts[0] + cont + sep + parts.slice(1).join(cont + sep);
-  }
-
-  const envPrefix = renderEnvPrefix(buildEnvOverrides(s), s.shell);
-  if (envPrefix) {
-    cmd = envPrefix + cmd;
   }
 
   document.getElementById('command-output').textContent = cmd;
@@ -3036,10 +3018,9 @@ async function launchProcess() {
   }
   // Build args array from current state
   const args = buildArgsArray();
-  const env = buildEnvOverrides();
   const isCli = state.target === 'llama-cli';
   try {
-    const result = await apiPost('/api/launch', { args, env, terminal: isCli });
+    const result = await apiPost('/api/launch', { args, terminal: isCli });
     if (result.ok) {
       toast(result.message);
       setWorkspacePane('runtime');

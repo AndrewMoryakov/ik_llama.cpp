@@ -357,6 +357,11 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         { "prompt-packed-qkv",         "IK_LLAMA_PROMPT_PACKED_QKV" },
         { "prompt-packed-preset",      "IK_LLAMA_PROMPT_PACKED_QKV_PRESET" },
         { "prompt-packed-range",       "IK_LLAMA_PROMPT_PACKED_QKV_RANGE" },
+        { "pg-trace",                  "IK_LLAMA_PG_TRACE" },
+        { "pg-trace-decode-window",    "IK_LLAMA_PG_TRACE_DECODE_WINDOW" },
+        { "hot-expert-trace",          "IK_LLAMA_HOT_EXPERT_TRACE" },
+        { "locality-trace",            "IK_LLAMA_LOCALITY_TRACE" },
+        { "layer-score-trace",         "IK_LLAMA_LAYER_SCORE_TRACE" },
     };
 
     for (const auto & kv : params.experimental_cli) {
@@ -364,7 +369,7 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         if (it == allowed.end()) {
             if (err) {
                 *err = string_format(
-                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range)",
+                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range, pg-trace, pg-trace-decode-window, hot-expert-trace, locality-trace, layer-score-trace)",
                         kv.first.c_str());
             }
             return false;
