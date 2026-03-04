@@ -712,6 +712,32 @@ def open_dir_dialog(initial_dir="", title="Select directory"):
     return result
 
 
+# Map --experimental keys to env vars for live_metrics session detection.
+_EXPERIMENTAL_ENV_MAP = {
+    'pg-trace':               'IK_LLAMA_PG_TRACE',
+    'pg-trace-decode-window': 'IK_LLAMA_PG_TRACE_DECODE_WINDOW',
+    'hot-expert-trace':       'IK_LLAMA_HOT_EXPERT_TRACE',
+    'locality-trace':         'IK_LLAMA_LOCALITY_TRACE',
+    'layer-score-trace':      'IK_LLAMA_LAYER_SCORE_TRACE',
+}
+
+def _extract_experimental_env(args):
+    """Extract env var equivalents from --experimental key=value args."""
+    env = {}
+    i = 0
+    while i < len(args):
+        if args[i] == '--experimental' and i + 1 < len(args):
+            kv = args[i + 1]
+            eq = kv.find('=')
+            if eq > 0:
+                key = kv[:eq]
+                value = kv[eq + 1:]
+                if key in _EXPERIMENTAL_ENV_MAP:
+                    env[_EXPERIMENTAL_ENV_MAP[key]] = value
+        i += 1
+    return env
+
+
 # ── HTTP Handler ────────────────────────────────────────────────
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -878,6 +904,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self._json_response({"error": f"Executable not found: {exe_path}"}, 404)
                 return
             full_args = [exe_path] + args[1:]
+            # Merge trace env vars extracted from --experimental args so
+            # live_metrics can detect pg_trace / hot_expert_trace even when
+            # the client no longer sends them as a separate env dict.
+            env.update(_extract_experimental_env(full_args))
             ok, msg = pm.launch(full_args, terminal=terminal, env_overrides=env)
             self._json_response({"ok": ok, "message": msg}, 200 if ok else 409)
             return
