@@ -10,9 +10,10 @@ Goal:
 
 ## Read Order
 
-1. `SESSION_BOOTSTRAP.md`
-2. `SOURCE_OF_TRUTH_MAP.md`
-3. `../strategy/CURRENT_HANDOFF_2026-03-01.md`
+1. `PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+2. `SESSION_BOOTSTRAP.md`
+3. `SOURCE_OF_TRUTH_MAP.md`
+4. `../strategy/CURRENT_HANDOFF_2026-03-01.md`
 
 ## What This Layer Is For
 

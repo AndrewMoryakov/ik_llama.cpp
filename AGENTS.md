@@ -12,9 +12,9 @@ Its job is to reduce re-discovery cost and point the agent at the current source
 
 Read these first, in this order:
 
-1. `project_docs/llm/SESSION_BOOTSTRAP.md`
-2. `project_docs/strategy/CURRENT_HANDOFF_2026-03-01.md`
-3. `project_docs/benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+1. `project_docs/llm/PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+2. `project_docs/llm/SESSION_BOOTSTRAP.md`
+3. `project_docs/strategy/CURRENT_HANDOFF_2026-03-01.md`
 4. `project_docs/release/CURRENT_STATUS_2026-02-28.md`
 
 Then branch only as needed:
@@ -66,6 +66,16 @@ Read:
 
 - `project_docs/benchmarks/current/MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
 
+## Current Best Next Work
+
+The current mainline priority is no longer broad MiniMax policy benchmarking.
+
+Current recommended order:
+
+1. `gpt-oss-120b prompt-packed productization`
+2. `gpt-oss-20b decode-side optimization`
+3. return to `MiniMax` only with a new smarter locality hypothesis or a dedicated large benchmark window
+
 ## Do Not Re-Discover
 
 These points are already settled enough to avoid repeating the same cycle blindly:
@@ -75,7 +85,7 @@ These points are already settled enough to avoid repeating the same cycle blindl
 3. `rtr=auto` is already a strong start for `Qwen3MoE` and `gpt-oss`
 4. MiniMax hot-expert `24/32` is not a new default candidate on current evidence
 
-## Next Expensive Benchmark With Good ROI
+## MiniMax-Specific Expensive Benchmark With Good ROI
 
 If there is time for only one expensive MiniMax pass, run only:
 
@@ -87,6 +97,11 @@ If there is time for only one expensive MiniMax pass, run only:
 Purpose:
 
 - determine whether fixed `rtr=auto` is viable for huge MiniMax
+
+Status:
+
+- this question is already closed on the current tree
+- use this recipe only if MiniMax policy must be revalidated on a materially changed runtime
 
 Do not spend hours first on:
 
@@ -125,6 +140,7 @@ Main files:
 See:
 
 - `project_docs/llm/README.md`
+- `project_docs/llm/PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
 - `project_docs/llm/SESSION_BOOTSTRAP.md`
 - `project_docs/llm/SOURCE_OF_TRUTH_MAP.md`
 

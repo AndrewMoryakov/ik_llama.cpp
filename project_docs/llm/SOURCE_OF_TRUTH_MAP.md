@@ -2,6 +2,10 @@
 
 Use this map to jump to the right document without reopening the whole tree.
 
+## If You Need One Consolidated State Transfer First
+
+- `PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+
 ## If You Need Strategic Direction
 
 - `../strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
@@ -19,6 +23,16 @@ Use this map to jump to the right document without reopening the whole tree.
 - `../benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+- `../benchmarks/current/PHASE3_GENERALIZED_VALIDATION_2026-03-03.md`
+- `../benchmarks/current/GPT_OSS120B_PROMPT_PACKED_CONFIRM_2026-03-04.md`
+
+## If You Need Parameter-Generalization / Evidence-Layer Truth
+
+- `../strategy/PARAMETER_GENERALIZATION_PRINCIPLES_2026-03-03.md`
+- `../strategy/EXPERIMENTAL_KNOB_MATRIX_2026-03-02.md`
+- `../strategy/DATA_DRIVEN_EVIDENCE_LAYER_2026-03-03.md`
+- `../strategy/PHASE2_KNOB_BACKLOG_2026-03-03.md`
+- `../strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
 
 ## If You Need MiniMax-Specific Details
 

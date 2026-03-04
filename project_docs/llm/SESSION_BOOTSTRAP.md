@@ -6,13 +6,14 @@ Bring a new LLM agent to useful project context fast, with minimal re-reading.
 
 ## Minimal Bootstrap Sequence
 
-1. Read `../strategy/CURRENT_HANDOFF_2026-03-01.md`
-2. Read `../release/CURRENT_STATUS_2026-02-28.md`
-3. Read the relevant family current-status note:
+1. Read `PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+2. Read `../strategy/CURRENT_HANDOFF_2026-03-01.md`
+3. Read `../release/CURRENT_STATUS_2026-02-28.md`
+4. Read the relevant family current-status note:
 - `../benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
-4. If working on MiniMax, also read:
+5. If working on MiniMax, also read:
 - `../benchmarks/current/MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
 - `../models/MINIMAX_M2_5_RUNTIME.md`
 
@@ -20,10 +21,10 @@ Bring a new LLM agent to useful project context fast, with minimal re-reading.
 
 Priority order right now:
 
-1. huge swap-bound MoE behavior
-2. MiniMax correctness of runtime policy
-3. release-quality stabilization of current findings
-4. architecture-specific optimization only where evidence supports it
+1. productize the confirmed `gpt-oss-120b prompt-packed` branch
+2. move `gpt-oss-20b` to decode-side optimization
+3. keep MiniMax on hold unless there is a new locality hypothesis or a dedicated benchmark window
+4. keep dashboard/docs aligned with benchmark-backed evidence
 
 ## Current Best-Known Defaults
 
@@ -49,7 +50,11 @@ Do not restart these as if they were open wins:
 
 ## Highest-ROI Next Benchmark
 
-Only if there is time budget for one expensive MiniMax pass:
+If there is time budget for one expensive benchmark with immediate ROI:
+
+1. confirm/productize `gpt-oss-120b prompt-packed back-half`
+
+If specifically resuming MiniMax policy on a changed tree:
 
 1. `tg32`: `off` vs `auto`
 2. `pg32,4`: `off` vs `auto`
@@ -58,7 +63,7 @@ Only if there is time budget for one expensive MiniMax pass:
 
 Reason:
 
-- this closes the highest-value remaining MiniMax policy question
+- MiniMax policy revalidation is now conditional, not the global next step
 
 ## Stop Conditions
 
