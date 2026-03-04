@@ -10548,18 +10548,19 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
     const bool layer_score_trace = llm_layer_score_trace_enabled() && n_tokens > 1;
     const int trace_qkv_start_nodes = layer_score_trace ? gf->n_nodes : 0;
 
+    const bool use_prompt_packed_qkv =
+            n_tokens > 1 &&
+            lctx.lora_adapters.empty() &&
+            model.layers[il].computed_prompt_wqkv &&
+            !model.layers[il].wqkv &&
+            !model.layers[il].wqk;
+
     ggml_tensor *Qcur, *Kcur, *Vcur, *gate = nullptr;
     if (model.arch == LLM_ARCH_QWEN3NEXT || model.arch == LLM_ARCH_QWEN35 || model.arch == LLM_ARCH_QWEN35MOE) {
         auto [Q, K, V, G] = llm_build_mul_mat_qkv_gated(gf, cur, model.layers[il].wq, model.layers[il].wk, model.layers[il].wv,
                 model.layers[il].attn_q_norm, model.layers[il].attn_k_norm, il);
         Qcur = Q; Kcur = K; Vcur = V; gate = G;
     } else {
-        const bool use_prompt_packed_qkv =
-                n_tokens > 1 &&
-                lctx.lora_adapters.empty() &&
-                model.layers[il].computed_prompt_wqkv &&
-                !model.layers[il].wqkv &&
-                !model.layers[il].wqk;
 
         ggml_tensor * packed_wqkv = use_prompt_packed_qkv ? model.layers[il].computed_prompt_wqkv.get() : model.layers[il].wqkv;
         ggml_tensor * packed_bqkv = use_prompt_packed_qkv ? model.layers[il].computed_prompt_bqkv.get() : model.layers[il].bqkv;
