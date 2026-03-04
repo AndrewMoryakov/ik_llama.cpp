@@ -175,7 +175,7 @@ Validated baseline на Zen4 dual-CCD:
 
 Практическая логика:
 - `Qwen3MoE`, `gpt-oss`: старт обычно с `auto`
-- `MiniMax`: safest baseline сейчас `off`
+- `MiniMax`: `TG-only` safest baseline сейчас `off`, а mixed path уже имеет реальную `auto` branch
 
 Что будет при ошибке:
 - in-RAM модель может недополучить throughput
@@ -238,21 +238,19 @@ Validated baseline на Zen4 dual-CCD:
 - возможна деградация качества
 - можно получить красивую идею без реальной пользы в throughput
 
-### Hot Expert Budget (`IK_LLAMA_HOT_EXPERT_BUDGET`)
+### Hot Expert Budget (`--experimental hot-expert-budget=...`)
 
 Статус:
-- experimental, MiniMax-oriented
+- experimental, `MoE / huge-MoE`, practical confidence highest on `MiniMax`
 
 Что это:
 - размер hot-набора экспертов после prompt
 
 Когда трогать:
-- только на huge swap-bound MoE, прежде всего `MiniMax`
+- только на huge swap-bound MoE в controlled A/B, прежде всего `MiniMax`
 
 Когда не трогать:
-- `Qwen3MoE`
-- `gpt-oss`
-- любые семейства, где эффект не проверен
+- любые семейства, где вы еще не получили собственный baseline и не понимаете memory tradeoff
 
 Что будет при ошибке:
 - слишком маленький budget не поможет
@@ -262,6 +260,67 @@ Validated baseline на Zen4 dual-CCD:
 - короткий quick check когда-то подсветил большие бюджеты как возможный кандидат
 - но первый более длинный controlled `MiniMax` run не оправдал повышение default выше legacy `16`
 - поэтому safest user-facing answer сейчас: оставить `0`, то есть не переопределять runtime default
+
+### Hot Expert Budget Mult (`--experimental hot-expert-budget-mult=...`)
+
+Статус:
+- experimental, `MoE / huge-MoE`
+
+Что это:
+- множитель для runtime-расчета hot-expert budget
+
+Когда трогать:
+- только если вы уже осознанно исследуете hot-expert line
+- и вам нужен не абсолютный budget, а мягкий relative override
+
+Что будет при ошибке:
+- те же риски, что и у `Hot Expert Budget`, но хуже читаемость результата
+- такой knob легко делает A/B менее интерпретируемым, если вы не фиксируете baseline
+
+### Hot Expert Selection (`--experimental hot-expert-selection=...`)
+
+Статус:
+- experimental, `MoE / huge-MoE`
+
+Что это:
+- меняет не веса модели, а runtime-логику выбора hot experts после prompt
+
+Что меняется в ходе выполнения:
+- runtime может смотреть либо на весь prompt, либо на его более свежую часть
+- это попытка лучше предсказать, какие эксперты пригодятся в начале decode
+
+Когда трогать:
+- если вы исследуете locality на MoE и готовы делать A/B
+
+Когда не трогать:
+- если вы ожидаете готовый universal win
+- если вам нужен просто безопасный baseline
+
+Что будет при ошибке:
+- можно получить красивый локальный signal без реальной пользы в mixed path
+- или даже слегка ухудшить `TG`
+
+### Tail Window (`--experimental hot-expert-tail-window=...`)
+
+Статус:
+- experimental, `MoE / huge-MoE`
+
+Что это:
+- размер хвоста prompt, по которому runtime считает hot experts в режиме `tail-window`
+
+Что меняется в ходе выполнения:
+- вместо “смотри на весь prompt” runtime использует конец prompt как локальный прогноз для начала ответа
+
+Когда трогать:
+- только вместе с `Hot Expert Selection = tail-window`
+- когда вы специально проверяете prompt-to-decode locality
+
+Что важно:
+- `MiniMax` дал слабый mixed-path signal, но это не новый baseline
+- `gpt-oss-20b` тоже показал лишь partial / low-confidence signal
+
+Что будет при ошибке:
+- можно улучшить prompt-side локальность, но не получить полезного end-to-end выигрыша
 
 ### Graph Reuse (`-gr`)
 
@@ -284,6 +343,41 @@ Validated baseline на Zen4 dual-CCD:
 
 Что будет при ошибке:
 - сложность и потенциальная регрессия без подтвержденного общего выигрыша
+
+### Prompt Packed QKV (`--experimental prompt-packed-qkv=on`)
+
+Статус:
+- experimental, `Split-QKV`
+
+Что это:
+- специальный prompt-side path для моделей с раздельными `Q/K/V`
+
+Что меняется в ходе выполнения:
+- runtime по-другому упаковывает prompt-side attention path
+- это в первую очередь влияет на `PP`, а не автоматически на весь `PG`
+
+Когда трогать:
+- если модель относится к `Split-QKV`
+- если вы делаете targeted A/B на prompt-path или mixed path
+
+Что важно:
+- `gpt-oss-120b`: confirmed-useful, medium-confidence branch
+- `gpt-oss-20b` и `Qwen3-30B-A3B`: prompt-side gain есть, но practical mixed value пока слабая
+
+Что будет при ошибке:
+- можно увидеть рост `PP`, но почти не выиграть в реальном end-to-end inference
+
+### Prompt Packed preset / range
+
+Статус:
+- experimental, `Split-QKV`
+
+Что это:
+- способ выбрать, какие слои попадут в prompt-packed path
+
+Что важно:
+- family-tuned presets вроде `back-half` или `front-half` не являются universal defaults
+- полезность зависит не только от family, но и от режима модели, например `gpt-oss-120b` против `gpt-oss-20b`
 
 ### K-Cache Hadamard (`-khad`)
 

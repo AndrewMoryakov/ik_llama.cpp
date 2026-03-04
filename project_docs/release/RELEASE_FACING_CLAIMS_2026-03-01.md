@@ -12,6 +12,7 @@ This document defines what can be stated publicly today without overclaiming.
 6. `pg` must not be inferred from `tg` alone.
 7. `MiniMax M2.5` is a primary huge-model research line for the fork, not a side case.
 8. The codebase already includes real huge-model work: `rtr auto`, benchmark infrastructure, MiniMax runtime work, dashboard, scripts, and technical docs.
+9. `gpt-oss-120b` currently has a benchmark-backed `Prompt Packed QKV back-half` branch with moderate practical value on the validated host.
 
 ## Claims That Are Not Public-Safe Yet
 
@@ -21,7 +22,8 @@ This document defines what can be stated publicly today without overclaiming.
 4. A finalized huge-model optimization package for `MiniMax M2.5`.
 5. New custom quantization performance claims.
 6. Any claim that `MiniMax hot-expert budget > 16` is now a better default.
-7. Any claim that current experimental prompt packed-QKV paths are stable user-facing wins.
+7. Any claim that current experimental prompt packed-QKV paths are stable user-facing wins across all compatible model families.
+8. Any claim that `Prompt Packed QKV` is already a family-wide default for all `gpt-oss`.
 
 ## How To Describe The Fork Today
 

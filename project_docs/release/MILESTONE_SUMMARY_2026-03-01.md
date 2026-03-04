@@ -27,6 +27,7 @@ It is not yet:
 3. `rtr auto` exists as a real runtime-policy feature.
 4. mixed-path (`pg`) benchmarking and reasoning are already first-class in the fork narrative.
 5. research-only paths remain in-tree but are not promoted as stable defaults.
+6. `gpt-oss-120b` now has a confirmed-useful, medium-confidence `Prompt Packed QKV back-half` branch.
 
 ## Main Practical State
 

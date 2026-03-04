@@ -83,6 +83,9 @@
 4. `release/VALIDATED_SCOPE_2026-02-28.md`
 - что уже можно считать validated scope на уровне релизного слоя
 
+5. `benchmarks/SUMMARY_ALL.md`
+- один краткий документ со всеми актуальными benchmark-цифрами и практическими выводами
+
 Что вы получите:
 
 - актуальную benchmark-картину без необходимости вычитывать старые notes
@@ -192,6 +195,7 @@
 
 - разницу между `20b` и `120b`
 - где compute-oriented режим, а где huge-model / memory-pressure режим
+- почему `Prompt Packed QKV` нельзя трактовать как одинаково полезный для `20b` и `120b`
 
 ### Если это `MiniMax M2.5`
 
@@ -211,6 +215,7 @@
 
 - practical baseline для MiniMax
 - понимание, почему MiniMax нельзя настраивать как `Qwen3MoE` или `gpt-oss`
+- понимание, что `TG-only` сейчас тяготеет к `rtr=off`, а mixed path уже имеет реальную `auto` branch
 
 ---
 
@@ -231,6 +236,9 @@
 
 3. `release/SUPPORTED_VALIDATED_MATRIX_2026-03-01.md`
 - что уже входит в validated scope
+
+4. `benchmarks/SUMMARY_ALL.md`
+- короткая factual summary по текущим цифрам, без чтения всех family notes
 
 4. `release/EXPERIMENTAL_MATRIX_2026-03-01.md`
 - что реально существует в коде, но пока не promoted в stable layer
@@ -361,6 +369,7 @@
 1. `benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 2. `benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 3. `benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
+4. `benchmarks/SUMMARY_ALL.md`
 
 ### Хочу понять MiniMax
 

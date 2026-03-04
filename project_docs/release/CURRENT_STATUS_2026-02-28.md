@@ -30,6 +30,7 @@ Current state is best described as:
 - `pg` must be tuned separately from `tg`
 - `Qwen3MoE` and `gpt-oss` do not behave identically
 - `MiniMax M2.5` has distinct swap-bound and attention-path considerations and remains in research scope
+- `gpt-oss-120b` now has a confirmed-useful, medium-confidence `Prompt Packed QKV back-half` branch
 
 Family-specific source-of-truth notes now exist for the three main lines:
 
@@ -52,11 +53,14 @@ Family-specific source-of-truth notes now exist for the three main lines:
 - MiniMax is now treated as one of the main stress-case targets for the fork idea itself
 - a MiniMax-specific current-status note now exists to separate confirmed findings from directional ones:
   - `../benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
-- but MiniMax is still not in the tight public validated loop because the full controlled refresh matrix was not completed yet
+- the old `MiniMax off vs auto` question is now closed on the fixed tree:
+  - `TG-only` still leans toward `off`
+  - mixed path now has a real `auto` branch
+- but MiniMax is still not in the tight public validated loop because the line remains research-heavy and no new generalized hot-expert baseline was promoted
 
 ## What Still Prevents A Clean Public Milestone
 
-1. No single strong user-facing architecture-specific win is closed yet.
+1. No broad, family-wide stable architecture-specific package is closed yet.
 2. Experimental paths are useful for engineering, but not yet ready to present as stable features.
 3. The release-facing story is still being assembled.
 4. Minimal regression gates exist in practice, but are not yet formalized as a release process.

@@ -64,6 +64,7 @@
 - `AUTO` здесь не означает "бесплатно"
 - load/startup penalty может быть заметным
 - если cold start критичен, обязательно отдельно сравнить с `OFF`
+- если baseline уже подтвержден, следующий осмысленный experimental A/B для `120b` — `Prompt Packed QKV back-half`
 
 ### Рецепт D: MiniMax M2.5, safe baseline
 
@@ -84,6 +85,7 @@
 Почему так:
 - это safest baseline
 - он не путает huge-model policy с in-RAM tuning
+- при этом на текущем дереве mixed path уже имеет рабочую `auto` branch; просто это не самый консервативный первый старт
 
 ### Рецепт E: MiniMax M2.5, controlled experiment
 
@@ -163,6 +165,16 @@
 Правильнее:
 - считать `auto` хорошим стартом там, где он validated
 - и отдельно проверять исключения, прежде всего `MiniMax`
+
+### Анти-паттерн 6: "Если prompt ускорился, то и вся сессия ускорилась"
+
+Почему это плохо:
+- некоторые experimental knobs, например `Prompt Packed QKV`, могут заметно ускорять `PP`
+- но end-to-end mixed path при этом может почти не измениться
+
+Правильнее:
+- смотреть не только на `pp512`, но и на `pg512,128`
+- не путать prompt-side gain с общим practical win
 
 ## 3. Как строить свой собственный рецепт
 

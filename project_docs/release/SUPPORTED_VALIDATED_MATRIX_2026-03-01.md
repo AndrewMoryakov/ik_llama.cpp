@@ -15,7 +15,7 @@ Primary validation host:
 |---|---|---|---|
 | `Qwen3MoE` | `Qwen3-30B-A3B-Q4_K_M` | in-RAM MoE | `rtr=auto` is a strong starting policy; `flash_attn` matters for `pg` |
 | `gpt-oss` | `gpt-oss-20b-MXFP4` | compute-oriented MoE | active validated line; `pg` and `tg` must be treated separately |
-| `gpt-oss` | `gpt-oss-120b-MXFP4` | huge-model / memory-pressure subset | throughput-first line exists, but load/startup cost must be considered |
+| `gpt-oss` | `gpt-oss-120b-MXFP4` | huge-model / memory-pressure subset | `rtr=auto` is throughput-first; `Prompt Packed QKV back-half` is confirmed useful with medium confidence |
 
 ## Benchmark Modes Considered Validated
 
@@ -32,12 +32,13 @@ Primary validation host:
 | `flash_attn` | materially important for validated mixed-path runs |
 | `rtr=auto` | good starting point for validated `Qwen3MoE` and `gpt-oss` |
 | `pg vs tg` | `pg` cannot be inferred from `tg` alone |
+| `Prompt Packed QKV` | model/regime-specific; not a family-wide default even inside `Split-QKV` |
 
 ## Supported But Not In Tight Public Validation
 
 | Family | Status | Reason |
 |---|---|---|
-| `MiniMax M2.5` | supported, active research line | huge-model line is real, but the final controlled `off vs auto` closeout is still pending |
+| `MiniMax M2.5` | supported, active research line | `off vs auto` closeout is done, but the line remains research-heavy and no new generalized hot-expert baseline was promoted |
 
 ## Canonical Family Truth
 

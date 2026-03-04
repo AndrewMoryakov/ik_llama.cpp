@@ -121,12 +121,17 @@ http://127.0.0.1:7860/
 - если нужен throughput-first baseline: `-rtr auto`
 - если важнее startup/load behavior: отдельно сравнить с `-rtr off`
 
+Что важно:
+- `Prompt Packed QKV back-half` на `gpt-oss-120b` уже выглядит как confirmed-useful, medium-confidence branch
+- это еще не family-wide default для всего `gpt-oss`
+- но это уже осмысленный следующий experimental A/B именно для `120b`
+
 ### MiniMax M2.5
 
 Начинайте осторожно:
 - `-t 16`
 - `-fa on`
-- `-rtr off` как safest baseline
+- `-rtr off` как safest baseline для `TG-only`
 - `-muge off`
 - `SER off`
 - `Hot Expert Budget = 0`, если вы не делаете отдельный осознанный A/B
@@ -134,6 +139,7 @@ http://127.0.0.1:7860/
 Важно:
 - `MiniMax` не надо настраивать по логике `Qwen3MoE` или `gpt-oss`
 - это один из главных huge swap-bound кейсов форка
+- на fixed tree mixed path уже имеет реальную `rtr=auto` branch, но safest beginner start все равно остается консервативным
 
 ## 7. Что не надо делать на старте
 
