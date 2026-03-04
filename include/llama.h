@@ -279,6 +279,12 @@ extern "C" {
         LLAMA_SPLIT_MODE_GRAPH   = 3, // splits computations across GPUs
     };
 
+    enum llama_mtp_op_type {
+        MTP_OP_NONE             = 0,
+        MTP_OP_WARMUP           = 1,
+        MTP_OP_UPDATE_ACCEPTED  = 2,
+        MTP_OP_DRAFT_GEN        = 3,
+    };
 
     typedef struct llama_token_data {
         llama_token id; // token id
@@ -395,6 +401,7 @@ extern "C" {
         bool validate_quants; // if true, check for NaNs while loading the model
         bool merge_qkv;     // if true, merge separate Q, K, V tensors into a single, contiguous tensor
         bool merge_up_gate_exps;  // if true, merge ffn_up_exps and ffn_gate_exps tensors into a single, contiguous tensor
+        bool mtp;           // if true, load MTP layers if present
     };
 
     // NOTE: changing the default values of parameters marked as [EXPERIMENTAL] may cause crashes or incorrect results in certain configurations
@@ -450,6 +457,8 @@ extern "C" {
         bool split_mode_graph_scheduling; // if true, force split mode graph scheduling
         //bool split_mode_f16;    // if true, cast intermediate results to f16 before copying to other GPUs
         bool scheduler_async;   // if true, with split mode "graph" graph evaluation will be done using multiple threads
+        bool mtp;   // Activate MTP if supported
+        enum llama_mtp_op_type mtp_op_type;
 
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted
@@ -482,6 +491,8 @@ extern "C" {
         bool keep_split;                     // quantize to the same number of shards
         bool ignore_imatrix_rules;           // If set to true, the built-in rules for refusing to quantize into certain quants without imatrix are ignored
         bool only_repack;                    // Only repack tensors
+        bool dry_run;                        //
+        bool partial_requant;                // quantize only missing split files in the split quantized .gguf destination directory
         void * imatrix;                      // pointer to importance matrix data
         void * kv_overrides;                 // pointer to vector containing overrides
         void * custom_quants;                // pointer to vector containing custom quantization rules
@@ -565,6 +576,7 @@ extern "C" {
 
     LLAMA_API enum llama_pooling_type llama_pooling_type(const struct llama_context * ctx);
 
+    struct llama_vocab;
     LLAMA_API enum llama_vocab_type   llama_vocab_type(const struct llama_vocab * vocab);
     LLAMA_API enum llama_rope_type    llama_rope_type   (const struct llama_model * model);
 
@@ -576,7 +588,7 @@ extern "C" {
     LLAMA_API int32_t llama_n_ctx_train(const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_embd     (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_embd_inp(const struct llama_model* model);
-    
+
     LLAMA_API int32_t llama_n_layer    (const struct llama_model * model);
 
     // Compat
@@ -637,6 +649,8 @@ extern "C" {
 
     // Returns true if the model is hybrid (like Jamba, Granite, etc.)
     LLAMA_API bool llama_model_is_hybrid(const struct llama_model * model);
+
+    LLAMA_API bool llama_model_has_recurrent(const struct llama_model * model);
 
     // Returns 0 on success
     LLAMA_API uint32_t llama_model_quantize(
@@ -728,6 +742,11 @@ extern "C" {
         llama_seq_id * cells_sequences;
     };
 
+    // work only with partial states, such as recurrent cache (e.g. Mamba)
+#define LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY 1
+
+    typedef uint32_t llama_state_seq_flags;
+
     // Create an empty KV cache view. (use only for debugging purposes)
     LLAMA_API struct llama_kv_cache_view llama_kv_cache_view_init(const struct llama_context * ctx, int32_t n_seq_max);
 
@@ -806,6 +825,11 @@ extern "C" {
             struct llama_context * ctx,
                     llama_seq_id   seq_id);
 
+    // Returns the smallest position present in the KV cache for the specified sequence
+    LLAMA_API llama_pos llama_kv_cache_seq_pos_min(
+        struct llama_context * ctx,
+        llama_seq_id   seq_id);
+
     // Defragment the KV cache
     // This will be applied:
     //   - lazily on next llama_decode()
@@ -882,14 +906,16 @@ extern "C" {
     // Get the exact size needed to copy the KV cache of a single sequence
     LLAMA_API size_t llama_state_seq_get_size(
             struct llama_context * ctx,
-                    llama_seq_id   seq_id);
+                    llama_seq_id   seq_id,
+           llama_state_seq_flags   flags);
 
     // Copy the KV cache of a single sequence into the specified buffer
     LLAMA_API size_t llama_state_seq_get_data(
             struct llama_context * ctx,
                          uint8_t * dst,
                           size_t   size,
-                    llama_seq_id   seq_id);
+                    llama_seq_id   seq_id,
+           llama_state_seq_flags   flags);
 
     // Copy the sequence data (originally copied with `llama_state_seq_get_data`) into the specified sequence
     // Returns:
@@ -899,7 +925,8 @@ extern "C" {
             struct llama_context * ctx,
                    const uint8_t * src,
                           size_t   size,
-                    llama_seq_id   dest_seq_id);
+                    llama_seq_id   dest_seq_id,
+           llama_state_seq_flags   flags);
 
     LLAMA_API size_t llama_state_seq_save_file(
             struct llama_context * ctx,
@@ -1385,7 +1412,7 @@ LLAMA_API struct llama_grammar* llama_sampler_init_grammar_lazy_patterns(
         const uint32_t seed);
 
     void llama_prep_adaptive_p(struct llama_context * ctx,
-                 llama_token_data_array * candidates,
+                                  float * logits,
         struct llama_sampler_adaptive_p * adapt_p_ctx);
 
     /// @details Adaptive p sampler described in https://github.com/MrJackSpade/adaptive-p-docs/blob/main/README.md
@@ -1393,7 +1420,7 @@ LLAMA_API struct llama_grammar* llama_sampler_init_grammar_lazy_patterns(
                                llama_token_data_array * candidates,
                       struct llama_sampler_adaptive_p * adapt_p_ctx);
 
-    void llama_review_adaptive_p(struct llama_sampler_adaptive_p * adapt_p_ctx, const bool record, const bool rewind);
+    void llama_review_adaptive_p(struct llama_sampler_adaptive_p * adapt_p_ctx, const int32_t n_rewind);
 
 
     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
@@ -1467,6 +1494,17 @@ LLAMA_API struct llama_grammar* llama_sampler_init_grammar_lazy_patterns(
     LLAMA_API void llama_log_set(ggml_log_callback log_callback, void * user_data);
 
     LLAMA_API void llama_dump_timing_info_yaml(FILE * stream, const struct llama_context * ctx);
+
+    //
+    // MTP
+    //
+
+    LLAMA_API int32_t llama_model_n_nextn_layer(const struct llama_model * model);
+
+    // Set which, if any, MTP operation the context will use
+    LLAMA_API void llama_set_mtp_op_type(struct llama_context * ctx, enum llama_mtp_op_type mtp_op_type);
+
+    LLAMA_API void llama_set_draft_input_hidden_state(struct llama_context * ctx, const float * hidden_state);
 
 #ifdef __cplusplus
 }
