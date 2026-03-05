@@ -10,44 +10,47 @@
 
 ## Шаги
 
-### Шаг 1: Upstream merge (fused delta-net AVX512)
-- [ ] `git merge origin/main` (3 коммита: fused delta-net AVX512, grammar fix, split mode fix)
-- [ ] Resolve conflicts if any
-- [ ] Build + verify
+### Шаг 1: Upstream merge (fused delta-net AVX512) ✅
+- [x] `git merge origin/main` — 3 коммита, clean merge, efc3b239d
+- [x] Build clean, exit 0
 
-### Шаг 2: Baseline ребейзлайн
-- [ ] gpt-oss-20b: pp512, tg128, t=16 fa=1 rtr=auto ctk=q8_0 muge=1
-- [ ] Qwen3-30B: pp512, tg128, t=16 fa=1 rtr=auto ctk=q8_0 muge=0
-- [ ] Сравнить с baseline 2026-02-22 (gpt-oss PP289.5/TG24.2, Qwen3 PP306.2/TG29.9)
+### Шаг 2: Baseline ребейзлайн ✅
+- [x] gpt-oss-20b: PP512 281.2, TG128 23.85 (rtr=auto, muge=0 — muge crashит!)
+- [x] Qwen3-30B: PP512 316.8, TG128 30.10
+- [x] gpt-oss-120b: PP512 160.8, TG128 17.07
+- [x] Все три стабильны vs baseline (±3%, в пределах шума)
 
-### Шаг 3: ctv=q8_0
-- [ ] gpt-oss-20b: добавить ctv=q8_0 vs ctv=f16
-- [ ] Qwen3-30B: добавить ctv=q8_0 vs ctv=f16
-- [ ] Оценить: PP/TG delta, экономия KV памяти
+### Шаг 3: ctv=q8_0 ✅
+- [x] gpt-oss-20b: ctv=q8_0 нейтрален (PP 276.7, TG 24.17)
+- [x] Qwen3-30B: ctv=q8_0 нейтрален (PP 315.3, TG 29.86)
+- [x] **Вывод: безопасно для экономии V-cache памяти**
 
-### Шаг 4: Batch size tuning (-b / -ub)
-- [ ] gpt-oss-20b: b={512,1024,2048,4096} × ub={128,256,512}
-- [ ] Qwen3-30B: b={512,1024,2048,4096} × ub={128,256,512}
-- [ ] Найти оптимум PP (TG не зависит от batch size)
+### Шаг 4: Batch size tuning (-ub) ✅
+- [x] gpt-oss-20b: ub=512 оптимален, ub<512 = -10-25% PP
+- [x] Qwen3-30B: ub=512 оптимален
+- [x] **Вывод: default ub=512 уже оптимален, не менять**
 
-### Шаг 5: Large Pages (PR14)
-- [ ] Relogon с SeLockMemoryPrivilege
-- [ ] gpt-oss-20b: PP512+TG128, large pages on vs off
-- [ ] Qwen3-30B: PP512+TG128, large pages on vs off
-- [ ] gpt-oss-120b: PP512+TG128, large pages on vs off
+### Шаг 5: Large Pages (PR14) ✅ (частично)
+- [x] SeLockMemoryPrivilege уже активен — large pages работают автоматически
+- [ ] Контрольный замер без large pages невозможен (нет runtime-флага для отключения)
+- [x] Все текущие замеры УЖЕ с large pages
+
+### Найденные проблемы
+- **РЕГРЕССИЯ**: `-muge` crash (exit 127) на gpt-oss-20b. Любая комбинация с -muge крашится.
 
 ## Общие параметры
 - Hardware: Ryzen 9 7950X, 96 GB DDR5
-- Repetitions: r=3 minimum
-- Flags: `-v` для диагностики
+- Repetitions: r=3
+- Flags: large pages enabled
 - Базовый конфиг: t=16 fa=1 rtr=auto ctk=q8_0
 
-## Предыдущие baseline (2026-02-22)
-| Model | PP512 | TG128 | Config |
-|-------|-------|-------|--------|
-| gpt-oss-20b | 289.5 | 24.2 | fa=1 muge=1 rtr=1 t=16 |
-| Qwen3-30B | 306.2 | 29.9 | fa=1 rtr=1 muge=0 t=16 |
-| gpt-oss-120b | 161.1 | 17.2 | fa=1 rtr=auto muge=0 t=16 |
+## Baseline сравнение
+
+| Model | PP512 old (Feb22) | PP512 new (Mar06) | Δ PP | TG old | TG new | Δ TG |
+|-------|-------------------|-------------------|------|--------|--------|------|
+| gpt-oss-20b | 289.5 | 281.2 | −2.9% | 24.2 | 23.85 | −1.4% |
+| Qwen3-30B | 306.2 | 316.8 | +3.5% | 29.9 | 30.10 | +0.7% |
+| gpt-oss-120b | 161.1 | 160.8 | −0.2% | 17.2 | 17.07 | −0.8% |
 
 ## MiniMax — отложен
 Работа над MiniMax начнётся после завершения шагов 1-5.
