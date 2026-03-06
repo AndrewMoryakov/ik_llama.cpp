@@ -4,7 +4,7 @@ Use this map to jump to the right document without reopening the whole tree.
 
 ## If You Need One Consolidated State Transfer First
 
-- `PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+- `PROJECT_STATE_FOR_AGENTS_2026-03-06.md` ← **CURRENT** (supersedes 2026-03-04)
 
 ## If You Need Strategic Direction
 
@@ -20,6 +20,7 @@ Use this map to jump to the right document without reopening the whole tree.
 
 ## If You Need Current Benchmark Truth By Family
 
+- `../benchmarks/current/BASELINE_2026-03-06.md` ← **CURRENT BASELINE** (Large Pages ON)
 - `../benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
 - `../benchmarks/current/MINIMAX_CURRENT_STATUS_2026-02-28.md`
@@ -48,9 +49,15 @@ Prefer run-specific narrative notes in `../benchmarks/current/` before quoting r
 
 ## If You Need Dashboard Knowledge Layer
 
-- `../../dashboard/dashboard.js`
-- `../../dashboard/dashboard.html`
+- `../../dashboard/evidence-layer.js` ← canonical data source (knobs, presets, profiles, badges)
+- `../../dashboard/dashboard.js` ← main UI (2604 lines, reads from modules)
+- `../../dashboard/dashboard-rules.js` ← RULES, PARAM_APPLICABILITY, helper functions
+- `../../dashboard/dashboard-command.js` ← buildArgsArray, buildCommandString
+- `../../dashboard/dashboard-autoconfig.js` ← computeOptimalParams
+- `../dashboard/PRODUCT_GUIDE.md` ← dashboard architecture docs (updated 2026-03-06)
 - `../dashboard/ROADMAP_2026-02-28.md`
+
+Dashboard modular refactoring complete (2026-03-06): 115 tests, 6 modules, run `npm test`.
 
 ## If You Need Future Family Preset Backlog
 

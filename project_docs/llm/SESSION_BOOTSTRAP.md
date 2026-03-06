@@ -6,7 +6,7 @@ Bring a new LLM agent to useful project context fast, with minimal re-reading.
 
 ## Minimal Bootstrap Sequence
 
-1. Read `PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+1. Read `PROJECT_STATE_FOR_AGENTS_2026-03-06.md` ← **START HERE (supersedes 2026-03-04)**
 2. Read `../strategy/CURRENT_HANDOFF_2026-03-01.md`
 3. Read `../release/CURRENT_STATUS_2026-02-28.md`
 4. Read the relevant family current-status note:
@@ -17,14 +17,23 @@ Bring a new LLM agent to useful project context fast, with minimal re-reading.
 - `../benchmarks/current/MINIMAX_HOT_EXPERT_LONGRUN_2026-03-01.md`
 - `../models/MINIMAX_M2_5_RUNTIME.md`
 
-## Current Project Priorities
+## Current Project Priorities (2026-03-06)
 
 Priority order right now:
 
-1. productize the confirmed `gpt-oss-120b prompt-packed` branch
+1. productize the confirmed `gpt-oss-120b prompt-packed` branch in `evidence-layer.js`
 2. move `gpt-oss-20b` to decode-side optimization
 3. keep MiniMax on hold unless there is a new locality hypothesis or a dedicated benchmark window
 4. keep dashboard/docs aligned with benchmark-backed evidence
+
+## Recent Completions (2026-03-06)
+
+- Dashboard modular refactoring: COMPLETE (Phase A tests + Phase B split)
+  - 115/115 tests pass; 6 modules extracted; dashboard.js 4959 → 2604 lines
+- Upstream sync: merged fused delta-net AVX512, Qwen3.5, SER (ikawrakow PR #239)
+- New benchmark baseline: 2026-03-06 with Large Pages ON
+  - see `../benchmarks/current/BASELINE_2026-03-06.md`
+- muge crash: diagnosed as pre-existing (all commits); use muge=0 always for gpt-oss-20b
 
 ## Current Best-Known Defaults
 

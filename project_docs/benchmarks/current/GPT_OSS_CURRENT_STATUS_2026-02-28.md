@@ -29,6 +29,12 @@ That means `gpt-oss` should never be reduced to one single number or one single 
 
 Latest relevant raw artifacts:
 
+0. **Current baseline (2026-03-06, Large Pages ON):**
+- `ik_llama.cpp/bench_results/2026-03-06_baseline/`
+- gpt-oss-20b: PP 281.2, TG 23.85 (fa=1, rtr=auto, ctk=q8_0, t=16, muge=0)
+- gpt-oss-120b: PP 160.8, TG 17.07 (same flags)
+- NOTE: `-muge` flag crashes on gpt-oss-20b (pre-existing, all commits)
+
 1. Main current validation matrix:
 - `ik_llama.cpp/bench_results/2026-02-27_1831`
 - `ik_llama.cpp/bench_results/2026-02-27_1856`
@@ -43,7 +49,7 @@ Latest relevant raw artifacts:
 4. Dedicated `gpt-oss-120b` prompt-packed confirm:
 - `ik_llama.cpp/bench_results/2026-03-04_061657_gptoss120b_prompt_packed_confirm`
 
-4. Mixed-path and attention traces for `20b`:
+5. Mixed-path and attention traces for `20b`:
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_fa0_2026-02-28.log`
 - `ik_llama.cpp/bench_results/pg_trace_gptoss20b_step4_2026-02-28.log`
@@ -265,21 +271,22 @@ If someone needs a practical `gpt-oss` answer right now:
 
 ### For `gpt-oss-20b`
 
-1. use `-t 16`
-2. use `-fa 1`
-3. use `-rtr auto`
-4. evaluate `pg512,128`, not only `tg128`
+1. use `-t 16 -fa 1 -rtr auto -ctk q8_0`
+2. do NOT use `-muge` (crashes — pre-existing issue on all commits)
+3. evaluate `pg512,128`, not only `tg128`
+4. Current baseline (2026-03-06, Large Pages ON): PP 281.2, TG 23.85
 
 Treat `Prompt Packed QKV` as experimental only; it is not yet a practical default for `20b`.
 
 ### For `gpt-oss-120b`
 
-1. use `-fa 1`
-2. start with `-rtr auto` if steady-state throughput matters more than startup
-3. compare against `-rtr off` if startup wall time or memory-pressure behavior matters more
-4. do not treat `off` as the current throughput-first choice on this tree
+1. use `-t 16 -fa 1 -rtr auto -ctk q8_0`
+2. compare against `-rtr off` if startup wall time or memory-pressure behavior matters more
+3. do not treat `off` as the current throughput-first choice on this tree
+4. Current baseline (2026-03-06, Large Pages ON): PP 160.8, TG 17.07
 
 `Prompt Packed QKV` with `back-half` should now be treated as a confirmed-useful but medium-confidence huge-model branch for `120b`, not as a family-wide default.
+Productization in `evidence-layer.js`: pending.
 
 ## Related Documents
 

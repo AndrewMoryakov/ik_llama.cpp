@@ -61,8 +61,8 @@ Qwen3 стабильное улучшение — вероятно Large Pages +
 ## Регрессия: `-muge` crash на gpt-oss-20b
 
 `-muge` (с или без `-rtr`) вызывает crash (exit 127, без вывода) на gpt-oss-20b MXFP4.
-Это регрессия — в baseline 2026-02-22 `rtr=1 muge=1` работал.
-Причина: вероятно upstream merge (fused delta-net или split mode changes) сломал muge path.
+НЕ регрессия текущего merge — баг существовал на всех коммитах (bd387a279, 15134e83c, efc3b239d).
+Вероятная причина: Large Pages (включены сейчас) взаимодействуют с muge allocation.
 
 ## Шаг 5: Large Pages
 

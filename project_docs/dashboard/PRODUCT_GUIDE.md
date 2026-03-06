@@ -183,23 +183,37 @@ Canonical matrix for this layer:
 - визуальное состояние validated / experimental / warnings;
 - layout и читаемость интерфейса.
 
-### 3. `dashboard/dashboard.js`
+### 3. `dashboard/dashboard.js` (2604 строки, после модульного рефакторинга)
 
-Это главная knowledge-layer часть продукта.
+**Статус: модульный рефакторинг завершён (2026-03-06).**
 
-Здесь живет:
+dashboard.js теперь читает логику из модулей через window.DashboardXxx.
+Здесь остались только DOM-зависимые вещи:
 
-- состояние формы;
-- локализация UI-строк;
-- model-family detection;
-- логика `Auto-configure`;
-- rules/warnings/badges;
-- command builder;
-- env override builder;
-- help/glossary тексты;
-- разделение validated vs experimental.
+- state + Proxy
+- syncToDOM, evaluate, renderWarnings, renderModelBadges
+- localStorage persistence
+- server API (apiGet/apiPost)
+- launch/stop, CLI terminal, server chat
+- theme, workspace nav, init()
 
-Если нужно поменять смысл dashboard, почти всегда правки начинаются здесь.
+Модули (загружаются через `<script>` до dashboard.js):
+
+- `dashboard-i18n.js` — LANG, t(), setCurrentLang/getCurrentLang
+- `dashboard-help.js` — HELP, GLOSSARY
+- `dashboard-data.js` — PROFILES, DEFAULTS, TOGGLE_PARAMS
+- `dashboard-rules.js` — RULES, PARAM_APPLICABILITY, PARAM_CONTROL_MAP, helper functions
+- `dashboard-command.js` — buildExperimentalCliArgs, buildCommandString, buildArgsArray
+- `dashboard-autoconfig.js` — computeOptimalParams
+
+Если нужно поменять смысл dashboard:
+- Knob evidence / presets: `evidence-layer.js`
+- Параметры и профили: `dashboard-data.js`
+- Rules и warnings: `dashboard-rules.js`
+- Команда сборки: `dashboard-command.js`
+- Auto-configure логика: `dashboard-autoconfig.js`
+- Строки локализации: `dashboard-i18n.js`
+- DOM и запуск: `dashboard.js`
 
 ### 4. `dashboard/dashboard_server.py`
 
@@ -374,14 +388,24 @@ Dashboard не должен жить своей жизнью.
 
 Рекомендуемый порядок:
 
-1. сначала обновить benchmark truth или current-status docs;
-2. потом обновить `dashboard/dashboard.js`;
-3. потом синхронизировать `tutorial/` и `dashboard/` docs;
-4. потом проверить синтаксис:
-   - `node --check dashboard/dashboard.js`
-5. потом проверить реальный launch path через `dashboard/dashboard_server.py`.
+1. Обновить benchmark truth или current-status docs;
+2. Обновить нужный модуль (`evidence-layer.js`, `dashboard-rules.js` и т.д.);
+3. Синхронизировать `tutorial/` и `dashboard/` docs;
+4. Запустить тесты: `cd dashboard && npm test` (115 тестов, Vitest);
+5. Smoke-test в браузере через `python dashboard_server.py`.
 
 Если сначала менять UI-claims, а benchmark truth отстает, knowledge layer начнет врать пользователю.
+
+### Тестирование dashboard
+
+```bash
+cd dashboard
+npm install   # только первый раз
+npm test      # запуск 115 тестов (Vitest + vm-sandbox)
+```
+
+Тесты находятся в `dashboard/test/*.test.js`.
+Адаптер `test/_adapter.js` загружает модули в Node.js vm-sandbox с browser API stubs.
 
 ## Data-driven evidence layer
 
