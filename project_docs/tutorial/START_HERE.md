@@ -104,6 +104,8 @@ http://127.0.0.1:7860/
 - `-fa on`
 - `-rtr auto`
 - `-muge off`
+- `-ctk q8_0`
+- `-ctv q8_0`
 - `workload = Mixed (PG)`
 
 ### gpt-oss-20b
@@ -112,17 +114,24 @@ http://127.0.0.1:7860/
 - `-t 16`
 - `-fa on`
 - `-rtr auto`
-- `-muge off`
+- `-muge off` ← **критическое: на gpt-oss MXFP4 `-muge` вызывает краш (exit 127), никогда не включать**
+- `-ctk q8_0`
+- `-ctv q8_0`
 - `workload = Mixed (PG)`
 
 ### gpt-oss-120b
 
 Начинайте так:
-- если нужен throughput-first baseline: `-rtr auto`
-- если важнее startup/load behavior: отдельно сравнить с `-rtr off`
+- `-t 16`
+- `-fa on`
+- `-rtr auto` (если важнее startup/load behavior: отдельно сравнить с `-rtr off`)
+- `-muge off` ← **критическое: на gpt-oss MXFP4 `-muge` вызывает краш (exit 127), никогда не включать**
+- `-ctk q8_0`
+- `-ctv q8_0`
+- `workload = Mixed (PG)`
 
 Что важно:
-- `Prompt Packed QKV back-half` на `gpt-oss-120b` уже выглядит как confirmed-useful, medium-confidence branch
+- `Prompt Packed QKV back-half` на `gpt-oss-120b` уже выглядит как confirmed-useful, medium-confidence branch (+3.45% prompt)
 - это еще не family-wide default для всего `gpt-oss`
 - но это уже осмысленный следующий experimental A/B именно для `120b`
 
@@ -133,6 +142,8 @@ http://127.0.0.1:7860/
 - `-fa on`
 - `-rtr off` как safest baseline для `TG-only`
 - `-muge off`
+- `-ctk q8_0`
+- `-ctv q8_0`
 - `SER off`
 - `Hot Expert Budget = 0`, если вы не делаете отдельный осознанный A/B
 

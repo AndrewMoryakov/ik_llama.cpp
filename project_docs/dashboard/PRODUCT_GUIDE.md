@@ -183,7 +183,7 @@ Canonical matrix for this layer:
 - визуальное состояние validated / experimental / warnings;
 - layout и читаемость интерфейса.
 
-### 3. `dashboard/dashboard.js` (2604 строки, после модульного рефакторинга)
+### 3. `dashboard/dashboard.js` (2491 строки, после модульного рефакторинга)
 
 **Статус: модульный рефакторинг завершён (2026-03-06).**
 
@@ -347,7 +347,8 @@ Dashboard не должен жить своей жизнью.
 
 Менять:
 
-- `dashboard/dashboard.js`
+- `dashboard/evidence-layer.js` (family guidance, autoconfig, presets)
+- `dashboard/dashboard-rules.js` (family warnings)
 
 Проверять против:
 
@@ -358,24 +359,27 @@ Dashboard не должен жить своей жизнью.
 Менять:
 
 - `dashboard/dashboard.html`
-- `dashboard/dashboard.js`
+- `dashboard/dashboard-data.js` (TOGGLE_PARAMS, DEFAULTS, PROFILES)
+- `dashboard/dashboard-rules.js` (PARAM_APPLICABILITY, PARAM_CONTROL_MAP)
+- `dashboard/dashboard.js` (DOM binding)
 
 Если control влияет на запуск процесса:
 
+- `dashboard/dashboard-command.js` (buildCommandString, buildArgsArray)
 - `dashboard/dashboard_server.py`
 
 ### Нужно добавить новый env override
 
 Менять:
 
-- `dashboard/dashboard.js`
+- `dashboard/dashboard-command.js` (buildCommandString, buildArgsArray)
 - `dashboard/dashboard_server.py`
 
 ### Нужно обновить help/popover/glossary
 
 Менять:
 
-- `dashboard/dashboard.js`
+- `dashboard/dashboard-help.js` (HELP, GLOSSARY)
 - при необходимости `dashboard/dashboard.html`
 
 ### Нужно поменять внешний вид badges/warnings
@@ -391,7 +395,7 @@ Dashboard не должен жить своей жизнью.
 1. Обновить benchmark truth или current-status docs;
 2. Обновить нужный модуль (`evidence-layer.js`, `dashboard-rules.js` и т.д.);
 3. Синхронизировать `tutorial/` и `dashboard/` docs;
-4. Запустить тесты: `cd dashboard && npm test` (115 тестов, Vitest);
+4. Запустить тесты: `cd dashboard && npm test` (121 тест, Vitest);
 5. Smoke-test в браузере через `python dashboard_server.py`.
 
 Если сначала менять UI-claims, а benchmark truth отстает, knowledge layer начнет врать пользователю.
@@ -401,7 +405,7 @@ Dashboard не должен жить своей жизнью.
 ```bash
 cd dashboard
 npm install   # только первый раз
-npm test      # запуск 115 тестов (Vitest + vm-sandbox)
+npm test      # запуск 121 теста (Vitest + vm-sandbox)
 ```
 
 Тесты находятся в `dashboard/test/*.test.js`.

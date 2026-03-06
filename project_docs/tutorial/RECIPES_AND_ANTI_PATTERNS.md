@@ -40,12 +40,15 @@
 - `Threads = 16`
 - `Flash Attention = ON`
 - `Runtime Repack = AUTO`
-- `Merge Up+Gate = OFF`
+- `Merge Up+Gate = OFF` ← **критическое: на gpt-oss MXFP4 `-muge` вызывает краш (exit 127), никогда не включать**
+- `KV Cache K = q8_0`
+- `KV Cache V = q8_0`
 - `SER = OFF`
 
 Почему так:
 - `gpt-oss-20b` сейчас ближе к compute-oriented линии
 - главный стартовый вопрос здесь не huge-model survival, а корректный throughput-first baseline
+- `ctk/ctv q8_0` подтверждён нейтральным по скорости, экономит ~50% KV-cache памяти
 
 ### Рецепт C: gpt-oss-120b, huge model throughput-first
 
@@ -58,7 +61,9 @@
 - `Threads = 16`
 - `Flash Attention = ON`
 - `Runtime Repack = AUTO`
-- `Merge Up+Gate = OFF`
+- `Merge Up+Gate = OFF` ← **на gpt-oss MXFP4 `-muge` вызывает краш (exit 127)**
+- `KV Cache K = q8_0`
+- `KV Cache V = q8_0`
 
 Что помнить:
 - `AUTO` здесь не означает "бесплатно"
@@ -78,6 +83,8 @@
 - `Flash Attention = ON`
 - `Runtime Repack = OFF`
 - `Merge Up+Gate = OFF`
+- `KV Cache K = q8_0`
+- `KV Cache V = q8_0`
 - `SER = OFF`
 - `Hot Expert Budget = 0`
 - `mmap = ON`
@@ -175,6 +182,16 @@
 Правильнее:
 - смотреть не только на `pp512`, но и на `pg512,128`
 - не путать prompt-side gain с общим practical win
+
+### Анти-паттерн 7: "muge — это просто оптимизация, которая не помогла"
+
+Почему это плохо:
+- на `gpt-oss MXFP4` флаг `-muge` вызывает **краш** (exit 127), а не просто деградацию
+- это не "слабый результат", это fatal failure
+
+Правильнее:
+- для `gpt-oss` никогда не включать `-muge`
+- не путать "не помогло" с "ломает процесс"
 
 ## 3. Как строить свой собственный рецепт
 

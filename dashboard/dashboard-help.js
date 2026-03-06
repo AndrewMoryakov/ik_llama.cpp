@@ -126,6 +126,7 @@ const HELP = {
 <p><b>Только MoE:</b> на dense моделях эффекта нет.</p>
 <p><b>Для swap-bound MoE:</b> высокий риск деградации — растут непрерывные выделения и page faults.</p>
 <div class="tip">Что меняет: layout expert-тензоров и характер доступа к ним. Где может помочь: отдельные in-RAM MoE A/B. Где может навредить: huge swap-bound MoE из-за больших непрерывных выделений и page faults. Когда трогать: редко, только в целевых тестах.</div>
+<div class="tip"><b>Критическое:</b> на gpt-oss MXFP4 этот флаг вызывает краш (exit 127). Для gpt-oss никогда не включать.</div>
 <div class="see-also">См. также: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
     en: `<h4>Merge Up+Gate Experts (-muge)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>In MoE models each "expert" consists of two parts (up and gate). This option glues them into one so the CPU reads them in a single pass. Only works for MoE models. For large swap-bound models the regression risk is high.</div>
@@ -133,6 +134,7 @@ const HELP = {
 <p><b>MoE only:</b> no effect on dense models.</p>
 <p><b>For swap-bound MoE:</b> regression risk is high — larger contiguous allocations and more page-fault pressure.</p>
 <div class="tip">What it changes: the layout of expert tensors and the way they are accessed. Where it may help: targeted in-RAM MoE A/B checks. Where it can hurt: huge swap-bound MoE because of larger contiguous allocations and page-fault pressure. When to touch it: rarely, only in targeted tests.</div>
+<div class="tip"><b>Critical:</b> on gpt-oss MXFP4 this flag causes a crash (exit 127). Never enable for gpt-oss.</div>
 <div class="see-also">See also: <span>-rtr</span> (repack), <span>-no-fmoe</span> (fused MoE)</div>`,
   },
   cache_type_k: {
@@ -340,7 +342,8 @@ const HELP = {
 • эффект на полный mixed path обычно меньше
 • иногда стоит дополнительной RAM и времени загрузки</div>
 <div class="tip">Что меняет: только prompt-path layout, а не всю модель. Где помогает: prompt-heavy и mixed-path A/B на split-QKV семьях. Где может навредить: RAM, load time и общая простота baseline. Когда трогать: manual experiments на compatible split-QKV моделях; auto-policy и validation сейчас лучше всего развиты на Qwen3MoE / gpt-oss.</div>
-<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
+<div class="bench">• <span class="good">gpt-oss-120b back-half: +3.45% prompt (pg512,128), 0% decode regression — confirmed, medium confidence</span></div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=back-half</span></div>
 <div class="see-also">См. также: <span>Preset Prompt Packed</span>, <span>Диапазон Prompt Packed</span>, <span>Flash Attention</span></div>`,
     en: `<h4>Prompt Packed QKV (--experimental prompt-packed-qkv=on)</h4>
 <div class="beginner-section"><div class="label">For beginners</div>Some models keep Q, K, and V projections split. This research path tries to pack them into a more CPU-friendly layout during the prompt phase so attention can run with better data locality.</div>
@@ -350,7 +353,8 @@ const HELP = {
 • the effect on full mixed path is usually smaller
 • may cost extra RAM and load time</div>
 <div class="tip">What this changes: only the prompt-path layout, not the whole model. Where it helps: prompt-heavy and mixed-path A/B on split-QKV families. Where it can hurt: RAM, load time, and baseline simplicity. When to touch it: manual experiments on compatible split-QKV models; auto-policy and validation are currently best developed on Qwen3MoE / gpt-oss.</div>
-<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=front-half</span></div>
+<div class="bench">• <span class="good">gpt-oss-120b back-half: +3.45% prompt (pg512,128), 0% decode regression — confirmed, medium confidence</span></div>
+<div class="tip">CLI example: <span class="hl">--experimental prompt-packed-qkv=on --experimental prompt-packed-preset=back-half</span></div>
 <div class="see-also">See also: <span>Prompt Packed preset</span>, <span>Prompt Packed range</span>, <span>Flash Attention</span></div>`,
   },
   prompt_packed_qkv_preset: {
@@ -358,7 +362,7 @@ const HELP = {
 <div class="beginner-section"><div class="label">Для новичков</div>Prompt Packed можно применять не ко всем слоям, а только к части. Preset — это готовый диапазон слоёв, который уже показал хоть какой-то смысл на конкретной семье моделей.</div>
 <p><b>auto</b> — доверить fork выбрать известный family-aware вариант.</p>
 <p><b>front-half</b> — ранняя половина слоёв; сейчас это больше похоже на Qwen-сценарий.</p>
-<p><b>back-half</b> — поздняя половина слоёв; сейчас это больше похоже на gpt-oss-сценарий.</p>
+<p><b>back-half</b> — поздняя половина слоёв; подтверждён на gpt-oss-120b (+3.45% prompt, medium confidence).</p>
 <p><b>full</b> — все слои; как правило, это самый тяжёлый и наименее безопасный вариант.</p>
 <div class="tip">Если нет сильной причины, не начинайте с full.</div>
 <div class="tip">CLI example: <span class="hl">--experimental prompt-packed-preset=back-half</span></div>`,
@@ -366,7 +370,7 @@ const HELP = {
 <div class="beginner-section"><div class="label">For beginners</div>Prompt Packed does not have to cover all layers. A preset is a ready-made layer range that already showed at least some meaning on a specific model family.</div>
 <p><b>auto</b> — let the fork choose a known family-aware variant.</p>
 <p><b>front-half</b> — early half of the layers; currently closer to the Qwen case.</p>
-<p><b>back-half</b> — late half of the layers; currently closer to the gpt-oss case.</p>
+<p><b>back-half</b> — late half of the layers; confirmed on gpt-oss-120b (+3.45% prompt, medium confidence).</p>
 <p><b>full</b> — all layers; usually the heaviest and least safe option.</p>
 <div class="tip">Without a strong reason, do not start from full.</div>
 <div class="tip">CLI example: <span class="hl">--experimental prompt-packed-preset=back-half</span></div>`,
