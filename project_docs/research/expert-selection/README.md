@@ -25,6 +25,12 @@ Use these documents in this order:
   - ambitious
 - includes a recommended next order
 
+5. `../weighted-hot-experts/` (sibling directory)
+- **first concrete implementation target** from NEXT_IDEAS Tier 1
+- Soft Tail-Window Blend: scale early hits instead of zeroing
+- detailed runtime analysis, implementation plan, benchmark plan
+- status: plan ready, implementation not started (2026-03-06)
+
 This directory is intentionally research-oriented:
 - preserve failed ideas
 - preserve speculative ideas
