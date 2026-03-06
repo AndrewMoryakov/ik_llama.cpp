@@ -24,6 +24,7 @@ This directory is the canonical location for project-specific documentation.
 - `strategy/PHASE2_KNOB_BACKLOG_2026-03-03.md`
 - `strategy/PHASE3_VALIDATION_PLAN_2026-03-03.md`
 - `strategy/RESEARCH_PROMPT_TAIL_REWRITE_2026-03-02.md`
+- `research/expert-selection/README.md`
 - `llm/README.md`
 - `llm/SESSION_BOOTSTRAP.md`
 - `llm/SOURCE_OF_TRUTH_MAP.md`

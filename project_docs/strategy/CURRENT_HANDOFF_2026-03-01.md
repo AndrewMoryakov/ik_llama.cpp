@@ -549,7 +549,7 @@ Canonical principles for the whole parameter-generalization task:
 
 Это текущая рабочая дорожка к финальной цели.
 
-## Secondary research line: prompt-tail rewrite
+## Secondary research line: prompt-tail rewrite and expert-prediction research
 
 Отдельно от mainline фаз теперь зафиксирована еще одна исследовательская гипотеза:
 
@@ -570,9 +570,11 @@ Canonical principles for the whole parameter-generalization task:
 - secondary line
 - только с жесткими safety rules и честным cost accounting
 
-Source doc:
+Source docs:
 
-- `project_docs/strategy/RESEARCH_PROMPT_TAIL_REWRITE_2026-03-02.md`
+- `project_docs/research/expert-selection/HOT_EXPERTS_RUNTIME_FOUNDATION_2026-03-02.md`
+- `project_docs/research/expert-selection/PROMPT_TAIL_REWRITE_2026-03-02.md`
+- `project_docs/research/expert-selection/AUX_EXPERT_PREDICTOR_2026-03-02.md`
 
 ## Следующие architecture-specific линии
 

@@ -1,0 +1,25 @@
+## Expert Selection Research
+
+This directory is the canonical place for research lines around expert choice, hot-expert locality, and prompt-to-expert prediction.
+
+Use these documents in this order:
+
+1. `HOT_EXPERTS_RUNTIME_FOUNDATION_2026-03-02.md`
+- what the current runtime already does
+- where the real bottlenecks are
+- which code paths matter
+
+2. `PROMPT_TAIL_REWRITE_2026-03-02.md`
+- secondary research line
+- use a small auxiliary model to rewrite or append a controlled prompt tail
+
+3. `AUX_EXPERT_PREDICTOR_2026-03-02.md`
+- secondary research line
+- use a lightweight predictor for expert shortlist / prefetch / hot-set guidance
+
+This directory is intentionally research-oriented:
+- preserve failed ideas
+- preserve speculative ideas
+- preserve reasoning and search path
+
+It is meant to survive into future writeups or public engineering notes.
