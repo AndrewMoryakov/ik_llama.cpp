@@ -4,9 +4,11 @@
 
 Huge swap-bound MoE на CPU-only хосте:
 - MiniMax M2.5: 151GB модель, 96GB RAM, ~55GB в swap
-- 32 эксперта, 8 used per token, budget = 16 locked
-- Каждый эксперт across all layers: ~4.7GB
-- 16 locked = ~75GB, RAM = 96GB — working set очень тесный
+- n_expert_used = 8 (из default budget = 16 = n_expert_used × 2)
+- n_expert >= 32 (точное число из GGUF metadata — нужна верификация при загрузке модели)
+- budget = 16 locked (legacy default)
+- Значительная часть модели — shared tensors (attention, embedding, router, norms), locked отдельно
+- Остальное — expert weights, распределённые между n_expert экспертов
 
 ## Как работает текущая система
 

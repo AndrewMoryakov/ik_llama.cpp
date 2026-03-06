@@ -4,8 +4,9 @@
 
 **MiniMax M2.5** (UD-Q5_K_XL, 151GB)
 - Путь: `D:\ggufs\un\minimax2.5-m2\`
-- 32 эксперта, 8 used per token
-- Budget: 16 locked (default: n_expert_used × 2)
+- n_expert_used = 8 (из default budget = 16 = n_expert_used × 2)
+- n_expert >= 32 (точное число верифицировать при загрузке модели)
+- Budget: 16 locked (legacy default)
 - Swap-bound: ~55GB в swap при 96GB RAM
 
 ## Фиксированные параметры

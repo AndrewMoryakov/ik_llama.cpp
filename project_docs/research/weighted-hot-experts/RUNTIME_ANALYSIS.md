@@ -2,7 +2,7 @@
 
 ## Детальный анализ текущего hot-expert pipeline
 
-Основан на чтении кода от 2026-03-06, HEAD: `3a073bac4`.
+Основан на чтении кода от 2026-03-06, HEAD: `cda3fe7f7`.
 
 ---
 
@@ -105,7 +105,7 @@ static void llama_hot_expert_commit(const llama_model & model) {
 
 - `IK_LLAMA_HOT_EXPERT_BUDGET` → прямое значение
 - `IK_LLAMA_HOT_EXPERT_BUDGET_MULT` → `n_expert_used * mult`
-- Default: `n_expert_used * 2` (для MiniMax: 8 × 2 = 16)
+- Default: `n_expert_used * 2` (для MiniMax: n_expert_used=8, budget=16)
 
 ---
 
