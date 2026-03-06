@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { loadDashboard } from './_adapter.js';
+import { loadDashboard, loadModular } from './_adapter.js';
 
 let ctx;
-beforeAll(() => { ctx = loadDashboard(); });
+let ctxWithEvidence;
+beforeAll(() => {
+  ctx = loadDashboard();
+  ctxWithEvidence = loadModular({ withEvidenceLayer: true });
+});
 
 const profile96dual = { totalRamGb: 96, cores: 16, ccdCount: 2 };
 const profile64single = { totalRamGb: 64, cores: 8, ccdCount: 1 };
@@ -35,6 +39,16 @@ describe('computeOptimalParams', () => {
     expect(result.params.model_type).toBe('moe');
     expect(result.summary.is_moe).toBe(true);
     expect(result.summary.expert_count).toBe(64);
+  });
+
+  it('sets cache_type_v=q8_0 for MoE models via evidence-layer generic-moe profile', () => {
+    // Requires evidence-layer.js to be loaded; generic-moe profile has ctv=q8_0
+    const result = ctxWithEvidence.computeOptimalParams(
+      { is_moe: true, expert_count: 64, expert_used_count: 8, context_length: 8192 },
+      20,
+      profile96dual
+    );
+    expect(result.params.cache_type_v).toBe('q8_0');
   });
 
   it('detects Dense model type', () => {

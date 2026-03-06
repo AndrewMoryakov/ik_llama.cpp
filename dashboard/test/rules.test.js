@@ -165,6 +165,29 @@ describe('workload rules', () => {
   });
 });
 
+describe('muge_gptoss rule', () => {
+  const rule = () => findRule('muge_gptoss');
+  it('fires when muge ON and gpt-oss model', () => {
+    expect(rule().test(s({ merge_up_gate_exps: true, model: 'gpt-oss-20b.gguf' }))).toBe(true);
+  });
+  it('does NOT fire when muge OFF', () => {
+    expect(rule().test(s({ merge_up_gate_exps: false, model: 'gpt-oss-20b.gguf' }))).toBe(false);
+  });
+  it('does NOT fire for non-gpt-oss model', () => {
+    expect(rule().test(s({ merge_up_gate_exps: true, model: 'qwen3-30b.gguf' }))).toBe(false);
+  });
+});
+
+describe('ctv_good rule', () => {
+  const rule = () => findRule('ctv_good');
+  it('fires when cache_type_v is q8_0', () => {
+    expect(rule().test(s({ cache_type_v: 'q8_0' }))).toBe(true);
+  });
+  it('does NOT fire for f16', () => {
+    expect(rule().test(s({ cache_type_v: 'f16' }))).toBe(false);
+  });
+});
+
 describe('khad_f16 rule', () => {
   const rule = () => findRule('khad_f16');
   it('fires when khad on with f16 k-cache', () => {

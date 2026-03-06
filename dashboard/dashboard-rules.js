@@ -98,6 +98,11 @@
       msg: 'w_rtr_off_validated_moe',
     },
     {
+      id: 'muge_gptoss', severity: 'error', params: ['merge_up_gate_exps'],
+      test: (s) => s.merge_up_gate_exps && detectModelFamily(s) === 'gpt-oss',
+      msg: 'w_muge_gptoss', fix: 'w_muge_gptoss_fix',
+    },
+    {
       id: 'muge_swap', severity: 'error', params: ['merge_up_gate_exps'],
       test: (s, p) => s.merge_up_gate_exps && isSwapBound(s, p),
       msg: 'w_muge_swap', fix: 'w_muge_swap_fix',
@@ -116,6 +121,11 @@
       id: 'ctk_good', severity: 'success', params: ['cache_type_k'],
       test: (s) => s.cache_type_k === 'q8_0',
       msg: 'w_ctk_good',
+    },
+    {
+      id: 'ctv_good', severity: 'success', params: ['cache_type_v'],
+      test: (s) => s.cache_type_v === 'q8_0',
+      msg: 'w_ctv_good',
     },
     {
       id: 'ser_info', severity: 'info', params: ['ser'],
@@ -375,6 +385,7 @@
     n_parallel: 'server',
     api_key: 'server',
     n_threads_http: 'server',
+    flash_attn: 'optimization',
     use_mmap: 'advanced',
     use_mlock: 'advanced',
     numa: 'advanced',

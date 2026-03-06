@@ -67,7 +67,7 @@
     'minimax-mixed-locality': { id: 'minimax-mixed-locality', title: { ru: 'MiniMax mixed locality', en: 'MiniMax mixed locality' }, descKey: 'exp_preset_minimax', risk: 'medium', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5'], validation: 'partial', confidence: { fallback: 'medium' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false } },
     'minimax-locality-aggressive': { id: 'minimax-locality-aggressive', title: { ru: 'MiniMax locality aggressive', en: 'MiniMax locality aggressive' }, desc: { ru: 'Более рискованный вариант для huge MiniMax: сохраняет tail-window selection, но дополнительно поднимает Hot Expert Budget до 24. Теоретически может лучше удерживать ранний decode, но длинные прогоны не подтвердили это как новый default.', en: 'A riskier huge-MiniMax variant: keeps tail-window selection and also raises Hot Expert Budget to 24. It may hold early decode better in theory, but longer runs did not validate it as a new default.' }, risk: 'high', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5'], validation: 'research', confidence: { fallback: 'low' }, experimental: { hot_expert_budget: 24, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false } },
     'qwen-prompt-packed': { id: 'qwen-prompt-packed', title: { ru: 'Qwen prompt-packed', en: 'Qwen prompt-packed' }, descKey: 'exp_preset_qwen', risk: 'high', scope: 'moe', familyHint: ['qwen3moe'], testedOn: ['Qwen3-30B-A3B'], validation: 'partial', confidence: { fallback: 'low' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'front-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto' } },
-    'gptoss-prompt-packed': { id: 'gptoss-prompt-packed', title: { ru: 'gpt-oss prompt-packed', en: 'gpt-oss prompt-packed' }, descKey: 'exp_preset_gptoss', risk: 'medium', scope: 'moe', familyHint: ['gpt-oss'], testedOn: ['gpt-oss-120b', 'gpt-oss-20b'], validation: 'validated', confidence: { entries: [{ selector: { family: 'gpt-oss', modelSizeTag: '120b' }, level: 'high' }, { selector: { family: 'gpt-oss', modelSizeTag: '20b' }, level: 'low' }], fallback: 'none' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'back-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto' } },
+    'gptoss-prompt-packed': { id: 'gptoss-prompt-packed', title: { ru: 'gpt-oss prompt-packed', en: 'gpt-oss prompt-packed' }, descKey: 'exp_preset_gptoss', risk: 'medium', scope: 'moe', familyHint: ['gpt-oss'], testedOn: ['gpt-oss-120b', 'gpt-oss-20b'], validation: 'validated', confidence: { entries: [{ selector: { family: 'gpt-oss', modelSizeTag: '120b' }, level: 'medium' }, { selector: { family: 'gpt-oss', modelSizeTag: '20b' }, level: 'low' }], fallback: 'none' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'back-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto' } },
     'attention-merge-qkv': { id: 'attention-merge-qkv', title: { ru: 'Attention merge-qkv', en: 'Attention merge-qkv' }, descKey: 'exp_preset_merge_qkv', risk: 'medium', scope: 'generic', familyHint: ['qwen3moe', 'gpt-oss', 'other'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { merge_qkv: true, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, graph_reuse: true } },
     'huge-moe-ser-light': { id: 'huge-moe-ser-light', title: { ru: 'Huge MoE SER light', en: 'Huge MoE SER light' }, desc: { ru: 'Мягкий router-side эксперимент для больших MoE: включает SER с min=4 и threshold=0.05. Идея — отрезать очень слабых экспертов и уменьшить I/O, не делая pruning слишком агрессивным.', en: 'A mild router-side experiment for large MoE: enables SER with min=4 and threshold=0.05. The goal is to prune very weak experts and reduce I/O without making pruning too aggressive.' }, risk: 'medium', scope: 'moe', familyHint: ['minimax', 'qwen3moe', 'gpt-oss'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { ser_enabled: true, ser_min: 4, ser_thresh: 0.05, hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, merge_up_gate_exps: false } },
     'huge-moe-ser-aggressive': { id: 'huge-moe-ser-aggressive', title: { ru: 'Huge MoE SER aggressive', en: 'Huge MoE SER aggressive' }, desc: { ru: 'Более рискованный router-side bundle для больших MoE: SER с min=3 и threshold=0.10. Теоретически может сильнее разгрузить I/O, но риск потери качества и нестабильности решения роутера выше.', en: 'A more aggressive router-side bundle for large MoE: SER with min=3 and threshold=0.10. It may reduce I/O further in theory, but quality loss and routing instability risk are higher.' }, risk: 'high', scope: 'moe', familyHint: ['minimax', 'qwen3moe', 'gpt-oss'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { ser_enabled: true, ser_min: 3, ser_thresh: 0.10, hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, merge_up_gate_exps: false } },
@@ -82,7 +82,7 @@
       applicability: 'moe',
       validation: 'validated',
       confidence: 'medium',
-      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', model_type: 'moe' }
+      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe' }
     },
     gptoss_huge_throughput: {
       id: 'gptoss_huge_throughput',
@@ -398,14 +398,14 @@
       matches: (ctx) => ctx.family === 'qwen3moe' && !ctx.isSwapBound,
       titleRu: 'Qwen3MoE baseline',
       titleEn: 'Qwen3MoE baseline',
-      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
       reasons: {
         ru: [
           { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: для Qwen3MoE current guidance строится вокруг prompt+generation, а не вокруг TG-only.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: для Qwen3MoE это current validated baseline.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: сильного validated upside для этого baseline нет.' },
           { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current baseline для экономии KV-памяти без заметной деградации.' },
-          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: in-RAM Qwen3MoE не требует агрессивного урезания V-cache.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: подтверждено нейтральным по скорости на Zen4 (2026-03-06). Экономит ~50% V-cache без деградации.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как базовый runtime path.' }
         ],
         en: [
@@ -413,7 +413,7 @@
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: this is the current validated baseline for Qwen3MoE.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: there is no strong validated upside for this baseline.' },
           { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current baseline to save KV memory without a noticeable regression.' },
-          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: in-RAM Qwen3MoE does not require aggressive V-cache reduction.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: confirmed neutral in Zen4 benchmarks (2026-03-06). Saves ~50% V-cache with no regression.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the default runtime path.' }
         ]
       }
@@ -423,22 +423,22 @@
       matches: (ctx) => ctx.family === 'gpt-oss' && getModelSizeTag(ctx) === '20b',
       titleRu: 'gpt-oss-20b baseline',
       titleEn: 'gpt-oss-20b baseline',
-      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
       reasons: {
         ru: [
           { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: для gpt-oss-20b current baseline оценивается по prompt+generation, а не только по TG.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline для gpt-oss-20b.' },
-          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: пока не является validated default.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: на gpt-oss MXFP4 флаг -muge вызывает краш. Никогда не включать для этой family.' },
           { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
-          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: current baseline для 20b режима.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: подтверждено нейтральным по скорости на Zen4 (2026-03-06). Экономит ~50% V-cache без деградации.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как базовый runtime path.' }
         ],
         en: [
           { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: the current gpt-oss-20b baseline is judged by prompt+generation, not TG alone.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline for gpt-oss-20b.' },
-          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: it is not a validated default yet.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: -muge crashes on gpt-oss MXFP4 (exit 127, all commits). Never enable for this family.' },
           { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
-          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: current baseline for the 20b regime.' },
+          { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: confirmed neutral in Zen4 benchmarks (2026-03-06). Saves ~50% V-cache with no regression.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the default runtime path.' }
         ]
       }
