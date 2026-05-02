@@ -774,6 +774,29 @@ int main(int argc, char ** argv) {
         res.status = 200; // HTTP OK
     };
 
+    const auto handle_export_expert_stats = [&](const httplib::Request & req, httplib::Response & res) {
+        // Fixed output path to prevent path traversal — always writes next to the model file
+        std::string path = "expert_stats.csv";
+        if (req.has_param("filename")) {
+            // Only allow a plain filename, no directory separators
+            std::string requested = req.get_param_value("filename");
+            if (requested.find('/') == std::string::npos &&
+                requested.find('\\') == std::string::npos &&
+                requested.find("..") == std::string::npos &&
+                !requested.empty()) {
+                path = requested;
+            }
+        }
+        int dispatches = llama_export_expert_stats_to_file(ctx_server.model, path.c_str());
+        json result = {
+            {"status", dispatches > 0 ? "ok" : "no_data"},
+            {"path", path},
+            {"dispatches", dispatches},
+        };
+        res.set_content(result.dump(), MIMETYPE_JSON);
+        res.status = 200;
+    };
+
     const auto handle_metrics = [&](const httplib::Request &, httplib::Response & res) {
         if (!params.endpoint_metrics) {
             res_err(res, format_error_response("This server does not support metrics endpoint.", ERROR_TYPE_NOT_SUPPORTED));
@@ -2049,6 +2072,7 @@ int main(int argc, char ** argv) {
     svr->Post("/control-vectors/unload", handle_control_vectors_unload);
     svr->Post("/control-vectors/apply",  handle_control_vectors_apply);
     // Save & load slots
+    svr->Get ("/export-expert-stats",  handle_export_expert_stats);
     svr->Get ("/slots",               handle_slots);
     svr->Get ("/slots/list",          list_slot_prompts);
     if (!params.slot_save_path.empty()) {

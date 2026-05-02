@@ -631,6 +631,10 @@ extern "C" {
     LLAMA_API bool llama_model_repack_tensors(const struct llama_model * model);
     LLAMA_API bool llama_model_repack_tensors_auto(const struct llama_model * model);
 
+    // Export per-layer per-expert dispatch statistics to a CSV file.
+    // Returns the number of dispatches recorded (0 if MoE tracking is not active).
+    LLAMA_API int llama_export_expert_stats_to_file(const struct llama_model * model, const char * path);
+
     // Get a llama model tensor
     LLAMA_API struct ggml_tensor * llama_get_model_tensor(struct llama_model * model, const char * name);
 

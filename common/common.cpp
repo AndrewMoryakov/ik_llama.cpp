@@ -354,6 +354,7 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         { "hot-expert-budget-mult",    "IK_LLAMA_HOT_EXPERT_BUDGET_MULT" },
         { "hot-expert-selection",      "IK_LLAMA_HOT_EXPERT_SELECTION" },
         { "hot-expert-tail-window",    "IK_LLAMA_HOT_EXPERT_TAIL_WINDOW" },
+        { "hot-expert-tail-blend",     "IK_LLAMA_HOT_EXPERT_TAIL_BLEND" },
         { "prompt-packed-qkv",         "IK_LLAMA_PROMPT_PACKED_QKV" },
         { "prompt-packed-preset",      "IK_LLAMA_PROMPT_PACKED_QKV_PRESET" },
         { "prompt-packed-range",       "IK_LLAMA_PROMPT_PACKED_QKV_RANGE" },

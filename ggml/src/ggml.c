@@ -309,6 +309,31 @@ GGML_API void ggml_moe_reset_expert_hits(void) {
     ggml_moe_unlocked_dispatches_val = 0;
 }
 
+// Scale only ranking counters (expert selection).
+// Called from single-threaded interval between u_batch submissions.
+GGML_API void ggml_moe_scale_expert_selection_hits(float scale) {
+    for (int i = 0; i < GGML_MOE_MAX_EXPERTS; ++i) {
+        int val = (int)atomic_load(&ggml_moe_expert_hits[i]);
+        atomic_store(&ggml_moe_expert_hits[i], (int)lroundf(val * scale));
+    }
+    for (int il = 0; il < GGML_MOE_MAX_LAYERS; ++il) {
+        for (int ie = 0; ie < GGML_MOE_MAX_EXPERTS; ++ie) {
+            int val = (int)atomic_load(&ggml_moe_layer_expert_hits[il][ie]);
+            atomic_store(&ggml_moe_layer_expert_hits[il][ie], (int)lroundf(val * scale));
+        }
+    }
+}
+
+// Reset only telemetry/gating counters (dispatch count, locked/unlocked stats).
+// Called from single-threaded interval between u_batch submissions.
+GGML_API void ggml_moe_reset_expert_tracking_stats(void) {
+    atomic_store(&ggml_moe_dispatch_count_val, 0);
+    ggml_moe_locked_rows_val = 0;
+    ggml_moe_unlocked_rows_val = 0;
+    ggml_moe_locked_dispatches_val = 0;
+    ggml_moe_unlocked_dispatches_val = 0;
+}
+
 GGML_API int ggml_moe_get_dispatch_count(void) {
     return (int)atomic_load(&ggml_moe_dispatch_count_val);
 }

@@ -376,6 +376,8 @@ extern "C" {
     #define GGML_MOE_MAX_LAYERS  256
     GGML_API void ggml_moe_get_expert_hits(int * out, int max_experts);
     GGML_API void ggml_moe_reset_expert_hits(void);
+    GGML_API void ggml_moe_scale_expert_selection_hits(float scale);
+    GGML_API void ggml_moe_reset_expert_tracking_stats(void);
     GGML_API int  ggml_moe_get_dispatch_count(void);
     GGML_API void ggml_moe_get_locked_stats(int64_t * locked_rows, int64_t * unlocked_rows, int * locked_dispatches, int * unlocked_dispatches);
     GGML_API void ggml_moe_get_layer_expert_hits(int * out, int max_layers, int max_experts);

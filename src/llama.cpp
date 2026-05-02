@@ -223,6 +223,15 @@ static int llama_hot_expert_tail_window() {
     return value > 0 ? value : 0;
 }
 
+static float llama_hot_expert_tail_blend() {
+    static float value = -2.0f;
+    if (value < -1.0f) {
+        const char * env = std::getenv("IK_LLAMA_HOT_EXPERT_TAIL_BLEND");
+        value = (env && env[0]) ? std::strtof(env, nullptr) : -1.0f;
+    }
+    return value;
+}
+
 enum class llama_hot_expert_selection_mode {
     DEFAULT,
     FULL_PROMPT,
@@ -2358,7 +2367,14 @@ static llama_hot_expert_selection_mode s_hot_selection_mode;
 
 static std::string llama_hot_expert_selection_label() {
     if (s_hot_tail_window_active && s_hot_tail_window_size > 0) {
-        return "tail-window[" + std::to_string(s_hot_tail_window_size) + "]";
+        std::string label = "tail-window[" + std::to_string(s_hot_tail_window_size) + "]";
+        const float blend = llama_hot_expert_tail_blend();
+        if (blend > 0.0f && blend < 1.0f) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "+blend[%.2f]", blend);
+            label += buf;
+        }
+        return label;
     }
     if (s_hot_tail_window_size > 0) {
         return "full-prompt (tail-window[" + std::to_string(s_hot_tail_window_size) + "] inactive)";
@@ -2462,6 +2478,59 @@ static void llama_hot_expert_log_locked_stats(const llama_model & model, const c
     }
 }
 
+// Export per-layer per-expert hit statistics to a CSV file.
+// Format: layer,expert,hits
+// Can be used for per-expert quantization optimization.
+static void llama_export_expert_stats(const char * path, int n_layer, int n_expert) {
+    if (!path || n_layer <= 0 || n_expert <= 0) return;
+
+    std::vector<int> layer_hits((size_t)n_layer * (size_t)n_expert, 0);
+    ggml_moe_get_layer_expert_hits(layer_hits.data(), n_layer, n_expert);
+
+    int hits[GGML_MOE_MAX_EXPERTS] = {0};
+    ggml_moe_get_expert_hits(hits, n_expert);
+    int dispatch_count = ggml_moe_get_dispatch_count();
+
+    FILE * f = fopen(path, "w");
+    if (!f) {
+        LLAMA_LOG_WARN("failed to open %s for expert stats export\n", path);
+        return;
+    }
+
+    fprintf(f, "# Expert dispatch statistics\n");
+    fprintf(f, "# total_dispatches=%d\n", dispatch_count);
+    fprintf(f, "# n_layer=%d n_expert=%d\n", n_layer, n_expert);
+    fprintf(f, "#\n");
+
+    // Global expert hits
+    fprintf(f, "# Global expert hits (all layers combined)\n");
+    fprintf(f, "# expert,total_hits,frequency_pct\n");
+    int total_hits = 0;
+    for (int ie = 0; ie < n_expert; ++ie) total_hits += hits[ie];
+    for (int ie = 0; ie < n_expert; ++ie) {
+        if (hits[ie] > 0) {
+            fprintf(f, "# e%d,%d,%.2f%%\n", ie, hits[ie],
+                    total_hits > 0 ? 100.0 * hits[ie] / total_hits : 0.0);
+        }
+    }
+    fprintf(f, "#\n");
+
+    // Per-layer per-expert hits
+    fprintf(f, "layer,expert,hits\n");
+    for (int il = 0; il < n_layer; ++il) {
+        for (int ie = 0; ie < n_expert; ++ie) {
+            int h = layer_hits[(size_t)il * (size_t)n_expert + (size_t)ie];
+            if (h > 0) {
+                fprintf(f, "%d,%d,%d\n", il, ie, h);
+            }
+        }
+    }
+
+    fclose(f);
+    LLAMA_LOG_INFO("expert stats exported to %s (%d layers, %d experts, %d dispatches)\n",
+            path, n_layer, n_expert, dispatch_count);
+}
+
 // Lock a slice of a tensor corresponding to one expert.
 // tensor->nb[2] = bytes per expert, expert_id selects the slice.
 static bool lock_expert_slice(struct ggml_tensor * t, int expert_id) {
@@ -2551,6 +2620,13 @@ static void llama_hot_expert_commit(const llama_model & model) {
     }
     LLAMA_LOG_INFO("\n");
     llama_hot_expert_log_locked_stats(model, "after-commit");
+
+    // Export per-layer per-expert stats if requested
+    const char * export_path = std::getenv("IK_LLAMA_EXPORT_EXPERT_STATS");
+    if (export_path && export_path[0]) {
+        const int n_layer = std::min<int>(model.hparams.n_layer, GGML_MOE_MAX_LAYERS);
+        llama_export_expert_stats(export_path, n_layer, s_hot_n_expert);
+    }
 }
 
 // Returns false if cancelled by progress_callback
@@ -4567,12 +4643,29 @@ static int llama_decode_internal(
         if (use_hot_tail_window && !hot_tail_window_reset && n_tokens_all > hot_tail_window) {
             const uint32_t tail_start = n_tokens_all - hot_tail_window;
             if (cur_token < tail_start && cur_token + n_tokens >= tail_start) {
-                ggml_moe_reset_expert_hits();
+                const float blend = llama_hot_expert_tail_blend();
+                if (blend > 0.0f && blend < 1.0f) {
+                    // Soft blend: scale ranking hits, reset telemetry
+                    ggml_moe_scale_expert_selection_hits(blend);
+                    ggml_moe_reset_expert_tracking_stats();
+                } else {
+                    // blend unset, 0, or invalid (>= 1.0): hard reset (legacy behavior)
+                    if (blend >= 1.0f) {
+                        LLAMA_LOG_WARN("%s: hot-expert-tail-blend=%.2f invalid (must be < 1.0), using hard reset\n",
+                                __func__, blend);
+                    }
+                    ggml_moe_reset_expert_hits();
+                }
                 hot_tail_window_reset = true;
                 s_hot_tail_window_active = true;
                 if (llama_hot_expert_trace_enabled()) {
-                    LLAMA_LOG_INFO("%s: hot experts selection switched to tail-window[%u] at prompt token %u/%u\n",
-                            __func__, hot_tail_window, tail_start, n_tokens_all);
+                    if (blend > 0.0f && blend < 1.0f) {
+                        LLAMA_LOG_INFO("%s: hot experts: tail-window[%u]+blend[%.2f] at token %u/%u\n",
+                                __func__, hot_tail_window, blend, tail_start, n_tokens_all);
+                    } else {
+                        LLAMA_LOG_INFO("%s: hot experts: tail-window[%u] (hard reset) at token %u/%u\n",
+                                __func__, hot_tail_window, tail_start, n_tokens_all);
+                    }
                 }
             }
         }
@@ -6870,6 +6963,16 @@ uint64_t llama_model_n_params(const struct llama_model * model) {
         nparams += ggml_nelements(it.second);
     }
     return nparams;
+}
+
+int llama_export_expert_stats_to_file(const struct llama_model * model, const char * path) {
+    if (!model || !path || !path[0]) return 0;
+    const int n_layer = (int)std::min<uint32_t>(model->hparams.n_layer, GGML_MOE_MAX_LAYERS);
+    const int n_expert = (int)std::min<uint32_t>(model->hparams.n_expert, GGML_MOE_MAX_EXPERTS);
+    if (n_layer <= 0 || n_expert <= 0) return 0;
+    const int dispatch_count = ggml_moe_get_dispatch_count();
+    llama_export_expert_stats(path, n_layer, n_expert);
+    return dispatch_count;
 }
 
 bool llama_model_repack_tensors(const struct llama_model * model) {
