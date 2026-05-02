@@ -48,16 +48,29 @@ test/data-integrity.test.js  13 tests
 
 Поиск имён флагов в `dashboard/*.js` дал 0 матчей для:
 
-| Флаг | Источник (upstream PR) | Что даёт | Класс |
-|------|------------------------|----------|-------|
-| `--minilog` | #1468, #1477 | Минимизирует log-spam в `llama-server` | server / runtime |
-| `--dry-run` | #1462 | Загружает модель без inference (validation) | runtime / load |
-| `--n-cpu-moe` | #1464 (Better...) | Улучшенное распределение MoE-слоёв на CPU | runtime / arch |
-| `--defer-experts` | upstream | Отложенная загрузка экспертов (memory bound) | memory / huge-moe |
-| `params.ncmoe` | upstream loader | Принимается в `llama_model_loader::load` constructor | low-level (auto) |
+| Флаг | Источник (upstream PR) | Что даёт | Класс | Evidence-entry |
+|------|------------------------|----------|-------|----------------|
+| `--minilog` | #1468, #1477 | Минимизирует log-spam в `llama-server` | server / runtime | ✅ `minilog` |
+| `--dry-run` | #1462 | Загружает модель без inference (validation) | runtime / load | ✅ `dry_run` |
+| `--n-cpu-moe` | #1464 (Better...) | Улучшенное распределение MoE-слоёв на CPU | runtime / arch | ✅ `n_cpu_moe` |
+| `--defer-experts` | upstream | Отложенная загрузка экспертов (memory bound) | memory / huge-moe | ✅ `defer_experts` |
+| `params.ncmoe` | upstream loader | Принимается в `llama_model_loader::load` constructor | low-level (auto) | — internal alias of `--n-cpu-moe` |
 
-Они не нарушают работу — dashboard просто не предлагает их пользователю в командах
-и preset'ах. Это **gap для расширения**, не bug.
+**Update 2026-05-02 (этой же сессии)**: 4 evidence-entries добавлены в
+`EXPERIMENTAL_KNOB_EVIDENCE` в `evidence-layer.js`. Все entries помечены
+`validation: 'research'` или `'helper'` (нет benchmark-данных), `risk: 'low'/'medium'`.
+123 vitest теста проходят после добавления — структура data-integrity цельная.
+
+**Что ещё осталось** (для UI surfacing, отдельная сессия):
+1. **`dashboard-command.js`** — handlers генерации CLI-аргументов:
+   - `if (s.n_cpu_moe > 0) args.push('--n-cpu-moe', s.n_cpu_moe);`
+   - `if (s.defer_experts) args.push('--defer-experts');`
+   - `if (s.dry_run) args.push('--dry-run');`
+   - `if (s.minilog) args.push('--minilog');`
+2. **UI controls** в `dashboard.html` (или в experimental-knob-form блоке): новые поля
+   ввода, чекбоксы, числовые слайдеры
+3. **`dashboard-i18n.js`** — RU/EN тексты labels и descriptions
+4. **`test/`** — расширить command.test и rules.test на новые knobs
 
 ---
 
