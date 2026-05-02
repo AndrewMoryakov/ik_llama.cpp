@@ -197,6 +197,54 @@ secpol.msc → Local Policies → User Rights Assignment). Скрипт авто
 
 ---
 
+### 10. Hot-expert tail-blend + expert-stats CSV export (2026-05-02)
+
+**Файлы**: `ggml/src/ggml.c` (+25), `ggml/include/ggml.h` (+2), `src/llama.cpp` (+111),
+`include/llama.h` (+4), `common/common.cpp` (+1), `examples/server/server.cpp` (+24).
+**Коммит**: `e8444f2ad`.
+
+**Tail-blend**: вместо hard-reset hit-счётчиков на границе tail-window — мягкое
+масштабирование на blend factor (0–1). API: `IK_LLAMA_HOT_EXPERT_TAIL_BLEND=0.3` или
+`--experimental hot-expert-tail-blend=0.3`. Требует ненулевой
+`IK_LLAMA_HOT_EXPERT_TAIL_WINDOW`. Без env var — старое hard-reset поведение.
+
+Новые ggml API:
+- `ggml_moe_scale_expert_selection_hits(float scale)` — масштабирует ranking-счётчики
+- `ggml_moe_reset_expert_tracking_stats()` — сбрасывает только telemetry/dispatch счётчики
+
+**Expert-stats CSV export**: дамп per-layer per-expert dispatch hits в файл для
+оффлайн-анализа и per-expert quant tuning.
+- Env var: `IK_LLAMA_EXPORT_EXPERT_STATS=path.csv` — экспорт после `llama_hot_expert_commit`
+- Public API: `llama_export_expert_stats_to_file(model, path)`
+- Server endpoint: `GET /export-expert-stats[?filename=NAME]` (no path traversal)
+
+**Результаты проверки**: tail-blend на MiniMax M2.5 — **negative** (early/late токены
+активируют тот же hot-set, hard reset и blend дают идентичный результат). Инфраструктура
+оставлена для возможной полезности на других моделях.
+
+---
+
+### 11. Custom quantization recipes для MiniMax M2.5 (2026-05-02)
+
+**Файлы**: `scripts/quant_minimax_m25/` (10 файлов, скрипты и runners),
+`docs/new_quants_minimax_m2.5/` (10 файлов, рецепты и research).
+**Коммит**: `f22565a99`.
+
+**Tapered-RAM v3.1**: 92 GiB, 3.46 bpw, PPL 9.70 ± 0.08 (full 552 chunks). Ступенчатый
+taper: edge iq5_k/iq4_xs → bridge iq4_xs/iq3_ks → core IQ3_KS. Attention q8_0,
+embeddings q8_0, ffn_gate_inp f32, ubergarm BF16 imatrix.
+
+**Эффект**: tg32 0.62 t/s (UD-Q5 swap-bound) → **3.82 t/s (+520%, 6.2x)**. Главный
+успех форка — single biggest perf win, ортогональный SIMD-оптимизациям ikawrakow'a.
+
+**Deep-Taper v4**: 114 GiB, 4.26 bpw, PPL 9.42 ± 0.23 — лучше качество, но swap-bound
+на 96 GB (tg8 0.02 t/s). Не практичен; оставлен как PPL-ceiling reference.
+
+См. `docs/new_quants_minimax_m2.5/` для полной методологии: рецепт-генеалогия,
+PPL-research, hybrid source experiments, eval suite, operational gotchas.
+
+---
+
 ## Что было попробовано и отвергнуто
 
 Все решения ниже были реализованы, протестированы на MiniMax-M2.5 и отвергнуты

@@ -1,5 +1,10 @@
 # Current Handoff - 2026-03-01
 
+> **Update 2026-05-02**: post-merge state. См. `docs/PERF_ATTRIBUTION_2026-05-02.md`
+> для слоистого анализа источников производительности; коммиты `afaa7e04d` (upstream
+> sync, 190 коммитов), `e8444f2ad` (tail-blend + expert-stats), `f22565a99`
+> (Tapered-RAM scripts + research) — пост-handoff история.
+
 ## Зачем этот документ
 
 Короткая точка входа для следующей сессии.
