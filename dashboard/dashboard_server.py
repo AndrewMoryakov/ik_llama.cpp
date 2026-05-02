@@ -46,8 +46,12 @@ _slots_prev = {"n_decoded": 0, "time": 0.0}
 def _poll_server_metrics(live_metrics, host="127.0.0.1", port=8080):
     """Poll llama-server /slots endpoint for real-time speed during generation.
 
-    /slots returns current slot state including n_decoded which increases
-    token-by-token during generation. We calculate speed from the delta.
+    Schema notes:
+    - Pre-PEG-rewrite (old): top-level slot["n_decoded"], slot["is_processing"].
+    - Post-PEG-rewrite (current upstream): slot["next_token"]["n_decoded"],
+      slot["next_token"]["has_next_token"], slot["state"] (1=active, 0=idle).
+    Reader supports both. Counter resets between requests are detected and
+    handled (prevents stuck values when one request ends and another starts).
     """
     global _slots_prev
     try:
@@ -56,21 +60,47 @@ def _poll_server_metrics(live_metrics, host="127.0.0.1", port=8080):
         with urllib.request.urlopen(req, timeout=1.0) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
 
+        def slot_decoded(slot):
+            nt = slot.get("next_token") or {}
+            v = nt.get("n_decoded")
+            if v is not None:
+                return v
+            return slot.get("n_decoded", 0) or 0
+
+        def slot_active(slot):
+            nt = slot.get("next_token") or {}
+            if "has_next_token" in nt:
+                return bool(nt["has_next_token"])
+            if "state" in slot and slot["state"] is not None:
+                return slot["state"] != 0
+            return bool(slot.get("is_processing", False))
+
         now = time.time()
-        total_decoded = sum(slot.get("n_decoded", 0) for slot in data)
-        any_processing = any(slot.get("is_processing", False) for slot in data)
+        total_decoded = sum(slot_decoded(slot) for slot in data)
+        any_processing = any(slot_active(slot) for slot in data)
 
         prev_decoded = _slots_prev["n_decoded"]
         prev_time = _slots_prev["time"]
+
+        # Counter reset: new request started, n_decoded dropped (or wrapped to 0).
+        # Re-baseline and skip this poll's tps calc.
+        if total_decoded < prev_decoded:
+            _slots_prev = {"n_decoded": total_decoded, "time": now}
+            live_metrics.phase["current"] = "decode" if any_processing else "idle"
+            return
+
         _slots_prev = {"n_decoded": total_decoded, "time": now}
 
-        if prev_time > 0 and total_decoded > prev_decoded:
+        # Only compute fresh tps while generation is active.
+        # When generation just ended, the last delta is the few-token tail (low and
+        # misleading) — preserve previous tps values and only flip state to idle.
+        if any_processing and prev_time > 0 and total_decoded > prev_decoded:
             dt = now - prev_time
             if dt > 0.1:
                 delta = total_decoded - prev_decoded
                 realtime_tps = round(delta / dt, 2)
                 live_metrics.phase["current_decode_tps"] = realtime_tps
-                live_metrics.phase["current"] = "decode" if any_processing else "idle"
+                live_metrics.phase["current"] = "decode"
                 live_metrics.phase["decode_tail_steps"] = total_decoded
 
                 if live_metrics.phase["min_decode_tps"] <= 0 or realtime_tps < live_metrics.phase["min_decode_tps"]:

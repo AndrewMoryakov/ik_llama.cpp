@@ -46,12 +46,18 @@ class LiveMetricsAggregator:
     ARCH_RE = re.compile(r"general\.architecture\s+str\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)")
     ARCH_META_RE = re.compile(r"llm_load_print_meta:\s+arch\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)")
 
-    # llama_print_timings lines (emitted after every response, works without pg-trace)
+    # Per-response timings lines. Two formats coexist:
+    # - Pre-PEG-rewrite: "llama_print_timings:        eval time = X ms / N runs   (...)"
+    # - Post-PEG-rewrite: "       eval time =    X ms /    N tokens (...)" (no prefix,
+    #   "tokens" instead of "runs"; preceded by "slot print_timing: id 0 | task 1 |" line).
+    # Regex tolerates optional prefix and either "runs" or "tokens" unit.
+    # `^` anchor prevents the eval-regex from matching "prompt eval time" lines
+    # (which contain "eval time" as substring).
     TIMINGS_EVAL_RE = re.compile(
-        r"llama_print_timings:\s+eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<runs>\d+)\s+runs\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
+        r"^\s*(?:llama_print_timings:)?\s*eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<runs>\d+)\s+(?:runs|tokens)\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
     )
     TIMINGS_PROMPT_RE = re.compile(
-        r"llama_print_timings:\s+prompt eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<tokens>\d+)\s+tokens\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
+        r"^\s*(?:llama_print_timings:)?\s*prompt eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<tokens>\d+)\s+tokens\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
     )
 
     def __init__(self):
