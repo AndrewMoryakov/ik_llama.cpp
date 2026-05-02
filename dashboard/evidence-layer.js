@@ -53,6 +53,7 @@
     hot_expert_budget_mult: { id: 'hot_expert_budget_mult', applicability: 'moe-huge', runtimeSupport: 'generic-moe-hot-expert-path', validation: 'research', risk: 'medium', failureModeRu: 'Слишком агрессивный множитель может раздуть hot set и увеличить RAM pressure без устойчивой пользы.', failureModeEn: 'An overly aggressive multiplier may bloat the hot set and increase RAM pressure without stable benefit.', testedOn: [] },
     hot_expert_selection: { id: 'hot_expert_selection', applicability: 'moe-huge', runtimeSupport: 'generic-moe-hot-expert-path', validation: 'partial', risk: 'medium', failureModeRu: 'Signal может оказаться шумным или вводящим в заблуждение вне validated workloads.', failureModeEn: 'The signal may be noisy or misleading outside validated workloads.', testedOn: ['MiniMax M2.5', 'gpt-oss-20b'] },
     hot_expert_tail_window: { id: 'hot_expert_tail_window', applicability: 'moe-huge', runtimeSupport: 'generic-moe-hot-expert-path', validation: 'partial', risk: 'medium', failureModeRu: 'Неподходящее окно может не помочь или дать маленький регресс.', failureModeEn: 'An unsuitable tail window may not help or may cause a small regression.', testedOn: ['MiniMax M2.5', 'gpt-oss-20b'] },
+    hot_expert_tail_blend: { id: 'hot_expert_tail_blend', applicability: 'moe-huge', runtimeSupport: 'generic-moe-hot-expert-path', validation: 'research', risk: 'low', failureModeRu: 'Неудачный blend factor может не улучшить hot-set selection по сравнению с hard reset.', failureModeEn: 'A suboptimal blend factor may not improve hot-set selection compared to hard reset.', testedOn: [] },
     merge_qkv: { id: 'merge_qkv', applicability: 'arch-specific', runtimeSupport: 'arch-sensitive', validation: 'research', risk: 'medium', failureModeRu: 'Слабый или отрицательный win из-за неудачного attention/layout path.', failureModeEn: 'Weak or negative win due to an unfavorable attention/layout path.', testedOn: [] },
     prompt_packed_qkv: { id: 'prompt_packed_qkv', applicability: 'split-qkv', runtimeSupport: 'split-qkv-generic-auto-family-first', validation: 'partial', risk: 'high', failureModeRu: 'Дополнительная RAM, более долгий load/startup, и на части families prompt-side gain без strong mixed-path value.', failureModeEn: 'Extra RAM, longer load/startup, and on some families prompt-side gain without strong mixed-path value.', testedOn: ['gpt-oss-120b', 'gpt-oss-20b', 'Qwen3-30B-A3B'] },
     prompt_packed_qkv_preset: { id: 'prompt_packed_qkv_preset', applicability: 'split-qkv', runtimeSupport: 'split-qkv-generic-auto-family-first', validation: 'partial', risk: 'high', failureModeRu: 'Неподходящий preset или family mismatch.', failureModeEn: 'Suboptimal preset or family mismatch.', testedOn: ['gpt-oss-120b', 'gpt-oss-20b', 'Qwen3-30B-A3B'] },
@@ -66,8 +67,11 @@
     none: { id: 'none', title: { ru: 'Manual / off', en: 'Manual / off' }, descKey: 'exp_preset_none', risk: 'low', scope: 'generic', familyHint: [], testedOn: [], validation: 'helper', confidence: { fallback: 'helper' }, experimental: {}, validated: {} },
     'minimax-mixed-locality': { id: 'minimax-mixed-locality', title: { ru: 'MiniMax mixed locality', en: 'MiniMax mixed locality' }, descKey: 'exp_preset_minimax', risk: 'medium', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5'], validation: 'partial', confidence: { fallback: 'medium' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false } },
     'minimax-locality-aggressive': { id: 'minimax-locality-aggressive', title: { ru: 'MiniMax locality aggressive', en: 'MiniMax locality aggressive' }, desc: { ru: 'Более рискованный вариант для huge MiniMax: сохраняет tail-window selection, но дополнительно поднимает Hot Expert Budget до 24. Теоретически может лучше удерживать ранний decode, но длинные прогоны не подтвердили это как новый default.', en: 'A riskier huge-MiniMax variant: keeps tail-window selection and also raises Hot Expert Budget to 24. It may hold early decode better in theory, but longer runs did not validate it as a new default.' }, risk: 'high', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5'], validation: 'research', confidence: { fallback: 'low' }, experimental: { hot_expert_budget: 24, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false } },
+    'minimax-tapered-ram-hot': { id: 'minimax-tapered-ram-hot', title: { ru: 'Tapered-RAM hot experts', en: 'Tapered-RAM hot experts' }, desc: { ru: 'Для кастомного кванта Tapered-RAM (~91 GiB): модель на границе in-RAM, поэтому hot expert budget может реально помочь — удерживаем 16 экспертов горячими, tail-window=16 для стабильного decode. SER выключен, rtr=off (repack может увеличить потребление за границу RAM).', en: 'For custom Tapered-RAM quant (~91 GiB): model is on the edge of fitting in RAM, so hot expert budget may genuinely help — keep 16 experts hot, tail-window=16 for stable decode. SER off, rtr=off (repack may push memory over the RAM limit).' }, risk: 'medium', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5 Tapered-RAM'], validation: 'research', confidence: { fallback: 'low' }, experimental: { hot_expert_budget: 16, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', n_ctx: 4096 } },
+    'minimax-tapered-ram-ser': { id: 'minimax-tapered-ram-ser', title: { ru: 'Tapered-RAM SER + hot', en: 'Tapered-RAM SER + hot' }, desc: { ru: 'Таpered-RAM с SER: обрезаем экспертов с весом <5% (min 4 останутся), hot budget 16, tail-window 16. Потенциально быстрее за счёт меньшего I/O, но риск потери качества. Сравнивать поштучно с safe baseline и hot-only пресетом.', en: 'Tapered-RAM with SER: prune experts below 5% weight (min 4 remain), hot budget 16, tail-window 16. Potentially faster via less I/O, but quality risk. Compare one-knob-at-a-time against safe baseline and hot-only preset.' }, risk: 'high', scope: 'moe', familyHint: ['minimax'], testedOn: ['MiniMax M2.5 Tapered-RAM'], validation: 'research', confidence: { fallback: 'none' }, experimental: { hot_expert_budget: 16, hot_expert_budget_mult: 0, hot_expert_selection: 'tail-window', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '', ser_enabled: true, ser_min: 4, ser_thresh: 0.05 }, validated: { workload_profile: 'mixed', flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', n_ctx: 4096 } },
     'qwen-prompt-packed': { id: 'qwen-prompt-packed', title: { ru: 'Qwen prompt-packed', en: 'Qwen prompt-packed' }, descKey: 'exp_preset_qwen', risk: 'high', scope: 'moe', familyHint: ['qwen3moe'], testedOn: ['Qwen3-30B-A3B'], validation: 'partial', confidence: { fallback: 'low' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'front-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto' } },
     'gptoss-prompt-packed': { id: 'gptoss-prompt-packed', title: { ru: 'gpt-oss prompt-packed', en: 'gpt-oss prompt-packed' }, descKey: 'exp_preset_gptoss', risk: 'medium', scope: 'moe', familyHint: ['gpt-oss'], testedOn: ['gpt-oss-120b', 'gpt-oss-20b'], validation: 'validated', confidence: { entries: [{ selector: { family: 'gpt-oss', modelSizeTag: '120b' }, level: 'medium' }, { selector: { family: 'gpt-oss', modelSizeTag: '20b' }, level: 'low' }], fallback: 'none' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'back-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto' } },
+    'gptoss120b-optimized': { id: 'gptoss120b-optimized', title: { ru: 'gpt-oss-120b all-in', en: 'gpt-oss-120b all-in' }, desc: { ru: 'Лучший известный конфиг для gpt-oss-120b: ctk q4_0 (+14.5% PP, подтверждено r=5) + prompt-packed back-half (+3.45% PP, 0% регрессия TG). Суммарный выигрыш по PP ≈ +18%. Доп. RAM на packed-матрицы (~270 MiB). Не применять к gpt-oss-20b — там packed даёт слабый mixed-path signal.', en: 'Best-known config for gpt-oss-120b: ctk q4_0 (+14.5% PP, confirmed r=5) + prompt-packed back-half (+3.45% PP, 0% TG regression). Combined PP gain ≈ +18%. Extra RAM for packed matrices (~270 MiB). Do not apply to gpt-oss-20b — packed has weak mixed-path signal there.' }, risk: 'high', scope: 'moe-huge', familyHint: ['gpt-oss'], testedOn: ['gpt-oss-120b'], validation: 'validated', confidence: { entries: [{ selector: { family: 'gpt-oss', modelSizeTag: '120b' }, level: 'high' }], fallback: 'none' }, experimental: { hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, merge_qkv: false, prompt_packed_qkv: true, prompt_packed_qkv_preset: 'back-half', prompt_packed_qkv_range: '', ser_enabled: false }, validated: { flash_attn: true, graph_reuse: true, repack_tensors: 'auto', cache_type_k: 'q4_0', cache_type_v: 'q8_0' } },
     'attention-merge-qkv': { id: 'attention-merge-qkv', title: { ru: 'Attention merge-qkv', en: 'Attention merge-qkv' }, descKey: 'exp_preset_merge_qkv', risk: 'medium', scope: 'generic', familyHint: ['qwen3moe', 'gpt-oss', 'other'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { merge_qkv: true, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, graph_reuse: true } },
     'huge-moe-ser-light': { id: 'huge-moe-ser-light', title: { ru: 'Huge MoE SER light', en: 'Huge MoE SER light' }, desc: { ru: 'Мягкий router-side эксперимент для больших MoE: включает SER с min=4 и threshold=0.05. Идея — отрезать очень слабых экспертов и уменьшить I/O, не делая pruning слишком агрессивным.', en: 'A mild router-side experiment for large MoE: enables SER with min=4 and threshold=0.05. The goal is to prune very weak experts and reduce I/O without making pruning too aggressive.' }, risk: 'medium', scope: 'moe', familyHint: ['minimax', 'qwen3moe', 'gpt-oss'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { ser_enabled: true, ser_min: 4, ser_thresh: 0.05, hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, merge_up_gate_exps: false } },
     'huge-moe-ser-aggressive': { id: 'huge-moe-ser-aggressive', title: { ru: 'Huge MoE SER aggressive', en: 'Huge MoE SER aggressive' }, desc: { ru: 'Более рискованный router-side bundle для больших MoE: SER с min=3 и threshold=0.10. Теоретически может сильнее разгрузить I/O, но риск потери качества и нестабильности решения роутера выше.', en: 'A more aggressive router-side bundle for large MoE: SER with min=3 and threshold=0.10. It may reduce I/O further in theory, but quality loss and routing instability risk are higher.' }, risk: 'high', scope: 'moe', familyHint: ['minimax', 'qwen3moe', 'gpt-oss'], testedOn: [], validation: 'research', confidence: { fallback: 'none' }, experimental: { ser_enabled: true, ser_min: 3, ser_thresh: 0.10, hot_expert_budget: 0, hot_expert_budget_mult: 0, hot_expert_selection: 'default', hot_expert_tail_window: 16, prompt_packed_qkv: false, prompt_packed_qkv_preset: 'auto', prompt_packed_qkv_range: '' }, validated: { flash_attn: true, merge_up_gate_exps: false } },
@@ -86,9 +90,18 @@
     },
     gptoss_huge_throughput: {
       id: 'gptoss_huge_throughput',
-      title: { ru: 'gpt-oss huge (throughput)', en: 'gpt-oss huge (throughput)' },
-      description: { ru: 'gpt-oss-120b: throughput-first профиль, но startup/load будут дороже.', en: 'gpt-oss-120b: throughput-first profile, but startup/load will be more expensive.' },
+      title: { ru: 'gpt-oss-120b (throughput)', en: 'gpt-oss-120b (Throughput)' },
+      description: { ru: 'gpt-oss-120b: ctk q4_0 подтверждён (+14.5% PP, нейтральный TG, bench r=5).', en: 'gpt-oss-120b: ctk q4_0 confirmed (+14.5% PP, neutral TG, bench r=5).' },
       applicability: 'moe-huge',
+      validation: 'validated',
+      confidence: 'high',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q4_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' }
+    },
+    qwen3moe_30b: {
+      id: 'qwen3moe_30b',
+      title: { ru: 'Qwen3-30B-A3B', en: 'Qwen3-30B-A3B' },
+      description: { ru: 'Qwen3-30B-A3B: оптимальный baseline, TG стабилен при любой длине ответа.', en: 'Qwen3-30B-A3B: optimal baseline, TG is stable at any output length.' },
+      applicability: 'moe',
       validation: 'validated',
       confidence: 'high',
       values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' }
@@ -96,11 +109,29 @@
     minimax_huge_safe: {
       id: 'minimax_huge_safe',
       title: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
-      description: { ru: 'MiniMax M2.5: консервативный OFF-baseline; mixed path стоит сравнивать с AUTO.', en: 'MiniMax M2.5: conservative OFF baseline; mixed path should be compared against AUTO.' },
+      description: { ru: 'MiniMax M2.5 UD-Q5 и другие huge-кванты (>100 GiB): консервативный OFF-baseline для явно swap-bound моделей.', en: 'MiniMax M2.5 UD-Q5 and other huge quants (>100 GiB): conservative OFF baseline for clearly swap-bound models.' },
       applicability: 'moe-huge',
       validation: 'partial',
       confidence: 'medium',
-      values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed' }
+      values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed', n_ctx: 4096 }
+    },
+    minimax_tapered_ram: {
+      id: 'minimax_tapered_ram',
+      title: { ru: 'MiniMax Tapered-RAM (~91 GiB)', en: 'MiniMax Tapered-RAM (~91 GiB)' },
+      description: { ru: 'Кастомный квант Tapered-RAM: почти влезает в 96 GB RAM при малом контексте. Безопасный baseline.', en: 'Custom Tapered-RAM quant: nearly fits in 96 GB RAM with small context. Safe baseline.' },
+      applicability: 'moe-huge',
+      validation: 'partial',
+      confidence: 'medium',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'off', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed', n_ctx: 4096 }
+    },
+    minimax_tapered_ram_experimental: {
+      id: 'minimax_tapered_ram_experimental',
+      title: { ru: 'MiniMax Tapered-RAM (experimental)', en: 'MiniMax Tapered-RAM (experimental)' },
+      description: { ru: 'Tapered-RAM с экспериментальными knobs: rtr=auto, hot experts, SER. Сравнивать с safe baseline поштучно.', en: 'Tapered-RAM with experimental knobs: rtr=auto, hot experts, SER. Compare against safe baseline one knob at a time.' },
+      applicability: 'moe-huge',
+      validation: 'experimental',
+      confidence: 'low',
+      values: { threads: 16, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'moe', workload_profile: 'mixed', n_ctx: 4096, ser_enabled: true, ser_min: 4, ser_thresh: 0.05, hot_expert_budget: 16 }
     },
     dense_in_ram: {
       id: 'dense_in_ram',
@@ -147,6 +178,11 @@
       noteRu: 'MiniMax имеет подтвержденную huge-MoE линию, но часть runtime guidance все еще research/partial.',
       noteEn: 'MiniMax has a confirmed huge-MoE line, but part of its runtime guidance is still research/partial.'
     },
+    qwen35: {
+      status: 'partial',
+      noteRu: 'Qwen3.5 — dense гибрид (attention + SSM). rtr off обязателен, MoE-knobs не применимы.',
+      noteEn: 'Qwen3.5 is a dense hybrid (attention + SSM). rtr off is required, MoE knobs are not applicable.'
+    },
     other: {
       status: 'unknown',
       noteRu: 'Для этой family пока нет validated product line. Используйте class-level guidance и отдельный A/B.',
@@ -172,6 +208,12 @@
       valueEn: 'MiniMax M2.5',
       noteRu: 'Huge-MoE линия подтверждена, но часть runtime guidance все еще остается research/partial.',
       noteEn: 'The huge-MoE line is confirmed, but part of the runtime guidance is still research/partial.'
+    },
+    qwen35: {
+      valueRu: 'Qwen3.5',
+      valueEn: 'Qwen3.5',
+      noteRu: 'Dense гибридная модель (attention + SSM/Mamba). Используйте rtr off, MoE-knobs не применимы.',
+      noteEn: 'Dense hybrid model (attention + SSM/Mamba). Use rtr off, MoE knobs are not applicable.'
     },
     other: {
       valueRu: 'Не определено',
@@ -201,6 +243,7 @@
       qwen3moe: { labelRu: 'Семейство: Qwen3MoE', labelEn: 'Family: Qwen3MoE', className: 'family-qwen' },
       'gpt-oss': { labelRu: 'Семейство: gpt-oss', labelEn: 'Family: gpt-oss', className: 'family-gptoss' },
       minimax: { labelRu: 'Семейство: MiniMax M2.5', labelEn: 'Family: MiniMax M2.5', className: 'family-minimax' },
+      qwen35: { labelRu: 'Семейство: Qwen3.5', labelEn: 'Family: Qwen3.5', className: 'family-qwen' },
       other: { labelRu: 'Семейство: Не определено', labelEn: 'Family: Not detected', className: 'family-generic' }
     },
     path: {
@@ -349,6 +392,19 @@
       }
     },
     {
+      id: 'qwen35-hybrid',
+      matches: (ctx) => ctx.family === 'qwen35',
+      mode: 'off',
+      reasons: {
+        ru: [
+          { value: 'OFF', text: 'rtr OFF: Qwen3.5 — гибридная архитектура (attention + SSM/Mamba). -rtr on вызывает зависание.' }
+        ],
+        en: [
+          { value: 'OFF', text: 'rtr OFF: Qwen3.5 is a hybrid architecture (attention + SSM/Mamba). -rtr on causes hangs.' }
+        ]
+      }
+    },
+    {
       id: 'generic-dense-swap',
       matches: (ctx) => ctx.isSwapBound,
       mode: 'off',
@@ -421,15 +477,15 @@
     {
       id: 'gptoss20b-baseline',
       matches: (ctx) => ctx.family === 'gpt-oss' && getModelSizeTag(ctx) === '20b',
-      titleRu: 'gpt-oss-20b baseline',
-      titleEn: 'gpt-oss-20b baseline',
+      titleRu: 'gpt-oss-20b throughput',
+      titleEn: 'gpt-oss-20b throughput',
       defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
       reasons: {
         ru: [
           { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: для gpt-oss-20b current baseline оценивается по prompt+generation, а не только по TG.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline для gpt-oss-20b.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: на gpt-oss MXFP4 флаг -muge вызывает краш. Никогда не включать для этой family.' },
-          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: оптимально для gpt-oss-20b MXFP4. Свип q5_1/q5_0/q4_1/q4_0 не дал улучшения PP/TG (bench r=3, 2026-03-06). ctk q4_0 дополнительно крашит llama-cli в интерактивном режиме.' },
           { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: подтверждено нейтральным по скорости на Zen4 (2026-03-06). Экономит ~50% V-cache без деградации.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как базовый runtime path.' }
         ],
@@ -437,7 +493,7 @@
           { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: the current gpt-oss-20b baseline is judged by prompt+generation, not TG alone.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: current validated baseline for gpt-oss-20b.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: -muge crashes on gpt-oss MXFP4 (exit 127, all commits). Never enable for this family.' },
-          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current KV baseline.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: optimal for gpt-oss-20b MXFP4. Full sweep (q5_1/q5_0/q4_1/q4_0) showed no PP/TG improvement (bench r=3, 2026-03-06). ctk q4_0 also crashes llama-cli in interactive mode.' },
           { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: confirmed neutral in Zen4 benchmarks (2026-03-06). Saves ~50% V-cache with no regression.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the default runtime path.' }
         ]
@@ -448,13 +504,13 @@
       matches: (ctx) => ctx.family === 'gpt-oss' && getModelSizeTag(ctx) === '120b',
       titleRu: 'gpt-oss-120b throughput-first',
       titleEn: 'gpt-oss-120b throughput-first',
-      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', graph_reuse: true },
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q4_0', cache_type_v: 'q8_0', graph_reuse: true },
       reasons: {
         ru: [
           { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: именно здесь сейчас видна practical value для huge gpt-oss.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: оставляем как throughput baseline.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: current throughput-first baseline не опирается на этот knob.' },
-          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: huge-model baseline требует экономии KV.' },
+          { param: 'cache_type_k', value: 'q4_0', text: 'ctk q4_0: подтверждено +14.5% PP512 при нейтральном TG vs q8_0 (bench 2026-03-06, r=5).' },
           { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: на 120b экономия V-cache уже practically useful.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: оставляем включенным как baseline runtime path.' }
         ],
@@ -462,7 +518,7 @@
           { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: this is where practical value is currently visible for huge gpt-oss.' },
           { param: 'flash_attn', value: 'ON', text: 'Flash Attention: keep it as the throughput baseline.' },
           { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: the current throughput-first baseline does not rely on this knob.' },
-          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: the huge-model baseline needs KV savings.' },
+          { param: 'cache_type_k', value: 'q4_0', text: 'ctk q4_0: confirmed +14.5% PP512 with neutral TG vs q8_0 (bench 2026-03-06, r=5).' },
           { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: V-cache savings are already practically useful on 120b.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the baseline runtime path.' }
         ]
@@ -515,6 +571,31 @@
           { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: current generic KV baseline for MoE.' },
           { param: 'cache_type_v', value: 'q8_0', text: 'ctv q8_0: conservative MoE baseline for memory efficiency.' },
           { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: keep it enabled as the generic runtime baseline.' }
+        ]
+      }
+    },
+    {
+      id: 'qwen35-baseline',
+      matches: (ctx) => ctx.family === 'qwen35',
+      titleRu: 'Qwen3.5 dense-hybrid baseline',
+      titleEn: 'Qwen3.5 dense-hybrid baseline',
+      defaults: { workload_profile: 'mixed', flash_attn: true, merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'f16', graph_reuse: true },
+      reasons: {
+        ru: [
+          { param: 'workload_profile', value: 'mixed', text: 'Профиль mixed: generic baseline для Qwen3.5.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: baseline для dense-hybrid.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: Qwen3.5 — dense модель, экспертов нет.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: baseline для KV-cache.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: V-cache без агрессивной компрессии.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: включен как baseline.' }
+        ],
+        en: [
+          { param: 'workload_profile', value: 'mixed', text: 'Mixed workload: generic baseline for Qwen3.5.' },
+          { param: 'flash_attn', value: 'ON', text: 'Flash Attention: baseline for dense-hybrid.' },
+          { param: 'merge_up_gate_exps', value: 'OFF', text: 'muge OFF: Qwen3.5 is a dense model, no experts.' },
+          { param: 'cache_type_k', value: 'q8_0', text: 'ctk q8_0: baseline for KV cache.' },
+          { param: 'cache_type_v', value: 'f16', text: 'ctv f16: V-cache without aggressive compression.' },
+          { param: 'graph_reuse', value: 'ON', text: 'Graph Reuse: enabled as baseline.' }
         ]
       }
     },

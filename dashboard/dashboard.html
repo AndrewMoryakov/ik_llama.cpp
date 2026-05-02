@@ -619,6 +619,18 @@
 
             <div class="param-row">
               <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_tail_blend"></span>
+                <span data-i18n="p_hot_tail_blend">Tail Blend</span>
+              </div>
+              <div class="param-control">
+                <input type="number" id="p-hot_expert_tail_blend" min="0" max="0.99" step="0.05" value="0" onchange="S.hot_expert_tail_blend=+this.value">
+              </div>
+              <div class="param-desc" data-i18n="d_hot_tail_blend">Soft blending factor (0–0.99) for early expert hits at the tail-window boundary. 0 = hard reset (default). Values like 0.3 scale early hits by 30% before the tail window starts accumulating, preserving partial early signal.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
                 <span class="cli-flag">-mqkv</span>
                 <span class="dot" id="dot-merge_qkv"></span>
                 <span data-i18n="p_mqkv">Merge QKV</span>

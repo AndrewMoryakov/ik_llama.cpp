@@ -31,6 +31,7 @@
     if (arch.includes('minimax') || name.includes('minimax')) return 'minimax';
     if (arch.includes('openai') || arch.includes('gpt-oss') || name.includes('gpt-oss')) return 'gpt-oss';
     if (arch.includes('qwen3moe') || (name.includes('qwen3') && name.includes('a3b'))) return 'qwen3moe';
+    if (arch.includes('qwen35') || name.includes('qwen3.5') || name.includes('qwen3_5')) return 'qwen35';
     return 'other';
   }
 
@@ -208,6 +209,11 @@
       msg: 'w_rtr_nommap',
     },
     {
+      id: 'qwen35_rtr_on', severity: 'error', params: ['repack_tensors'],
+      test: (s) => detectModelFamily(s) === 'qwen35' && getRtrMode(s) === 'on',
+      msg: 'w_qwen35_rtr_on', fix: 'w_qwen35_rtr_on_fix',
+    },
+    {
       id: 'minimax_rtr_on', severity: 'warning', params: ['repack_tensors'],
       test: (s, p) => detectModelFamily(s) === 'minimax' && getRtrMode(s) === 'on' && isSwapBound(s, p),
       msg: 'w_minimax_rtr_on',
@@ -236,6 +242,11 @@
       id: 'workload_pp', severity: 'info', params: ['workload_profile'],
       test: (s) => s.workload_profile === 'pp',
       msg: 'w_workload_pp',
+    },
+    {
+      id: 'qwen35_moe_knobs', severity: 'warning', params: ['ser_enabled', 'hot_expert_budget', 'merge_up_gate_exps'],
+      test: (s) => detectModelFamily(s) === 'qwen35' && (s.ser_enabled || (s.hot_expert_budget || 0) > 0 || s.merge_up_gate_exps),
+      msg: 'w_qwen35_moe_knobs',
     },
     {
       id: 'muge_dense', severity: 'info', params: ['merge_up_gate_exps'],
@@ -288,6 +299,7 @@
     hot_expert_budget_mult: 'moe-huge',
     hot_expert_selection: 'moe-huge',
     hot_expert_tail_window: 'moe-huge',
+    hot_expert_tail_blend: 'moe-huge',
     merge_qkv: 'arch-specific',
     k_cache_hadamard: 'quantized-kv',
     prompt_packed_qkv: 'split-qkv',
@@ -318,6 +330,7 @@
     hot_expert_budget_mult: 'p-hot_expert_budget_mult',
     hot_expert_selection: 'p-hot_expert_selection',
     hot_expert_tail_window: 'p-hot_expert_tail_window',
+    hot_expert_tail_blend: 'p-hot_expert_tail_blend',
     experimental_preset: 'experimental-preset-picker',
     hostname: 'p-hostname',
     port: 'p-port',
@@ -370,6 +383,7 @@
     hot_expert_budget_mult: 'optimization',
     hot_expert_selection: 'optimization',
     hot_expert_tail_window: 'optimization',
+    hot_expert_tail_blend: 'optimization',
     experimental_preset: 'optimization',
     experimental_preset_link_validated: 'optimization',
     graph_reuse: 'optimization',

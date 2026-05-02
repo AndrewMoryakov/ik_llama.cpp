@@ -22,6 +22,9 @@
     if (s.hot_expert_selection === 'tail-window' && (s.hot_expert_tail_window || 0) > 0) {
       args.push('--experimental', `hot-expert-tail-window=${s.hot_expert_tail_window}`);
     }
+    if ((s.hot_expert_tail_blend || 0) > 0) {
+      args.push('--experimental', `hot-expert-tail-blend=${s.hot_expert_tail_blend}`);
+    }
     if (s.prompt_packed_qkv) {
       args.push('--experimental', 'prompt-packed-qkv=on');
       const explicitRange = String(s.prompt_packed_qkv_range || '').trim();
@@ -65,6 +68,7 @@
     if (s.n_gpu_layers !== -1) parts.push('-ngl ' + s.n_gpu_layers);
 
     if (isServer) {
+      parts.push('--metrics');
       if (s.hostname !== '127.0.0.1') parts.push('--host ' + s.hostname);
       if (s.port !== 8080) parts.push('--port ' + s.port);
       if (s.n_parallel !== 1) parts.push('-np ' + s.n_parallel);
@@ -120,6 +124,7 @@
     if (s.n_gpu_layers !== -1) args.push('-ngl', '' + s.n_gpu_layers);
 
     if (isServer) {
+      args.push('--metrics');
       args.push('--host', s.hostname || '127.0.0.1');
       args.push('--port', '' + (s.port || 8080));
       if (s.n_parallel !== 1) args.push('-np', '' + s.n_parallel);

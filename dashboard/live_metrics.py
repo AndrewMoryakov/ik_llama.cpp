@@ -46,11 +46,39 @@ class LiveMetricsAggregator:
     ARCH_RE = re.compile(r"general\.architecture\s+str\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)")
     ARCH_META_RE = re.compile(r"llm_load_print_meta:\s+arch\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)")
 
+    # llama_print_timings lines (emitted after every response, works without pg-trace)
+    TIMINGS_EVAL_RE = re.compile(
+        r"llama_print_timings:\s+eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<runs>\d+)\s+runs\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
+    )
+    TIMINGS_PROMPT_RE = re.compile(
+        r"llama_print_timings:\s+prompt eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<tokens>\d+)\s+tokens\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)"
+    )
+
     def __init__(self):
         self.reset()
 
+    def notify_output_line(self):
+        """Called by ProcessManager on every output line to track generation rate."""
+        now = time.time()
+        self._output_timestamps.append(now)
+        # Keep only last 30 seconds of timestamps
+        cutoff = now - 30.0
+        self._output_timestamps = [t for t in self._output_timestamps if t > cutoff]
+
+    def _calc_realtime_tps(self):
+        """Estimate current tok/s from recent output line rate (last 5 seconds)."""
+        now = time.time()
+        recent = [t for t in self._output_timestamps if t > now - 5.0]
+        if len(recent) < 2:
+            return 0.0
+        duration = recent[-1] - recent[0]
+        if duration <= 0:
+            return 0.0
+        return round((len(recent) - 1) / duration, 2)
+
     def reset(self):
         self.started_at = time.time()
+        self._output_timestamps = []
         self.architecture = ""
         self.trace = {
             "pg_enabled": False,
@@ -66,8 +94,12 @@ class LiveMetricsAggregator:
             "decode_tail_steps": 0,
             "last_token_ms": 0.0,
             "avg_decode_tps": 0.0,
+            "min_decode_tps": 0.0,
+            "max_decode_tps": 0.0,
+            "current_decode_tps": 0.0,
             "ttft_ms": 0.0,
             "recent": [],
+            "session_history": [],
         }
         self.phase_events = []
         self.moe = {
@@ -285,14 +317,63 @@ class LiveMetricsAggregator:
                 self.phase["first_decode_ms"] = total_ms
                 self.phase["ttft_ms"] = total_ms
                 self.phase["last_token_ms"] = total_ms
-                self.phase["avg_decode_tps"] = round(1000.0 / total_ms, 2) if total_ms > 0 else 0.0
+                current_tps = round(1000.0 / total_ms, 2) if total_ms > 0 else 0.0
+                self.phase["avg_decode_tps"] = current_tps
+                self.phase["current_decode_tps"] = current_tps
+                self.phase["min_decode_tps"] = current_tps
+                self.phase["max_decode_tps"] = current_tps
             elif phase == "decode_after_prompt":
                 self.phase["current"] = "decode"
                 self.phase["decode_tail_ms"] += total_ms
                 self.phase["decode_tail_steps"] += 1
                 self.phase["last_token_ms"] = total_ms
+                current_tps = round(1000.0 / total_ms, 2) if total_ms > 0 else 0.0
+                self.phase["current_decode_tps"] = current_tps
                 avg_ms = self.phase["decode_tail_ms"] / max(self.phase["decode_tail_steps"], 1)
                 self.phase["avg_decode_tps"] = round(1000.0 / avg_ms, 2) if avg_ms > 0 else 0.0
+                if current_tps > 0:
+                    if self.phase["min_decode_tps"] <= 0 or current_tps < self.phase["min_decode_tps"]:
+                        self.phase["min_decode_tps"] = current_tps
+                    if current_tps > self.phase["max_decode_tps"]:
+                        self.phase["max_decode_tps"] = current_tps
+            return
+
+        # Parse llama_print_timings (works without pg-trace, emitted after every response)
+        m_eval = self.TIMINGS_EVAL_RE.search(line)
+        if m_eval:
+            tps = float(m_eval.group("tps"))
+            runs = int(m_eval.group("runs"))
+            per_token = float(m_eval.group("per_token_ms"))
+            if tps > 0 and runs > 0:
+                self.phase["current_decode_tps"] = round(tps, 2)
+                self.phase["avg_decode_tps"] = round(tps, 2)
+                self.phase["decode_tail_steps"] = runs
+                self.phase["last_token_ms"] = per_token
+                if self.phase["min_decode_tps"] <= 0 or tps < self.phase["min_decode_tps"]:
+                    self.phase["min_decode_tps"] = round(tps, 2)
+                if tps > self.phase["max_decode_tps"]:
+                    self.phase["max_decode_tps"] = round(tps, 2)
+                self.phase["session_history"].append({
+                    "type": "eval",
+                    "tps": round(tps, 2),
+                    "tokens": runs,
+                    "per_token_ms": per_token,
+                })
+                self.phase["session_history"] = self.phase["session_history"][-32:]
+            return
+
+        m_prompt = self.TIMINGS_PROMPT_RE.search(line)
+        if m_prompt:
+            tps = float(m_prompt.group("tps"))
+            tokens = int(m_prompt.group("tokens"))
+            self.phase["prompt_tokens"] = tokens
+            self.phase["prompt_ms"] = float(m_prompt.group("total_ms"))
+            self.phase["session_history"].append({
+                "type": "prompt",
+                "tps": round(tps, 2),
+                "tokens": tokens,
+            })
+            self.phase["session_history"] = self.phase["session_history"][-32:]
             return
 
         m_hot = self.HOT_TRACE_RE.search(line)

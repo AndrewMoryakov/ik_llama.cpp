@@ -31,6 +31,7 @@
     hot_expert_budget_mult: 0,
     hot_expert_selection: 'default',
     hot_expert_tail_window: 16,
+    hot_expert_tail_blend: 0,
     experimental_preset: 'none',
     experimental_preset_link_validated: true,
     prompt_packed_qkv: false,

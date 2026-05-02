@@ -100,15 +100,27 @@
       currentLang || 'ru',
       { detectModelFamily, isSwapBound }
     );
-    params.repack_tensors = rtrGuidance?.mode || (isMoE ? 'auto' : (swapBound ? 'off' : 'on'));
-    (rtrGuidance?.reasons || []).forEach((entry) => {
+    // Qwen3.5 hybrid (attention + SSM) — rtr on causes hangs, force off
+    if (family === 'qwen35') {
+      params.repack_tensors = 'off';
       reasons.push({
-        param: 'repack_tensors',
-        value: entry.value,
-        ru: entry.text,
-        en: entry.text,
+        param: 'repack_tensors', value: 'off',
+        ru: 'rtr OFF: Qwen3.5 — гибридная архитектура (attention + SSM/Mamba). -rtr on вызывает зависание, используем off.',
+        en: 'rtr OFF: Qwen3.5 is a hybrid architecture (attention + SSM/Mamba). -rtr on causes hangs, using off.',
       });
-    });
+    } else {
+      params.repack_tensors = rtrGuidance?.mode || (isMoE ? 'auto' : (swapBound ? 'off' : 'on'));
+    }
+    if (family !== 'qwen35') {
+      (rtrGuidance?.reasons || []).forEach((entry) => {
+        reasons.push({
+          param: 'repack_tensors',
+          value: entry.value,
+          ru: entry.text,
+          en: entry.text,
+        });
+      });
+    }
 
     // --- KV Cache context override for huge/long context ---
     if (contextLen > 65536 && params.cache_type_v !== 'q8_0') {
@@ -120,8 +132,15 @@
       });
     }
 
+    // --- Qwen3.5: force dense, no MoE knobs ---
+    if (family === 'qwen35') {
+      params.model_type = 'dense';
+      params.ser_enabled = false;
+      params.merge_up_gate_exps = false;
+    }
+
     // --- SER for swap-bound MoE ---
-    if (isMoE && swapBound && expertUsed >= 4) {
+    if (isMoE && swapBound && expertUsed >= 4 && family !== 'qwen35') {
       params.ser_enabled = false;
       params.ser_min = Math.max(2, Math.floor(expertUsed / 2));
       params.ser_thresh = 0.05;
@@ -151,6 +170,16 @@
         param: 'n_ctx', value: params.n_ctx,
         ru: `Контекст ${params.n_ctx}: swap-bound, ограничиваем для экономии RAM (макс. модели: ${contextLen})`,
         en: `Context ${params.n_ctx}: swap-bound, limited to save RAM (model max: ${contextLen})`,
+      });
+    }
+
+    // --- Disable live observability for swap-bound models ---
+    if (swapBound) {
+      params.live_observability = false;
+      reasons.push({
+        param: 'live_observability', value: false,
+        ru: 'Live observability OFF: swap-bound модель, trace-флаги могут вызвать краш из-за дополнительного потребления памяти.',
+        en: 'Live observability OFF: swap-bound model, trace flags may cause crashes due to extra memory usage.',
       });
     }
 

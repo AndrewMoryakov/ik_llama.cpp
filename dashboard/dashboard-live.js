@@ -1246,8 +1246,20 @@
             <div class="live-stat-value">${formatMs(phase.ttft_ms)}</div>
           </div>
           <div class="live-stat">
+            <div class="live-stat-label">${esc(t('live_current_tps'))}</div>
+            <div class="live-stat-value" style="font-size:1.1em;font-weight:bold">${formatTps(phase.current_decode_tps)}</div>
+          </div>
+          <div class="live-stat">
             <div class="live-stat-label">${esc(t('live_decode_tps'))}</div>
             <div class="live-stat-value">${formatTps(phase.avg_decode_tps)}</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label">${esc(t('live_min_tps'))}</div>
+            <div class="live-stat-value">${formatTps(phase.min_decode_tps)}</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label">${esc(t('live_max_tps'))}</div>
+            <div class="live-stat-value">${formatTps(phase.max_decode_tps)}</div>
           </div>
           <div class="live-stat">
             <div class="live-stat-label">${esc(t('live_last_token_ms'))}</div>
@@ -1878,7 +1890,9 @@
   async function poll() {
     if (replayState.mode === 'replay') return;
     try {
-      const snapshot = await apiGet('/api/live-metrics');
+      const serverPort = (window.state && window.state.port) || 8080;
+      const serverHost = (window.state && window.state.hostname) || '127.0.0.1';
+      const snapshot = await apiGet(`/api/live-metrics?server_port=${serverPort}&server_host=${serverHost}`);
       renderToolbar();
       renderSnapshot(snapshot, {
         mode: 'live',

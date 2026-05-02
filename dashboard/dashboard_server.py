@@ -36,7 +36,60 @@ import time
 import ctypes
 from collections import deque
 from urllib.parse import urlparse, parse_qs
+import urllib.request
 from live_metrics import LiveMetricsAggregator, build_replay_from_run_dir, list_replay_runs
+
+
+_slots_prev = {"n_decoded": 0, "time": 0.0}
+
+
+def _poll_server_metrics(live_metrics, host="127.0.0.1", port=8080):
+    """Poll llama-server /slots endpoint for real-time speed during generation.
+
+    /slots returns current slot state including n_decoded which increases
+    token-by-token during generation. We calculate speed from the delta.
+    """
+    global _slots_prev
+    try:
+        url = f"http://{host}:{port}/slots"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+
+        now = time.time()
+        total_decoded = sum(slot.get("n_decoded", 0) for slot in data)
+        any_processing = any(slot.get("is_processing", False) for slot in data)
+
+        prev_decoded = _slots_prev["n_decoded"]
+        prev_time = _slots_prev["time"]
+        _slots_prev = {"n_decoded": total_decoded, "time": now}
+
+        if prev_time > 0 and total_decoded > prev_decoded:
+            dt = now - prev_time
+            if dt > 0.1:
+                delta = total_decoded - prev_decoded
+                realtime_tps = round(delta / dt, 2)
+                live_metrics.phase["current_decode_tps"] = realtime_tps
+                live_metrics.phase["current"] = "decode" if any_processing else "idle"
+                live_metrics.phase["decode_tail_steps"] = total_decoded
+
+                if live_metrics.phase["min_decode_tps"] <= 0 or realtime_tps < live_metrics.phase["min_decode_tps"]:
+                    live_metrics.phase["min_decode_tps"] = realtime_tps
+                if realtime_tps > live_metrics.phase["max_decode_tps"]:
+                    live_metrics.phase["max_decode_tps"] = realtime_tps
+                # Rolling average: blend with previous
+                prev_avg = live_metrics.phase["avg_decode_tps"]
+                if prev_avg > 0:
+                    live_metrics.phase["avg_decode_tps"] = round(prev_avg * 0.7 + realtime_tps * 0.3, 2)
+                else:
+                    live_metrics.phase["avg_decode_tps"] = realtime_tps
+        elif not any_processing and prev_time > 0:
+            # Not generating — keep last values but mark idle
+            live_metrics.phase["current"] = "idle"
+
+    except Exception:
+        pass  # Server not running or not responding — silently skip
+
 
 # ── Config ──────────────────────────────────────────────────────
 HOST = "127.0.0.1"
@@ -48,11 +101,20 @@ BUILD_BIN = os.path.join(REPO_ROOT, "build", "bin")
 BENCH_RESULTS_DIR = os.path.join(REPO_ROOT, "bench_results")
 
 # Static files allowed to be served (whitelist for security)
+_JS = "application/javascript; charset=utf-8"
+_CSS = "text/css; charset=utf-8"
 STATIC_FILES = {
-    "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
-    "/dashboard.js":  ("dashboard.js",  "application/javascript; charset=utf-8"),
-    "/dashboard-live.css": ("dashboard-live.css", "text/css; charset=utf-8"),
-    "/dashboard-live.js":  ("dashboard-live.js",  "application/javascript; charset=utf-8"),
+    "/dashboard.css":          ("dashboard.css",          _CSS),
+    "/dashboard-live.css":     ("dashboard-live.css",     _CSS),
+    "/dashboard.js":           ("dashboard.js",           _JS),
+    "/dashboard-live.js":      ("dashboard-live.js",      _JS),
+    "/evidence-layer.js":      ("evidence-layer.js",      _JS),
+    "/dashboard-i18n.js":      ("dashboard-i18n.js",      _JS),
+    "/dashboard-help.js":      ("dashboard-help.js",      _JS),
+    "/dashboard-data.js":      ("dashboard-data.js",      _JS),
+    "/dashboard-rules.js":     ("dashboard-rules.js",     _JS),
+    "/dashboard-command.js":   ("dashboard-command.js",   _JS),
+    "/dashboard-autoconfig.js":("dashboard-autoconfig.js",_JS),
 }
 
 # ── Find terminal emulator (Linux) ──────────────────────────────
@@ -272,6 +334,7 @@ class ProcessManager:
             for line in stream:
                 clean = line.rstrip("\n\r")
                 self.output_buf.append(clean)
+                self.live_metrics.notify_output_line()
                 self.live_metrics.ingest_line(clean)
         except Exception:
             pass
@@ -798,7 +861,28 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/live-metrics":
+            # Try to poll llama-server /metrics for real-time speed data
+            qs = parse_qs(urlparse(self.path).query)
+            server_port = int(qs.get("server_port", [8080])[0])
+            server_host = qs.get("server_host", ["127.0.0.1"])[0]
+            _poll_server_metrics(pm.live_metrics, server_host, server_port)
             self._json_response(pm.live_metrics.snapshot(pm.running))
+            return
+
+        if path == "/api/export-expert-stats":
+            qs = parse_qs(urlparse(self.path).query)
+            server_port = int(qs.get("server_port", [8080])[0])
+            server_host = qs.get("server_host", ["127.0.0.1"])[0]
+            # Only pass a safe filename, no arbitrary paths
+            filename = "expert_stats_session.csv"
+            try:
+                url = f"http://{server_host}:{server_port}/export-expert-stats?filename={filename}"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=5.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                self._json_response(data)
+            except Exception as e:
+                self._json_response({"status": "error", "message": str(e)}, 500)
             return
 
         if path == "/api/replay-runs":

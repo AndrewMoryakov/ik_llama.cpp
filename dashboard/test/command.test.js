@@ -58,6 +58,28 @@ describe('buildExperimentalCliArgs', () => {
     expect(args).toContain('hot-expert-tail-window=16');
   });
 
+  it('adds hot-expert-tail-blend when > 0', () => {
+    const args = ctx.buildExperimentalCliArgs({
+      live_observability: false,
+      hot_expert_budget: 0, hot_expert_budget_mult: 0,
+      hot_expert_selection: 'tail-window', hot_expert_tail_window: 16,
+      hot_expert_tail_blend: 0.3,
+      prompt_packed_qkv: false,
+    });
+    expect(args).toContain('hot-expert-tail-blend=0.3');
+  });
+
+  it('omits hot-expert-tail-blend when 0', () => {
+    const args = ctx.buildExperimentalCliArgs({
+      live_observability: false,
+      hot_expert_budget: 0, hot_expert_budget_mult: 0,
+      hot_expert_selection: 'tail-window', hot_expert_tail_window: 16,
+      hot_expert_tail_blend: 0,
+      prompt_packed_qkv: false,
+    });
+    expect(args.join(' ')).not.toContain('hot-expert-tail-blend');
+  });
+
   it('adds prompt-packed flags', () => {
     const args = ctx.buildExperimentalCliArgs({
       live_observability: false,

@@ -673,8 +673,9 @@ function renderExperimentalPresetPicker() {
     ? `<span class="preset-chip ${selected.confidenceBadge.className}">${selected.confidenceBadge.label}</span>`
     : '';
 
+  const wasOpen = root.querySelector('details')?.hasAttribute('open') || false;
   root.innerHTML = `
-    <details class="exp-preset-dropdown">
+    <details class="exp-preset-dropdown"${wasOpen ? ' open' : ''}>
       <summary>
         <div class="exp-preset-summary">
           <div class="exp-preset-summary-kicker">${pickerKicker}</div>
@@ -739,6 +740,13 @@ function applyExperimentalPreset(preset, options = {}) {
   if (!options.reapplyOnly) {
     setOptimizationPane('experimental');
   }
+}
+
+function selectExperimentalPreset(id) {
+  applyExperimentalPreset(id);
+  // Close the dropdown after selection
+  const details = document.querySelector('#experimental-preset-picker details');
+  if (details) details.removeAttribute('open');
 }
 
 function renderAdvancedHints() {
