@@ -15,6 +15,7 @@ This directory is the canonical location for project-specific documentation.
 - `archive/` - legacy notes and previous rework documents
 
 ## Start Here
+- `../docs/PROJECT_ANALYSIS.md` — полный технический анализ форка: что даёт ikawrakow (база) и что добавлено нами (swap-aware memory management, hot experts, dashboard)
 - `START_HERE_BY_GOAL.md`
 - `strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
 - `strategy/CURRENT_HANDOFF_2026-03-01.md`

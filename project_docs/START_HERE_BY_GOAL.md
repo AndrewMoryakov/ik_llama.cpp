@@ -36,16 +36,21 @@
 
 Читайте:
 
-1. `strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
+1. `../docs/PROJECT_ANALYSIS.md`
+- полный технический анализ: что даёт ikawrakow (IQK, MoE, flash attention) и что добавлено нами (hot experts, VirtualLock, dashboard)
+- цепочка наследования ggerganov → ikawrakow → наш форк
+- сводка всех изменений с числами
+
+2. `strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
 - что именно является целью форка
 - почему главный фокус сейчас на huge swap-bound MoE
 
-2. `release/CURRENT_STATUS_2026-02-28.md`
+3. `release/CURRENT_STATUS_2026-02-28.md`
 - текущее общее состояние
 - что уже сильное
 - что еще мешает считать состояние полноценным публичным milestone
 
-3. `strategy/ROADMAP_2026-02-28.md`
+4. `strategy/ROADMAP_2026-02-28.md`
 - куда реально движется проект
 - что short-term, mid-term и long-term
 
@@ -354,9 +359,10 @@
 
 ### Хочу понять проект за 10 минут
 
-1. `strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
-2. `release/CURRENT_STATUS_2026-02-28.md`
-3. `strategy/ROADMAP_2026-02-28.md`
+1. `../docs/PROJECT_ANALYSIS.md`
+2. `strategy/FORK_GOAL_AND_SCOPE_2026-02-28.md`
+3. `release/CURRENT_STATUS_2026-02-28.md`
+4. `strategy/ROADMAP_2026-02-28.md`
 
 ### Хочу просто начать пользоваться
 
