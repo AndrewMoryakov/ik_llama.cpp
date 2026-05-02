@@ -2,8 +2,10 @@
 
 #include "llama.h"
 #include "llama-impl.h"
+#include "llama-expert-io.h"
 #include "llama-mmap.h"
 #include "llama-arch.h"
+#include "llama-hparams.h"
 
 #include <cstdint>
 #include <cstddef>
@@ -40,12 +42,15 @@ struct llama_model_loader {
     int64_t n_elements = 0;
     size_t  n_bytes    = 0;
 
+    int     ncmoe      = 0;
+
     bool use_mmap = false;
     bool check_tensors;
     bool repack_tensors = false;
     bool use_thp = false;
     bool merge_qkv = false;
     bool merge_up_gate_exps = false;
+    bool defer_experts = false;
 
     llama_files files;
     llama_ftype ftype;
@@ -79,9 +84,10 @@ struct llama_model_loader {
 
     std::string arch_name;
     LLM_KV      llm_kv    = LLM_KV(LLM_ARCH_UNKNOWN);
+    llama_expert_tensor_index expert_tensor_index;
 
-    llama_model_loader(const std::string & fname, bool use_mmap, bool check_tensors, bool repack_tensors, bool use_thp,
-            bool merge_qkv, bool merge_up_gate_exps,
+    llama_model_loader(const std::string & fname, int ncmoe, bool use_mmap, bool check_tensors, bool repack_tensors, bool use_thp,
+            bool merge_qkv, bool merge_up_gate_exps, bool defer_experts,
             const llama_model_kv_override * param_overrides_p,
             const llama_model_tensor_buft_override * param_tensor_buft_overrides_p);
 
@@ -156,6 +162,12 @@ struct llama_model_loader {
 
     void init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr, bool use_thp = false);
 
+    void build_expert_tensor_index(const llama_hparams & hparams);
+
+    bool should_defer_expert_mmaps() const;
+
+    void drop_mmap_expert_pages() const;
+
     void get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const;
 
     // for backwards compatibility, does not support ggml-backend
@@ -176,7 +188,7 @@ struct llama_model_loader {
 
 void llm_load_arch(llama_model_loader & ml, llama_model & model);
 
-void llm_load_hparams(llama_model_loader & ml, llama_model & model);
+void llm_load_hparams(llama_model_loader & ml, llama_model & model, bool ignore_vocab = false);
 
 struct create_tensors_helper_interface {
     virtual ~create_tensors_helper_interface() = default;

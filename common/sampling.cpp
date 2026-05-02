@@ -2,6 +2,8 @@
 #include "sampling.h"
 #include "llama-vocab.h"
 #include "common.h"
+#include "reasoning-budget.cpp"
+
 #include <random>
 #include <nlohmann/json.hpp>
 using json = nlohmann::ordered_json;
@@ -13,12 +15,14 @@ struct common_sampler * common_sampler_init(const struct llama_model * model, co
 
     result->params  = params;
     result->grammar = nullptr;
-
+    result->rbudget = nullptr;
 
     struct llama_grammar* grmr;
-    if (params.grammar.compare(0, 11, "%llguidance") == 0) {
+    const std::string & grammar_str = common_grammar_value(params.grammar);
+    if (grammar_str.compare(0, 11, "%llguidance") == 0) {
 #ifdef LLAMA_USE_LLGUIDANCE
         grmr = llama_sampler_init_llg(vocab, "lark", params.grammar.c_str());
+        result->grammar = grmr;
 #else
         GGML_ABORT("llguidance (cmake -DLLAMA_LLGUIDANCE=ON) is not enabled");
 #endif // LLAMA_USE_LLGUIDANCE
@@ -68,18 +72,67 @@ struct common_sampler * common_sampler_init(const struct llama_model * model, co
             trigger_patterns_c.push_back(regex.c_str());
         }
 
-        grmr = params.grammar_lazy
-            ? llama_sampler_init_grammar_lazy_patterns(vocab, params.grammar.c_str(), "root",
-                trigger_patterns_c.data(), trigger_patterns_c.size(),
-                trigger_tokens.data(), trigger_tokens.size())
-            : llama_sampler_init_grammar(vocab, params.grammar.c_str(), "root");
+        if (!grammar_str.empty()) {
+            grmr = params.grammar_lazy
+                ? llama_sampler_init_grammar_lazy_patterns(vocab, grammar_str.c_str(), "root",
+                    trigger_patterns_c.data(), trigger_patterns_c.size(),
+                    trigger_tokens.data(), trigger_tokens.size())
+                : llama_sampler_init_grammar(vocab, grammar_str.c_str(), "root");
+            if (grmr) {
+                result->prev.resize(params.n_prev);
 
-        result->prev.resize(params.n_prev);
+                result->grammar = grmr;
+            }
+        }
         result->n_valid = 0;
-	    result->grammar_str = params.grammar;
-	    result->grammar_root = "root";
+        result->grammar_str = grammar_str;
+        result->grammar_root = "root";
     }
-    result->grammar = grmr;
+    
+
+
+
+    // Feed generation prompt tokens to the grammar sampler so it advances past
+    // tokens the template already placed in the prompt.
+    // Only applies to output-format and tool-call grammars; user-supplied grammars must not be prefilled.
+    std::vector<llama_token> prefill_tokens;
+    if (!params.generation_prompt.empty() && common_grammar_needs_prefill(params.grammar)) {
+        GGML_ASSERT(vocab != nullptr);
+        prefill_tokens = common_tokenize(vocab, params.generation_prompt, false, true);
+        if (!prefill_tokens.empty()) {
+            std::string first_token = common_token_to_piece(vocab, prefill_tokens[0], true);
+            if (std::isspace(first_token[0]) && !std::isspace(params.generation_prompt[0])) {
+                // Some tokenizers will add a space before the first special token, need to remove
+                prefill_tokens = std::vector<llama_token>(prefill_tokens.begin() + 1, prefill_tokens.end());
+            }
+        }
+
+        if (grmr && !params.grammar_lazy) {
+            try {
+                for (const auto & token : prefill_tokens) {
+                    llama_grammar_accept_impl(*grmr, vocab, nullptr, token);
+                    LOG_DBG("%s: accepted prefill token (%d)\n", __func__, token);
+                }
+            }
+            catch (std::exception & e) {
+                LOG_ERR("%s: error initializing grammar sampler for grammar:\n%s\n\nGeneration prompt:\n'%s'\n", __func__,
+                    common_grammar_value(params.grammar).c_str(), params.generation_prompt.c_str());
+                throw e;
+            }
+        }
+    }
+
+    // reasoning budget sampler (skip when budget is unlimited unless a lazy grammar is active, which needs rbudget for thinking-block suppression)
+    if (!params.reasoning_budget_start.empty() && !params.reasoning_budget_end.empty() && (params.grammar_lazy || params.reasoning_budget_tokens >= 0)) {
+        result->rbudget = common_reasoning_budget_init(
+            vocab,
+            params.reasoning_budget_start,
+            params.reasoning_budget_end,
+            params.reasoning_budget_forced,
+            params.reasoning_budget_tokens < 0 ? INT_MAX : params.reasoning_budget_tokens,
+            prefill_tokens);
+    }
+
     llama_sampling_set_rng_seed(result, params.seed);
     for (const auto& cnstr : params.samplers_sequence)
     {
@@ -109,22 +162,24 @@ struct common_sampler * common_sampler_init(const struct llama_model * model, co
         }
     }
 
-    result->n_rewind = -1;
-
     return result;
 }
 
 void common_sampler_free(struct common_sampler * ctx) {
-    if (ctx->grammar != NULL) {
+    if (!ctx) {
+        return;
+    }
+    if (ctx->grammar) {
         llama_grammar_free(ctx->grammar);
     }
-    if (ctx->smpl !=NULL)
+    if (ctx->smpl)
         llama_sampler_dry_free(ctx->smpl);
+    if (ctx->rbudget)
+        common_reasoning_budget_free(ctx->rbudget);
     delete ctx;
 }
 
 static void llama_grammar_reset(common_sampler * ctx) {
-    ctx->prev.clear();
     if (!ctx->grammar) {
         return;
     }
@@ -143,16 +198,15 @@ static void llama_grammar_reset(common_sampler * ctx) {
 }
 
 void common_sampler_reset(common_sampler * ctx) {
-    llama_grammar_reset(ctx);
+    // llama_grammar_reset(ctx);
+    ctx->prev.clear();
     llama_sampler_dry_reset(ctx->smpl);
 }
 
-void common_sampler_review(common_sampler * ctx) {
-    const int32_t n_rewind = ctx->n_rewind;
-
+void common_sampler_review(common_sampler * ctx, const size_t n_unsent, const bool rewind_status) {
     // add stateful samplers here
     if (ctx->adapt_p_ctx != nullptr) {
-        llama_review_adaptive_p(ctx->adapt_p_ctx, n_rewind);
+        llama_review_adaptive_p(ctx->adapt_p_ctx, n_unsent, rewind_status);
     }
 }
 
@@ -164,6 +218,12 @@ void llama_sampling_set_rng_seed(struct common_sampler * ctx, uint32_t seed) {
 }
 
 void common_sampler_clone(common_sampler * src, common_sampler * dst) {
+    dst->params = src->params;
+    dst->mirostat_mu = src->mirostat_mu;
+    dst->n_valid = src->n_valid;
+    dst->rng = src->rng;
+    dst->server_biases = src->server_biases;
+
     if (dst->grammar) {
         llama_grammar_free(dst->grammar);
         dst->grammar = nullptr;
@@ -176,7 +236,21 @@ void common_sampler_clone(common_sampler * src, common_sampler * dst) {
     }
 
     dst->prev = src->prev;
-    dst->smpl = llama_sampler_dry_clone(src->smpl);
+    if (dst->smpl) {
+        llama_sampler_dry_free(dst->smpl);
+        dst->smpl = nullptr;
+    }
+    if (src->smpl) {
+        dst->smpl = llama_sampler_dry_clone(src->smpl);
+    }
+
+    if (dst->rbudget) {
+        common_reasoning_budget_free(dst->rbudget);
+        dst->rbudget = nullptr;
+    }
+    if (src->rbudget) {
+        dst->rbudget = common_reasoning_budget_clone(src->rbudget);
+    }
 }
 
 llama_token llama_sampling_last(common_sampler * ctx) {
@@ -380,12 +454,27 @@ static void sampler_queue(
     }
 }
 
+static bool grammar_should_apply(struct common_sampler * gsmpl) {
+    if (!gsmpl->grammar) {
+        return false;
+    }
+    if (!gsmpl->rbudget) {
+        return true;
+    }
+    if (gsmpl->params.grammar_lazy) {
+        // if grammar is lazy, only apply when reasoning budget is not active
+        const auto state = common_reasoning_budget_get_state(gsmpl->rbudget);
+        return state == REASONING_BUDGET_IDLE || state == REASONING_BUDGET_DONE;
+    }
+    return true;
+}
+
 static llama_token llama_sampling_sample_impl(
                   struct common_sampler * ctx_sampling,
                   struct llama_context * ctx_main,
                   struct llama_context * ctx_cfg,
                   const int idx,
-                  bool is_resampling) {
+                  bool grammar_first) {
     const common_params_sampling & params = ctx_sampling->params;
 
     const float   temp            = params.temp;
@@ -395,19 +484,24 @@ static llama_token llama_sampling_sample_impl(
     const float   adaptive_target = params.adaptive_target;
 
     std::vector<float> original_logits;
-    llama_sampling_prepare(ctx_sampling, ctx_main, ctx_cfg, idx, /* apply_grammar= */ is_resampling, &original_logits);
+    llama_sampling_prepare(ctx_sampling, ctx_main, ctx_cfg, idx, /* grammar_first= */ grammar_first, &original_logits);
     llama_token_data_array & cur_p = ctx_sampling->cur_p;
-    if (ctx_sampling->grammar != NULL && !is_resampling) {
+    if (ctx_sampling->grammar != NULL && !grammar_first) {
         GGML_ASSERT(!original_logits.empty());
     }
+    auto & rbudget = ctx_sampling->rbudget;
+
     llama_token id = 0;
+    float * logits = llama_get_logits_ith(ctx_main, idx);
+    // apply reasoning budget first
+    common_reasoning_budget_apply(rbudget, &cur_p);
     // Sample grammar first for resampling
-    if (ctx_sampling->grammar != NULL && is_resampling) {
-        float* logits = llama_get_logits_ith(ctx_main, idx);
+    if (ctx_sampling->grammar != NULL && grammar_first && grammar_should_apply(ctx_sampling)) {
         // Apply grammar constraints to all candidates
-        llama_grammar_sample(ctx_sampling->grammar, ctx_main, &cur_p);
+        llama_grammar_apply(ctx_sampling->grammar, ctx_main, &cur_p);
     }
 
+    // llama_sampler_apply
     if (temp < 0.0) {
         // greedy sampling, with probs
         llama_sample_softmax(ctx_main, &cur_p);
@@ -425,19 +519,24 @@ static llama_token llama_sampling_sample_impl(
             id = llama_sample_token_mirostat_v2(ctx_main, &cur_p, mirostat_tau, mirostat_eta, &ctx_sampling->mirostat_mu);
         } else if (adaptive_target >= 0.0f && ctx_sampling->adapt_p_ctx!=nullptr) {
             // adaptive p sampling
+            llama_prep_adaptive_p(ctx_main, &cur_p, ctx_sampling->adapt_p_ctx);
             sampler_queue(ctx_main, params, ctx_sampling, cur_p, std::max(1, params.min_keep));
             id = llama_sample_token_adaptive_p(ctx_main, &cur_p, ctx_sampling->adapt_p_ctx);
         } else {
             // temperature sampling
             size_t min_keep = std::max(1, params.min_keep);
 
-            sampler_queue(ctx_main, params,ctx_sampling, cur_p, min_keep);           
+            sampler_queue(ctx_main, params,ctx_sampling, cur_p, min_keep);
             id = llama_sample_token_with_rng(ctx_main, &cur_p, ctx_sampling->rng);
 
         }
     }
 
-    if (ctx_sampling->grammar != NULL && !is_resampling) {
+    if (grammar_first || !grammar_should_apply(ctx_sampling)) {
+        return id;
+    }
+
+    if (ctx_sampling->grammar != NULL && !grammar_first && grammar_should_apply(ctx_sampling)) {
         // Get a pointer to the logits
         float * logits = llama_get_logits_ith(ctx_main, idx);
 
@@ -446,7 +545,7 @@ static llama_token llama_sampling_sample_impl(
         llama_token_data_array single_token_data_array = { &single_token_data, 1, false };
 
         // Apply grammar constraints to the single token
-        llama_grammar_sample(ctx_sampling->grammar, ctx_main, &single_token_data_array);
+        llama_grammar_apply(ctx_sampling->grammar, ctx_main, &single_token_data_array);
 
         // Check if the token is valid according to the grammar by seeing if its logit has been set to -INFINITY
         bool is_valid = single_token_data_array.data[0].logit != -INFINITY;
@@ -471,7 +570,7 @@ static llama_token_data_array llama_sampling_prepare_impl(
                   struct llama_context * ctx_main,
                   struct llama_context * ctx_cfg,
                   const int idx,
-                  bool apply_grammar,
+                  bool grammar_first,
                   std::vector<float> * original_logits) {
     const common_params_sampling & params = ctx_sampling->params;
 
@@ -490,15 +589,10 @@ static llama_token_data_array llama_sampling_prepare_impl(
     // Get a pointer to the logits
     float * logits = llama_get_logits_ith(ctx_main, idx);
 
-    if (ctx_sampling->grammar != NULL && !apply_grammar) {
+    if (ctx_sampling->grammar != NULL && !grammar_first) {
         GGML_ASSERT(original_logits != NULL);
         // Only make a copy of the original logits if we are not applying grammar checks, not sure if I actually have to do this.
         *original_logits = {logits, logits + n_vocab};
-    }
-
-    if ((params.temp > 0) && (params.mirostat == 0) && (params.adaptive_target >= 0) && (ctx_sampling->adapt_p_ctx != nullptr)) {
-        // collect original probability before logit bias is applied
-        llama_prep_adaptive_p(ctx_main, logits, ctx_sampling->adapt_p_ctx);
     }
 
     // apply params.logit_bias map
@@ -513,8 +607,14 @@ static llama_token_data_array llama_sampling_prepare_impl(
 
     cur.resize(n_vocab);
 
-    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
-        cur[token_id] = llama_token_data{token_id, logits[token_id], 0.0f};
+    if ((ctx_sampling->server_biases != nullptr) && (ctx_sampling->server_biases->size() == n_vocab)) {
+        for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+            cur[token_id] = llama_token_data{token_id, logits[token_id] + ctx_sampling->server_biases->at(token_id), 0.0f};
+        }
+    } else {
+        for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+            cur[token_id] = llama_token_data{token_id, logits[token_id], 0.0f};
+        }
     }
 
     ctx_sampling->cur_p = { cur.data(), cur.size(), false };
@@ -542,8 +642,8 @@ static llama_token_data_array llama_sampling_prepare_impl(
     }
 
     // apply grammar checks before sampling logic
-    if (apply_grammar && ctx_sampling->grammar != NULL) {
-        llama_grammar_sample(ctx_sampling->grammar, ctx_main, &cur_p);
+    if (grammar_first && ctx_sampling->grammar != NULL) {
+        llama_grammar_apply(ctx_sampling->grammar, ctx_main, &cur_p);
     }
 
     return cur_p;
@@ -572,27 +672,32 @@ llama_token_data_array llama_sampling_prepare(
                   struct llama_context * ctx_main,
                   struct llama_context * ctx_cfg,
                   const int idx,
-                  bool apply_grammar,
+                  bool grammar_first,
                   std::vector<float> * original_logits) {
-    return llama_sampling_prepare_impl(ctx_sampling,ctx_main, ctx_cfg, idx, apply_grammar, original_logits);
+    return llama_sampling_prepare_impl(ctx_sampling,ctx_main, ctx_cfg, idx, grammar_first, original_logits);
 }
 
 void common_sampler_accept(
         struct common_sampler * ctx_sampling,
         struct llama_context * ctx_main,
-        llama_token id,
-        bool apply_grammar) {
+        llama_token token,
+        bool accept_grammar) {
     if (ctx_sampling->prev.size() > 0) {
-    ctx_sampling->prev.erase(ctx_sampling->prev.begin());
-
+        ctx_sampling->prev.erase(ctx_sampling->prev.begin());
     }
-    ctx_sampling->prev.push_back(id);
+    ctx_sampling->prev.push_back(token);
 
-    if (ctx_sampling->grammar != NULL && apply_grammar) {
-        llama_grammar_accept_token(ctx_sampling->grammar, ctx_main, id);
+    // grammar_should_apply() checks the reasoning budget state, so calculate this before we accept
+    accept_grammar = accept_grammar && grammar_should_apply(ctx_sampling);
+    if (ctx_sampling->rbudget) {
+        common_reasoning_budget_accept(ctx_sampling->rbudget, token);
+    }
+
+    if (ctx_sampling->grammar != NULL && accept_grammar) {
+        llama_grammar_accept_token(ctx_sampling->grammar, ctx_main, token);
     }
     if (ctx_sampling->smpl) {
-        llama_sampler_dry_accept(ctx_sampling->smpl, id);
+        llama_sampler_dry_accept(ctx_sampling->smpl, token);
     }
 }
 
@@ -685,4 +790,30 @@ common_grammar_trigger common_grammar_trigger::from_json(const json& in) {
         out.token = (llama_token)in.at("token").get<int>();
     }
     return out;
+}
+
+llama_token common_sampler_sample_speculative(struct common_sampler * gsmpl, struct llama_context * ctx, int idx, float * out_prob) {
+    GGML_UNUSED(gsmpl);
+
+    float * logits = llama_get_logits_ith(ctx, idx);
+    const int n_vocab = llama_n_vocab(llama_get_model(ctx));
+
+    int best_id = 0;
+    float max_val = logits[0];
+    for (int i = 1; i < n_vocab; ++i) {
+        if (logits[i] > max_val) {
+            max_val = logits[i];
+            best_id = i;
+        }
+    }
+
+    if (out_prob) {
+        double sum_exp = 0.0;
+        for (int i = 0; i < n_vocab; ++i) {
+            sum_exp += exp((double)(logits[i] - max_val));
+        }
+        *out_prob = (float)(1.0 / sum_exp);
+    }
+
+    return best_id;
 }

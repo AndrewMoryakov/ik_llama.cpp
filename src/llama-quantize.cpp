@@ -1,6 +1,7 @@
 #include "llama-impl.h"
 #include "llama-model.h"
 #include "llama-model-loader.h"
+#include "llama-quantize.h"
 
 #include "ggml.h"
 #include "ggml-common.h"
@@ -79,7 +80,7 @@ struct quantize_state_internal {
         {}
 };
 
-static std::pair<ggml_type, int> interleaved_properties(ggml_type type) {
+std::pair<ggml_type, int> interleaved_properties(ggml_type type) {
     static std::unordered_map<ggml_type, std::pair<ggml_type, int>> k_map = {
         { GGML_TYPE_Q4_0_4_4,    { GGML_TYPE_Q4_0, 4} },
         { GGML_TYPE_Q4_0_4_8,    { GGML_TYPE_Q4_0, 4} },
@@ -160,6 +161,19 @@ static void llama_tensor_dequantize_internal(
             }
         } else {
             GGML_ABORT("fatal error"); // unreachable
+        }
+        return;
+    }
+
+    auto num_rows = interleaved_properties(tensor->type).second;
+    if (num_rows > 1) {
+        int nrows = ggml_nrows(tensor);
+        auto row_size = ggml_row_size(tensor->type, tensor->ne[0]);
+        auto qsrc = (const char *)tensor->data;
+        for (int row = 0; row < nrows; row += num_rows) {
+            qtype.to_float(qsrc, f32_output, num_rows*tensor->ne[0]);
+            qsrc += num_rows*row_size;
+            f32_output += num_rows*tensor->ne[0];
         }
         return;
     }
@@ -817,10 +831,11 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
     return new_type;
 }
 
-static size_t llama_tensor_quantize_internal(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread) {
+static size_t llama_tensor_quantize_internal(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row,
+        const float * imatrix, const quantize_user_data * user_data, std::vector<std::thread> & workers, const int nthread) {
     if (nthread < 2) {
         // single-thread
-        size_t new_size = ggml_quantize_chunk(new_type, f32_data, new_data, 0, nrows, n_per_row, imatrix);
+        size_t new_size = ggml_quantize_chunk(new_type, f32_data, new_data, 0, nrows, n_per_row, imatrix, user_data);
         if (!ggml_validate_row_data(new_type, new_data, new_size)) {
             throw std::runtime_error("quantized data validation failed");
         }
@@ -832,7 +847,7 @@ static size_t llama_tensor_quantize_internal(enum ggml_type new_type, const floa
     size_t new_size = 0;
     bool valid = true;
     auto compute = [&mutex, &counter, &new_size, &valid, new_type, f32_data, new_data, chunk_size,
-            nrows, n_per_row, imatrix]() {
+            nrows, n_per_row, imatrix, user_data]() {
         const int64_t nrows_per_chunk = chunk_size / n_per_row;
         size_t local_size = 0;
         while (true) {
@@ -846,7 +861,7 @@ static size_t llama_tensor_quantize_internal(enum ggml_type new_type, const floa
             }
             lock.unlock();
             const int64_t this_nrow = std::min(nrows - first_row, nrows_per_chunk);
-            size_t this_size = ggml_quantize_chunk(new_type, f32_data, new_data, first_row * n_per_row, this_nrow, n_per_row, imatrix);
+            size_t this_size = ggml_quantize_chunk(new_type, f32_data, new_data, first_row * n_per_row, this_nrow, n_per_row, imatrix, user_data);
             local_size += this_size;
 
             // validate the quantized data
@@ -974,6 +989,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
         case LLAMA_FTYPE_MOSTLY_Q6_0_R4: default_type = GGML_TYPE_Q6_0_R4; break;
         case LLAMA_FTYPE_MOSTLY_Q8_0_R8: default_type = GGML_TYPE_Q8_0_R8; break;
         case LLAMA_FTYPE_MOSTLY_MXFP4:   default_type = GGML_TYPE_MXFP4;   break;
+        case LLAMA_FTYPE_MOSTLY_Q1_0_G128: default_type = GGML_TYPE_Q1_0_G128; break;
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:  default_type = GGML_TYPE_IQ4_XS;  break;
         case LLAMA_FTYPE_MOSTLY_IQ4_KS:  default_type = GGML_TYPE_IQ4_KS;  break;
         case LLAMA_FTYPE_MOSTLY_IQ4_KS_R4:default_type = GGML_TYPE_IQ4_KS_R4;break;
@@ -1021,13 +1037,22 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
         auto v = (std::vector<llama_model_kv_override>*)params->kv_overrides;
         kv_overrides = v->data();
     }
-    llama_model_loader ml(fname_inp, use_mmap, /*check_tensors*/ true, /* repack_tensors */ false,
-            /* use_thp */ false, /* merge_qkv */ false, /* merge_up_gate_exps */ false, kv_overrides, nullptr);
+    llama_model_loader ml(fname_inp, 0, use_mmap, /*check_tensors*/ true, /* repack_tensors */ false,
+            /* use_thp */ false, /* merge_qkv */ false, /* merge_up_gate_exps */ false,
+            /* defer_experts */ false, kv_overrides, nullptr);
     ml.init_mappings(false); // no prefetching
 
     llama_model model;
-    llm_load_arch(ml, model);
-    llm_load_hparams(ml, model);
+    try {
+        llm_load_arch(ml, model);
+    } catch(const std::exception & e) {
+        LLAMA_LOG_WARN("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX %s\n", e.what());
+    }
+    try {
+        llm_load_hparams(ml, model, true);
+    } catch(const std::exception & e) {
+        LLAMA_LOG_WARN("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX %s\n", e.what());
+    }
 
     struct quantize_state_internal qs(model, params);
 
@@ -1159,7 +1184,8 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     //  - qs.n_attention_wv == 3 * model.hparams.n_layer for Encoder-Decoder models
     //  - model.arch == LLM_ARCH_DECI                    for Deci-Nemotron   models
     //
-    GGML_ASSERT((qs.n_attention_wv == 0 || qs.n_attention_wv == (int)model.hparams.n_layer || qs.n_attention_wv == 3 * (int)model.hparams.n_layer || model.arch == LLM_ARCH_DECI) && "n_attention_wv is unexpected");
+    GGML_ASSERT((qs.n_attention_wv == 0 || qs.n_attention_wv == (int)model.hparams.n_layer || qs.n_attention_wv == 3 * (int)model.hparams.n_layer ||
+                model.arch == LLM_ARCH_DECI || model.arch == LLM_ARCH_UNKNOWN) && "n_attention_wv is unexpected");
 
     size_t total_size_org = 0;
     size_t total_size_new = 0;
@@ -1439,19 +1465,33 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
             if (imatrix_data) {
                 auto it = imatrix_data->find(tensor->name);
                 if (it == imatrix_data->end()) {
-                    // MLA hack: most imatrix files floating around the Internet have been computed with standard attention.
-                    //           This means that the imatrix file does not contain data for the *.attn_k_b.weight and *.attn_v_b.weight
-                    //           required by MLA. But the *.attn_v_b.weight tensors "see" the exact same activations as the
-                    //           *.attn_kv_b.weight tensors used in standard attention. Hence, if we find imatrix data for
-                    //           *.attn_kv_b.weight we can use it for *.attn_v_b.weight and vice versa.
-                    std::string name{tensor->name};
-                    static std::array<std::string, 2> alternatives{".attn_v_b.weight", ".attn_kv_b.weight"};
-                    for (int j = 0; j < int(alternatives.size()); ++j) {
-                        if (auto pos = name.find(alternatives[j]); pos != std::string::npos) {
-                            int j1 = (j + 1) % alternatives.size();
-                            auto alternative_name = name.substr(0, pos) + alternatives[j1];
-                            it = imatrix_data->find(alternative_name);
-                            break;
+                    if (auto pos1 = name.find("ffn_up_exps.weight"), pos2 = name.find("ffn_gate_exps.weight"); pos1 != std::string::npos || pos2 != std::string::npos) {
+                        // Merged ffn_up/gate_exps hack
+                        auto pos = pos1 != std::string::npos ? pos1 : pos2;
+                        auto merged_name = name.substr(0, pos) + "ffn_gate_up_exps.weight";
+                        it = imatrix_data->find(merged_name);
+                        if (it == imatrix_data->end()) {
+                            auto up_name = name.substr(0, pos) + "ffn_up_exps.weight";
+                            it = imatrix_data->find(up_name);
+                        }
+                    } else if (auto pos = name.find("ffn_gate_up_exps.weight"); pos != std::string::npos) {
+                        auto not_merged_name = name.substr(0, pos) + "ffn_up_exps.weight";
+                        it = imatrix_data->find(not_merged_name);
+                    } else {
+                        // MLA hack: most imatrix files floating around the Internet have been computed with standard attention.
+                        //           This means that the imatrix file does not contain data for the *.attn_k_b.weight and *.attn_v_b.weight
+                        //           required by MLA. But the *.attn_v_b.weight tensors "see" the exact same activations as the
+                        //           *.attn_kv_b.weight tensors used in standard attention. Hence, if we find imatrix data for
+                        //           *.attn_kv_b.weight we can use it for *.attn_v_b.weight and vice versa.
+                        std::string name{tensor->name};
+                        static std::array<std::string, 2> alternatives{".attn_v_b.weight", ".attn_kv_b.weight"};
+                        for (int j = 0; j < int(alternatives.size()); ++j) {
+                            if (auto pos = name.find(alternatives[j]); pos != std::string::npos) {
+                                int j1 = (j + 1) % alternatives.size();
+                                auto alternative_name = name.substr(0, pos) + alternatives[j1];
+                                it = imatrix_data->find(alternative_name);
+                                break;
+                            }
                         }
                     }
                 }
@@ -1535,7 +1575,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
                     std::mutex mutex;
                     int counter = 0;
                     bool valid = true;
-                    auto compute = [&mutex, &counter, &new_size, &valid, new_type, f32_data, new_data, tensor, imatrix] () {
+                    auto compute = [&mutex, &counter, &new_size, &valid, new_type, f32_data, new_data, tensor, imatrix, user_data = params->user_data] () {
                         int ne2 = tensor->ne[2];
                         auto row_size = ggml_row_size(new_type, tensor->ne[0]);
                         auto matrix_size = row_size * tensor->ne[1];
@@ -1552,7 +1592,8 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
                             lock.unlock();
                             auto this_imatrix = imatrix ? imatrix + i02 * tensor->ne[0] : nullptr;
                             auto this_data = (char *)new_data + i02*matrix_size;
-                            auto this_size = ggml_quantize_chunk(new_type, f32_data + i02*tensor->ne[0]*tensor->ne[1], this_data, 0, tensor->ne[1], tensor->ne[0], this_imatrix);
+                            auto this_size = ggml_quantize_chunk(new_type, f32_data + i02*tensor->ne[0]*tensor->ne[1], this_data, 0, tensor->ne[1], tensor->ne[0],
+                                    this_imatrix, user_data);
                             local_size += this_size;
 
                             // validate the quantized data
@@ -1585,7 +1626,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
                     void * new_data_03 = (char *)new_data + ggml_row_size(new_type, n_per_row) * i03 * nrows;
                     const float * imatrix_03 = imatrix ? imatrix + i03 * n_per_row : nullptr;
 
-                    new_size += llama_tensor_quantize_internal(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use);
+                    new_size += llama_tensor_quantize_internal(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, params->user_data, workers, nthread_use);
                 }
                 }
             }
