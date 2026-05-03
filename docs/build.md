@@ -181,6 +181,51 @@ llama_new_context_with_model:  CUDA_Host compute buffer size =     8.31 MiB
         gmake CC=/usr/local/bin/clang15 CXX=/usr/local/bin/clang++15 -j4
         ```
 
+## CPU build flags for AVX-512 (Zen4 / Sapphire Rapids+)
+
+The hand-written AVX-512 GEMM kernels in `ggml/src/iqk/iqk_gemm_*.cpp` are
+guarded by `#ifdef __AVX512VNNI__` / `__AVX512VBMI__` / `__AVX512BF16__`.
+A vanilla `cmake -B build -DCMAKE_BUILD_TYPE=Release` does not define these
+macros, so the compiler silently picks the AVX2 fallback path and the
+performance gain from AVX-512 instruction sets is left on the table.
+
+For CPUs that implement these extensions (AMD Zen4 — Ryzen 7000/9000;
+Intel Sapphire Rapids and later), enable them explicitly:
+
+```bash
+cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_NATIVE=ON \
+    -DGGML_AVX512=ON \
+    -DGGML_AVX512_VBMI=ON \
+    -DGGML_AVX512_VNNI=ON \
+    -DGGML_AVX512_BF16=ON
+cmake --build build --config Release
+```
+
+Flag rationale:
+
+| Flag | Effect |
+|------|--------|
+| `GGML_NATIVE=ON` | Adds `-march=native` (resolves to `-march=znver4` on Ryzen 7000/9000, `-march=sapphirerapids` on those Xeons), enabling per-CPU instruction selection for the rest of the codebase. |
+| `GGML_AVX512=ON` | Defines `__AVX512F__` / `__AVX512VL__` / `__AVX512BW__` / `__AVX512DQ__`, activating the base 512-bit IQK GEMM paths. |
+| `GGML_AVX512_VBMI=ON` | Defines `__AVX512VBMI__`. Vector Byte Manipulation (`vpermb`, `vpermt2b`) used in IQ-quant dequantize paths. AMD Zen4 supports it; Intel desktop Core lacks it through Raptor Lake. |
+| `GGML_AVX512_VNNI=ON` | Defines `__AVX512VNNI__`. INT8 fused dot product (`vpdpbusd`) — the central hot path in quantized matmul. |
+| `GGML_AVX512_BF16=ON` | Defines `__AVX512BF16__`. BFloat16 dot product (`vdpbf16ps`) used in BF16/F16 paths. |
+
+Verifying the kernels are actually compiled in:
+
+```bash
+objdump -d build/bin/llama-cli | grep -c vpdpbusd
+# A non-trivial count (hundreds) means VNNI is in. Zero means the flags did
+# not propagate and you are still running on the AVX2 fallback.
+```
+
+Note for Zen4: the AVX-512 implementation is 256-bit double-pumped — each
+`_mm512_*` op issues two micro-ops with throughput around one AVX-512 op
+per two cycles. The wider register width and reduced loop overhead still
+produce measurable gains over AVX2 on prompt processing for IQK kernels.
+
 ## Metal Build
 
 On MacOS, Metal is enabled by default. Using Metal makes the computation run on the GPU.
