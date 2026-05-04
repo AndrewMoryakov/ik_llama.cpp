@@ -195,7 +195,7 @@ Week 3+:
 | #1733 | Item 1.1 — v3 hybrid docs | ✅ MERGED | 2026-05-04 |
 | #1734 | Item 1.2 — `scripts/build-zen.{sh,bat}` | ✅ MERGED | 2026-05-04 |
 | #1735 | Item 1.3 — README cross-link | ✅ MERGED | 2026-05-04 |
-| TBD | Item 2.1 — `-rtr auto` | Not started | — |
+| #1738 | Item 2.1 — `-rtr auto` | ⏳ Submitted | 2026-05-04 |
 | TBD | Item 2.2 — timings JSON endpoint | Not started | — |
 
 Каждый раз когда PR merges — обновить эту таблицу + memory `MEMORY.md`.
@@ -205,3 +205,4 @@ Week 3+:
 - `pr/docs-build-zen-cpu-v3` — for #1733
 - `pr/scripts-build-zen` — for #1734
 - `pr/readme-link-cpu-build-flags` — for #1735
+- `pr/rtr-auto-mode` — for #1738 (first Tier 2 code-feature PR)
