@@ -189,11 +189,19 @@ Week 3+:
 
 ## Tracking
 
-| PR # | Item | Status | Merged Date |
-|------|------|--------|-------------|
+| PR # | Item | Status | Date |
+|------|------|--------|------|
 | #1729 | Tier 1 #1 — initial AVX-512 docs | ✅ MERGED | 2026-05-03 |
-| TBD | Item 1.1 + 1.3 — v3 hybrid + README | Not started | — |
-| TBD | Item 1.2 — build scripts | Not started | — |
+| #1733 | Item 1.1 — v3 hybrid docs | ⏳ Submitted | 2026-05-04 |
+| #1734 | Item 1.2 — `scripts/build-zen.{sh,bat}` | ⏳ Submitted | 2026-05-04 |
+| #1735 | Item 1.3 — README cross-link | ⏳ Submitted | 2026-05-04 |
 | TBD | Item 2.1 — `-rtr auto` | Not started | — |
+| TBD | Item 2.2 — timings JSON endpoint | Not started | — |
 
 Каждый раз когда PR merges — обновить эту таблицу + memory `MEMORY.md`.
+
+### Branches на нашем `fork` remote (`AndrewMoryakov/ik_llama-pr`)
+- `pr/docs-zen-cpu-build` — for #1729 (merged, can delete after grace period)
+- `pr/docs-build-zen-cpu-v3` — for #1733
+- `pr/scripts-build-zen` — for #1734
+- `pr/readme-link-cpu-build-flags` — for #1735
