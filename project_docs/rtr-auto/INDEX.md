@@ -15,6 +15,7 @@
 | 2026-05-05 | `DEEP_REVIEW_2026-05-05.md`       | review report   | Findings F1-F7 + verified-clean C1-C5. F1 critical, F2-F5 medium, F6-F7 low.  |
 | 2026-05-05 | `FOLLOWUP_REVIEW_2026-05-05.md`   | review report   | Delta findings D1-D9 + три architecture options A/B/C. Stop rule.             |
 | 2026-05-05 | `ADDITIONAL_REVIEW_2026-05-05.md` | review report   | Cross-reference после DEEP+FOLLOWUP. Independent confirm + 2 small items.     |
+| 2026-05-05 | `FINAL_REVIEW_2026-05-05.md`      | decision report | Final verdict, blocking B1-B3, recommended PR response and next code path.    |
 | —          | `README.md`                       | index           | Общее описание директории, файлы, status.                                     |
 | —          | `INDEX.md`                        | navigation      | Этот файл.                                                                    |
 
@@ -32,6 +33,7 @@
 5. `DEEP_REVIEW_2026-05-05.md` секции «Findings» и «Verified clean».
 6. `FOLLOWUP_REVIEW_2026-05-05.md` секцию «Architecture options A/B/C».
 7. `ADDITIONAL_REVIEW_2026-05-05.md` — что независимо проверено.
+8. `FINAL_REVIEW_2026-05-05.md` — итоговое решение по PR.
 
 ### Если ты LLM-агент в новой сессии
 
@@ -46,7 +48,8 @@
 2. `FOLLOWUP_REVIEW_2026-05-05.md` секция с тремя options A/B/C.
 3. `ADDITIONAL_REVIEW_2026-05-05.md` секция «Open question for the
    maintainer».
-4. Текущий PR diff: `git diff origin/main..pr/rtr-auto-mode`.
+4. `FINAL_REVIEW_2026-05-05.md` секция «Recommended PR response».
+5. Текущий PR diff: `git diff origin/main..pr/rtr-auto-mode`.
 
 ## По темам
 
@@ -58,6 +61,7 @@
 - `DEEP_REVIEW_2026-05-05.md` F1, F2 (same as dmaivel), F3-F7 (new).
 - `FOLLOWUP_REVIEW_2026-05-05.md` D1-D9 (delta findings).
 - `ADDITIONAL_REVIEW_2026-05-05.md` probe exception coverage.
+- `FINAL_REVIEW_2026-05-05.md` B1-B3 (merge-blocking issues).
 
 ### Architecture decisions
 
@@ -68,6 +72,7 @@
 - `DEEP_REVIEW_2026-05-05.md` F4 (ABI surface для `repack_tensors_auto`).
 - `ADDITIONAL_REVIEW_2026-05-05.md` «Open question for the maintainer»
   (probe-failure default permissive vs safety-first).
+- `FINAL_REVIEW_2026-05-05.md` final recommendation and PR response shape.
 
 ### Agent / process
 
@@ -96,7 +101,7 @@
 |-------------------|-----------------------------------------------------------------------------------------------|
 | FIXED             | `POST_SUBMIT_BUG_2026-05-04.md` (`use_mmap` regression).                                      |
 | OPEN bug, known   | `DMAIVEL_FEEDBACK_2026-05-05.md` Points 2, 3. Также `DEEP_REVIEW` F1, F2.                     |
-| OPEN architectural| `FOLLOWUP_REVIEW_2026-05-05.md` options A/B/C. Awaiting ikawrakow.                            |
+| OPEN architectural| `FOLLOWUP_REVIEW_2026-05-05.md` options A/B/C; `FINAL_REVIEW_2026-05-05.md` final recommendation. Awaiting ikawrakow. |
 | Verified clean    | `DEEP_REVIEW_2026-05-05.md` C1-C5; `ADDITIONAL_REVIEW_2026-05-05.md`.                         |
 | Held              | Все code changes до решения maintainer'а. См. `FOLLOWUP_REVIEW_2026-05-05.md` «Stop rule».    |
 
@@ -117,7 +122,7 @@
 - «Хочу узнать какие категории проверены и чисты» → `DEEP_REVIEW`
   Verified clean + `ADDITIONAL_REVIEW` independent confirm.
 - «Хочу понять архитектурный выбор который ждёт maintainer» →
-  `FOLLOWUP_REVIEW` Architecture options A/B/C.
+  `FOLLOWUP_REVIEW` Architecture options A/B/C + `FINAL_REVIEW`.
 - «Хочу написать новый PR такого типа сам» → `ANALYSIS.md` (как
   готовиться) + `POST_SUBMIT_BUG` (что проверить) + `AGENT_BRIEF`
   (как делегировать LLM).
@@ -130,6 +135,7 @@
 - C1, C2, ..., C5 — `DEEP_REVIEW_2026-05-05.md`.
 - D1, D2, ..., D9 — `FOLLOWUP_REVIEW_2026-05-05.md`.
 - Options A, B, C — `FOLLOWUP_REVIEW_2026-05-05.md`.
+- B1, B2, B3 — `FINAL_REVIEW_2026-05-05.md`.
 - Points 1-4 — `DMAIVEL_FEEDBACK_2026-05-05.md`.
 
 ## Maintenance

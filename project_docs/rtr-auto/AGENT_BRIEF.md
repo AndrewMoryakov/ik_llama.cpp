@@ -28,12 +28,23 @@ PR #1738: https://github.com/ikawrakow/ik_llama.cpp/pull/1738
 
 ## Что прочитать перед ревью (в этом порядке)
 
-1. `project_docs/rtr-auto/README.md` — индекс материалов.
-2. `project_docs/rtr-auto/ANALYSIS.md` — pre-submit research.
-3. `project_docs/rtr-auto/POST_SUBMIT_BUG_2026-05-04.md` — post-mortem
+1. `project_docs/rtr-auto/INDEX.md` — актуальная навигация, reading
+   orders, статус feature.
+2. `project_docs/rtr-auto/README.md` — общий контекст директории.
+3. `project_docs/rtr-auto/ANALYSIS.md` — historical pre-submit
+   research; читать как snapshot до post-submit findings.
+4. `project_docs/rtr-auto/POST_SUBMIT_BUG_2026-05-04.md` — post-mortem
    `use_mmap` regression который нашли уже после submit.
-4. `project_docs/rtr-auto/DMAIVEL_FEEDBACK_2026-05-05.md` — разбор
+5. `project_docs/rtr-auto/DMAIVEL_FEEDBACK_2026-05-05.md` — разбор
    feedback от dmaivel и draft response.
+6. `project_docs/rtr-auto/DEEP_REVIEW_2026-05-05.md` — F1-F7,
+   C1-C5, итоговый technical review.
+7. `project_docs/rtr-auto/FOLLOWUP_REVIEW_2026-05-05.md` — D1-D9,
+   architecture options A/B/C, stop rules.
+8. `project_docs/rtr-auto/ADDITIONAL_REVIEW_2026-05-05.md` —
+   independent confirmation плюс small patch items.
+9. `project_docs/rtr-auto/FINAL_REVIEW_2026-05-05.md` — финальный
+   verdict, recommended PR response, next code path.
 
 После этого получить актуальное состояние PR:
 
@@ -67,7 +78,8 @@ remote `fork`.
    `DMAIVEL_FEEDBACK_2026-05-05.md`.
 2. dmaivel также указал что мы меряем total RAM вместо available.
    Надо менять на `MEMORYSTATUSEX.ullAvailPhys` (Windows),
-   `/proc/meminfo MemAvailable` (Linux), `host_statistics64` (macOS).
+   `/proc/meminfo MemAvailable` плюс cgroup v1/v2 limits (Linux),
+   `host_statistics64` (macOS).
 3. dmaivel предложил архитектурную альтернативу: убрать `-rtr auto`
    режим, сделать сам `-rtr 1` self-protective. Это maintainer'ская
    call, не наша. Потенциальный rework PR.
@@ -76,6 +88,9 @@ remote `fork`.
    частично компенсирует, но не идеально. Можно потом добавить
    точную оценку CPU-side через `tensor_buft_overrides` и
    `n_gpu_layers`.
+5. Если maintainer выберет self-protective `-rtr`, нельзя просто
+   добавить load-time guard: legacy parser уже ставит `use_mmap=false`.
+   Нужно перенести mmap decision в load-time после safety-policy.
 
 ## Что НЕ делать
 

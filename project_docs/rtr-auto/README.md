@@ -75,21 +75,34 @@ description. Здесь — детальный analysis для:
   std::runtime_error), plus два small items для minimal patch (help
   text wording после смены метрики, PR description Validation table
   row). Без новых архитектурных concerns.
+- [`FINAL_REVIEW_2026-05-05.md`](FINAL_REVIEW_2026-05-05.md) — итоговый
+  maintainer-facing synthesis: final verdict, blocking B1-B3,
+  non-blocking issues, architecture paths A/B/C, recommended PR response,
+  and exact next code path if Ivan says "keep auto" vs "make `-rtr`
+  self-protective".
 
 ## Status (2026-05-05)
 
 PR #1738 submitted, pre-submit cleanup applied, **post-submit bug found
 and fixed** (force-pushed `0115ace21`). Awaiting maintainer review.
 Three rounds of independent ревью записаны (DEEP, FOLLOWUP,
-ADDITIONAL); всё указывает на необходимость maintainer architectural
-input до code changes.
+ADDITIONAL) плюс финальный synthesis (`FINAL_REVIEW`); всё указывает
+на необходимость maintainer architectural input до code changes.
+
+Pre-submit checks that still hold for the narrow scenarios tested:
 
 - ✅ In-RAM не регрессирует — verified empirically
-- ✅ Auto-disable triggers correctly на swap-bound — verified
-- ✅ Graceful probe failure fallback — verified
+- ✅ Auto-disable triggered on the original synthetic swap-bound case —
+  verified, but not sufficient after dmaivel's `-ngl 99 -ot exps=CPU`
+  report
+- ✅ Probe failure fallback returns without crashing — verified, but
+  permissive-vs-safety-first semantics remain an open maintainer choice
 - ✅ Removed MINIMAX_M2 legacy branch — done in initial commit
 - ✅ macOS RAM detection — added (`sysctl(HW_MEMSIZE)`)
-- ❌ GPU offload false positive — текущий `n_gpu_layers > 0` skip
+
+Current open issues:
+
+- ❌ GPU offload false negative — текущий `n_gpu_layers > 0` skip
   пропускает `-ot exps=CPU` сценарий (dmaivel; DEEP F1; FOLLOWUP D3)
 - ❌ Total vs available memory — текущая метрика total RAM, нужна
   available (dmaivel; DEEP F2; FOLLOWUP D6 + cgroups)

@@ -6,6 +6,23 @@
 
 ---
 
+> **Historical snapshot**: this file is the pre-submit analysis for the
+> original PR shape. It intentionally contains assumptions that were later
+> superseded by post-submit review and community feedback. For current status
+> and decisions, read `INDEX.md`, `README.md`,
+> `DMAIVEL_FEEDBACK_2026-05-05.md`, `DEEP_REVIEW_2026-05-05.md`,
+> `FOLLOWUP_REVIEW_2026-05-05.md`, and
+> `ADDITIONAL_REVIEW_2026-05-05.md`.
+>
+> Known superseded assumptions in this file:
+> - macOS RAM detection was later added with `sysctl(HW_MEMSIZE)`;
+> - `n_gpu_layers > 0` skip was later shown to miss `-ot exps=CPU`;
+> - total physical RAM must be replaced by available/effective memory;
+> - Linux container/cgroup behavior needs explicit handling and should not be
+>   inferred from `_SC_PHYS_PAGES` alone.
+
+---
+
 ## TL;DR
 
 `-rtr auto` — третий режим флага `--run-time-repack` (помимо `0`/`off` и `1`/`on`).
