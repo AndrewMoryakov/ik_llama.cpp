@@ -1,8 +1,12 @@
 # dmaivel feedback on PR #1738 — analysis and proposed response
 
-**Date**: 2026-05-05
-**Comment URL**: https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4376231337
+**Date**: 2026-05-05 (updated same-day after dmaivel edited his comment)
+**Comment URL**: https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4376277369
 **Status**: response drafted, holding push of code changes pending maintainer input
+**Note on edits**: dmaivel edited his original comment (created 03:08 UTC,
+edited 03:22 UTC) to insert an `EDIT:` paragraph addressing the GPU+CPU
+split case. That paragraph is reflected verbatim in the quote below and
+analysed as Point 5 further down.
 
 ## Original comment
 
@@ -26,16 +30,24 @@ fire when it should have. Quoting the relevant pieces:
 >     -rtr auto
 > ```
 >
+> EDIT: For the above, I read your note about GPU+CPU split inference,
+> and it makes me confused about the scope of the issue you're trying
+> to solve. If the path can't determine whether repacking should be
+> enabled or disabled, isn't the wiser choice to disable? Otherwise,
+> the user is left with the same failure message they would have
+> gotten if they just used `-rtr` in its current form.
+>
 > Also, checking total system memory is not sufficient because the
 > allocation can still fail if other processes are consuming a
 > significant amount of RAM. In that case, checking available memory
 > would be more relevant.
 >
-> If we want to guard `-rtr`, would it make more sense to check whether
-> there is enough available RAM and disable it automatically when there
-> is not? That would avoid changing the argument to require
-> `on`/`off`/`auto`; instead, we could simply print a message saying
-> that `rtr` was disabled due to insufficient memory.
+> I'm not sure it's necessary, but, if we do want to guard `-rtr`,
+> would it make more sense to check whether there is enough available
+> RAM and disable it automatically when there is not? That would
+> avoid changing the argument to require `on`/`off`/`auto`; instead,
+> we could simply print a message saying that `rtr` was disabled due
+> to insufficient memory.
 
 ## Analysis of each point
 
@@ -116,6 +128,62 @@ Cons:
 This is a maintainer decision, not ours to make. Worth surfacing the
 trade-off rather than pre-committing.
 
+### Point 5 (added in edit): uncertainty should default to disable
+
+This is the new paragraph dmaivel added via EDIT after reading our
+mention that GPU+CPU split inference was the original motivation for the
+`n_gpu_layers > 0` skip. He asks: «if the path can't determine whether
+repacking should be enabled or disabled, isn't the wiser choice to
+disable? Otherwise, the user is left with the same failure message they
+would have gotten if they just used `-rtr` in its current form».
+
+This is a real and well-formed argument. Reframed in our terms:
+
+- Current behaviour when the auto policy cannot decide (probe failure,
+  unknown placement, ambiguous metric): keep `params.repack_tensors`
+  set to true, log INFO and continue. This is permissive — it preserves
+  the user's explicit choice even when we lack signal.
+- Proposed alternative: when the policy cannot decide, disable repack,
+  log a WARN that explains why. This is safety-first — it accepts a
+  small performance regression on the in-RAM case for protection on
+  the swap-bound case.
+
+The argument in favour of safety-first: the failure mode of permissive
+default is exactly the failure dmaivel hit (the feature did nothing on
+the case it was meant to rescue). The failure mode of safety-first
+default is a user with a fits-in-RAM model who scripted `-rtr 1` finds
+that repack did not run. The latter is recoverable (re-run without
+`auto`, performance is the only thing lost); the former is the
+catastrophic OOM scenario that motivated the feature.
+
+This collides directly with our own `FOLLOWUP_REVIEW_2026-05-05.md` D5
+and `ADDITIONAL_REVIEW_2026-05-05.md` «Open question for the
+maintainer» — we had already flagged this internally before dmaivel's
+edit. His edit is independent confirmation that an external reader
+arrives at the same question.
+
+Implications for design:
+
+- If maintainer picks option A (keep `-rtr auto`), the policy should
+  be safety-first by default. Probe failure should disable rather
+  than no-op. WARN level for the disable path.
+- If maintainer picks option B (drop `auto`, make `-rtr 1` itself
+  self-protective), the entire flag becomes safety-first by
+  construction. There is no probe-failure-permissive ambiguity.
+- Either way, the current permissive default in `0115ace21` is
+  unlikely to be the final shape.
+
+Implication for our reply: acknowledge dmaivel's argument is correct,
+state that we had reached the same conclusion in internal review,
+note that the right place to set the safety-first default depends on
+which architectural option ikawrakow prefers, and offer to fold the
+change into whichever shape ships.
+
+Worth noting: dmaivel's prefix «I'm not sure it's necessary» (added in
+the same edit, just before the «if we do want to guard `-rtr`»
+clause) softens his earlier suggestion. He is not pushing for the
+no-flag design; he is laying out the trade-off.
+
 ## Compounding interaction between points 2 and 3
 
 The two confirmed issues actually fix each other if we switch the metric.
@@ -194,8 +262,12 @@ Sketch (not pushed, holding for maintainer direction):
 4. Document in PR: known caveat about overestimation when GPU offload
    shrinks CPU-resident bytes, possible follow-up to estimate CPU-side
    bytes more precisely.
+5. Switch probe-failure default from permissive (keep repack) to
+   safety-first (disable repack with WARN log). Addresses Point 5
+   from dmaivel's edit and FOLLOWUP D5. Trivial code change in
+   `llama_rtr_auto_should_disable`'s catch block.
 
-Estimated change: 30-50 lines.
+Estimated change: 30-50 lines for items 1-4, plus ~5 lines for item 5.
 
 ## Why we are not pushing the fix yet
 
@@ -213,10 +285,12 @@ Best path: post the response that acknowledges dmaivel's points, outlines
 the technical fix, and explicitly defers the architectural question to
 ikawrakow. Then act on whichever direction he chooses.
 
-## Draft response posted
+## Draft response status
 
-The response we plan to send is in [`DMAIVEL_RESPONSE.md`](DMAIVEL_RESPONSE.md)
-once committed (the message text was prepared in chat).
+The response text was prepared in chat but has not been posted upstream and
+there is no committed `DMAIVEL_RESPONSE.md` file in this directory. Use
+`FOLLOWUP_REVIEW_2026-05-05.md` and `ADDITIONAL_REVIEW_2026-05-05.md` for the
+current recommended maintainer-facing wording.
 
 Key points the response covers:
 
@@ -227,6 +301,9 @@ Key points the response covers:
 - Acknowledges the over-estimation caveat for heavy GPU-offload scenarios
 - Surfaces the architectural alternative without committing to either
 - States we will hold pushing changes pending maintainer direction
+- Acknowledges Point 5 (uncertainty-defaults-to-disable) from
+  dmaivel's edit; agrees with the safety-first reframe; notes we
+  reached the same conclusion in internal review independently
 
 ## What this means for our pre-submit process
 
@@ -249,3 +326,8 @@ exercise) is normal in OSS. The lessons:
 - Architectural feedback (dmaivel's "no new flag" suggestion) deserves
   separate handling from technical bug fixes; bundling them muddles the
   review.
+- Default-on-uncertainty matters. The permissive default (preserve
+  user choice when probe is ambiguous) sounded reasonable when written
+  but produced exactly the failure mode dmaivel hit. Safety-first
+  default (disable repack with WARN when uncertain) is the correct
+  choice for a feature whose entire purpose is to prevent OOM.
