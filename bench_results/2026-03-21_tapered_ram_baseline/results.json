@@ -1,0 +1,58 @@
+[
+  {
+    "model_filename": "D:\\MiniMax-M2.5-TaperedRAM.gguf",
+    "model_type": "minimax-m2 230B.A10B IQ3_KS - 3.1875 bpw",
+    "model_size": 96220014592,
+    "n_threads": 16,
+    "flash_attn": true,
+    "repack": false,
+    "muge": false,
+    "test": "tg32",
+    "n_prompt": 0,
+    "n_gen": 32,
+    "avg_ts": 3.821817,
+    "test_time": "2026-03-21T13:58:16Z"
+  },
+  {
+    "model_filename": "D:\\MiniMax-M2.5-TaperedRAM.gguf",
+    "model_type": "minimax-m2 230B.A10B IQ3_KS - 3.1875 bpw",
+    "model_size": 96220014592,
+    "n_threads": 16,
+    "flash_attn": true,
+    "repack": false,
+    "muge": false,
+    "test": "pp512",
+    "n_prompt": 512,
+    "n_gen": 0,
+    "avg_ts": 22.304872,
+    "test_time": "2026-03-21T13:59:24Z"
+  },
+  {
+    "model_filename": "D:\\MiniMax-M2.5-TaperedRAM.gguf",
+    "model_type": "minimax-m2 230B.A10B IQ3_KS - 3.1875 bpw",
+    "model_size": 96220014592,
+    "n_threads": 16,
+    "flash_attn": true,
+    "repack": false,
+    "muge": false,
+    "test": "tg128",
+    "n_prompt": 0,
+    "n_gen": 128,
+    "avg_ts": 4.108529,
+    "test_time": "2026-03-21T14:00:09Z"
+  },
+  {
+    "model_filename": "D:\\MiniMax-M2.5-TaperedRAM.gguf",
+    "model_type": "minimax-m2 230B.A10B IQ3_KS - 3.1875 bpw",
+    "model_size": 96220014592,
+    "n_threads": 16,
+    "flash_attn": true,
+    "repack": false,
+    "muge": false,
+    "test": "pp32+tg4",
+    "n_prompt": 32,
+    "n_gen": 4,
+    "avg_ts": 7.009758,
+    "test_time": "2026-03-21T14:01:07Z"
+  }
+]
