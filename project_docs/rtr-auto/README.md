@@ -50,20 +50,49 @@ description. Здесь — детальный analysis для:
   arithmetic, cross-compiler warnings, и др.). Содержит 11 направлений
   для investigation, формат отчёта, guardrails. Использовать вместе
   с `AGENT_BRIEF.md`.
+- [`DEEP_REVIEW_2026-05-05.md`](DEEP_REVIEW_2026-05-05.md) — отчёт
+  агента по `TASK_DEEP_REVIEW`. Структура: Methodology, Findings F1-F7
+  с severity, Verified clean C1-C5, Conclusion, «Не покрыто». F1
+  (n_gpu_layers skip) и F2 (total RAM) совпадают с тем что нашёл
+  dmaivel; F3-F7 — новые medium/low findings (probe duplicate logs,
+  ABI surface, cgroups, bench reporting, doc drift). Verdict: needs
+  maintainer architectural input before fixes.
+- [`FOLLOWUP_REVIEW_2026-05-05.md`](FOLLOWUP_REVIEW_2026-05-05.md) —
+  следующая итерация ревью. 9 delta findings D1-D9, три варианта
+  архитектуры (A keep auto / B self-protective `-rtr` / C
+  placement-aware). Углубляет: cgroups для Linux available memory,
+  `--fit` invisible to early probe, probe-failure default
+  (permissive vs safety-first), observability (requested vs
+  resolved RTR state). Stop rule: hold code changes until maintainer
+  picks architecture.
+- [`ADDITIONAL_REVIEW_2026-05-05.md`](ADDITIONAL_REVIEW_2026-05-05.md)
+  — компактный cross-reference после DEEP и FOLLOWUP. Independent
+  confirmation C1-C5, plus probe exception coverage (все throws
+  std::runtime_error), plus два small items для minimal patch (help
+  text wording после смены метрики, PR description Validation table
+  row). Без новых архитектурных concerns.
 
 ## Status (2026-05-05)
 
 PR #1738 submitted, pre-submit cleanup applied, **post-submit bug found
 and fixed** (force-pushed `0115ace21`). Awaiting maintainer review.
+Three rounds of independent ревью записаны (DEEP, FOLLOWUP,
+ADDITIONAL); всё указывает на необходимость maintainer architectural
+input до code changes.
 
 - ✅ In-RAM не регрессирует — verified empirically
 - ✅ Auto-disable triggers correctly на swap-bound — verified
 - ✅ Graceful probe failure fallback — verified
 - ✅ Removed MINIMAX_M2 legacy branch — done in initial commit
 - ✅ macOS RAM detection — added (`sysctl(HW_MEMSIZE)`)
-- ✅ GPU offload false positive — handled (`n_gpu_layers > 0` skip)
+- ❌ GPU offload false positive — текущий `n_gpu_layers > 0` skip
+  пропускает `-ot exps=CPU` сценарий (dmaivel; DEEP F1; FOLLOWUP D3)
+- ❌ Total vs available memory — текущая метрика total RAM, нужна
+  available (dmaivel; DEEP F2; FOLLOWUP D6 + cgroups)
 - ✅ mmap regression on `-rtr 0` / `-rtr auto` — **post-submit fix**
 - ⏳ Linux test — code review only, runtime not exercised
+- ⏳ Architectural choice — `-rtr auto` vs self-protective `-rtr` vs
+  placement-aware (FOLLOWUP options A/B/C); awaiting maintainer
 
 См. ANALYSIS.md «Pre-submit cleanup checklist» и POST_SUBMIT_BUG.md
 «Recommended pre-submit checklist для behavioural-change PRs».
