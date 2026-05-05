@@ -80,6 +80,12 @@
     #include <io.h>
 #endif
 
+#if defined(__APPLE__)
+    #include <sys/sysctl.h>
+    #include <mach/mach.h>
+    #include <mach/vm_statistics.h>
+#endif
+
 //#if __cplusplus >= 202000L
 //    #define LU8(x) (const char*)(u8##x)
 //#else
@@ -4163,6 +4169,301 @@ static uint64_t llama_get_total_ram_bytes() {
     return 0;
 }
 
+// === EXPERIMENTAL: rtr-auto v2 (gated by IK_LLAMA_RTR_AUTO_V2) ===
+// New auto-policy implementation that fixes the issues found in PR #1738
+// review. Replaces total physical RAM with available/effective memory and
+// returns a tri-state decision so probe-failure and other unknown cases can
+// be treated as safety-first instead of permissive. When the gate flag is
+// off, the legacy llama_rtr_auto_should_disable() above is used unchanged.
+//
+// This block is intentionally self-contained so it can be ported into the
+// upstream PR (path A) by stripping the environment-variable dispatch and
+// promoting v2 to the only implementation.
+
+static bool llama_rtr_auto_v2_enabled() {
+    const char * v = std::getenv("IK_LLAMA_RTR_AUTO_V2");
+    if (v == nullptr || *v == '\0') {
+        return false;
+    }
+    std::string s(v);
+    std::transform(s.begin(), s.end(), s.begin(),
+            [](unsigned char c) { return (char) std::tolower(c); });
+    return s == "1" || s == "on" || s == "true" || s == "yes";
+}
+
+#if defined(__linux__)
+// Read a single uint64_t from a path. Returns true on success. Treats
+// "max" (cgroup v2 sentinel for "no limit") as success returning UINT64_MAX
+// so the caller can detect it.
+static bool llama_read_uint64_file(const std::string & path, uint64_t & out) {
+    FILE * f = std::fopen(path.c_str(), "r");
+    if (!f) return false;
+    char buf[64] = {0};
+    bool ok = std::fgets(buf, sizeof(buf), f) != nullptr;
+    std::fclose(f);
+    if (!ok) return false;
+    std::string s(buf);
+    while (!s.empty() && (s.back() == '\n' || s.back() == ' ' || s.back() == '\t')) {
+        s.pop_back();
+    }
+    if (s == "max") {
+        out = UINT64_MAX;
+        return true;
+    }
+    try {
+        out = std::stoull(s);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+// Resolve the cgroup path for the current process. For cgroup v2 the line in
+// /proc/self/cgroup has the form "0::/path". For v1 controllers it is of the
+// form "<id>:<controllers>:/path"; we look for the "memory" controller.
+// Returns empty string on failure.
+static std::string llama_resolve_cgroup_path(const std::string & controller) {
+    FILE * f = std::fopen("/proc/self/cgroup", "r");
+    if (!f) return {};
+    char buf[512];
+    std::string result;
+    while (std::fgets(buf, sizeof(buf), f)) {
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
+            line.pop_back();
+        }
+        // Expected: <hierarchy_id>:<controllers>:<path>
+        size_t c1 = line.find(':');
+        if (c1 == std::string::npos) continue;
+        size_t c2 = line.find(':', c1 + 1);
+        if (c2 == std::string::npos) continue;
+        const std::string controllers = line.substr(c1 + 1, c2 - c1 - 1);
+        const std::string path        = line.substr(c2 + 1);
+        if (controller == "v2") {
+            // cgroup v2 unified hierarchy line: "0::/path"
+            if (controllers.empty()) {
+                result = path;
+                break;
+            }
+        } else {
+            // cgroup v1: comma-separated controller list
+            std::string token;
+            std::stringstream ss(controllers);
+            while (std::getline(ss, token, ',')) {
+                if (token == controller) {
+                    result = path;
+                    break;
+                }
+            }
+            if (!result.empty()) break;
+        }
+    }
+    std::fclose(f);
+    return result;
+}
+
+// Compute the effective cgroup memory headroom for the current process.
+// Walks the cgroup path upward to honor inherited limits. Returns 0 when no
+// finite limit is in effect. Tries v2 first, falls back to v1.
+static uint64_t llama_get_cgroup_available_bytes() {
+    // cgroup v2
+    {
+        const std::string cgpath = llama_resolve_cgroup_path("v2");
+        if (!cgpath.empty()) {
+            std::string base = "/sys/fs/cgroup" + cgpath;
+            uint64_t headroom = UINT64_MAX;
+            std::string cur = base;
+            for (int depth = 0; depth < 32; ++depth) {
+                uint64_t limit = 0;
+                uint64_t used  = 0;
+                if (llama_read_uint64_file(cur + "/memory.max", limit) &&
+                    llama_read_uint64_file(cur + "/memory.current", used) &&
+                    limit != UINT64_MAX) {
+                    const uint64_t free_here = (limit > used) ? (limit - used) : 0;
+                    if (free_here < headroom) {
+                        headroom = free_here;
+                    }
+                }
+                if (cur == "/sys/fs/cgroup" || cur.empty()) break;
+                size_t slash = cur.find_last_of('/');
+                if (slash == std::string::npos || slash < std::string{"/sys/fs/cgroup"}.size()) break;
+                cur = cur.substr(0, slash);
+            }
+            if (headroom != UINT64_MAX) {
+                return headroom;
+            }
+        }
+    }
+    // cgroup v1 memory controller
+    {
+        const std::string cgpath = llama_resolve_cgroup_path("memory");
+        if (!cgpath.empty()) {
+            std::string base = "/sys/fs/cgroup/memory" + cgpath;
+            uint64_t headroom = UINT64_MAX;
+            std::string cur = base;
+            for (int depth = 0; depth < 32; ++depth) {
+                uint64_t limit = 0;
+                uint64_t used  = 0;
+                if (llama_read_uint64_file(cur + "/memory.limit_in_bytes", limit) &&
+                    llama_read_uint64_file(cur + "/memory.usage_in_bytes", used)) {
+                    // v1 reports an effectively-infinite limit when none is set
+                    // (close to INT64_MAX rounded down to page size). Treat
+                    // anything within ~1 PiB of UINT64_MAX as "unlimited".
+                    const uint64_t v1_unlimited_floor = UINT64_MAX - (1ull << 50);
+                    if (limit < v1_unlimited_floor) {
+                        const uint64_t free_here = (limit > used) ? (limit - used) : 0;
+                        if (free_here < headroom) {
+                            headroom = free_here;
+                        }
+                    }
+                }
+                if (cur == "/sys/fs/cgroup/memory" || cur.empty()) break;
+                size_t slash = cur.find_last_of('/');
+                if (slash == std::string::npos || slash < std::string{"/sys/fs/cgroup/memory"}.size()) break;
+                cur = cur.substr(0, slash);
+            }
+            if (headroom != UINT64_MAX) {
+                return headroom;
+            }
+        }
+    }
+    return 0;
+}
+#endif // __linux__
+
+// Returns 0 when the OS query failed; caller treats that as UNKNOWN.
+static uint64_t llama_get_available_ram_bytes() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX mem_info;
+    mem_info.dwLength = sizeof(mem_info);
+    if (GlobalMemoryStatusEx(&mem_info)) {
+        return (uint64_t) mem_info.ullAvailPhys;
+    }
+    return 0;
+#elif defined(__linux__)
+    uint64_t mem_avail = 0;
+    {
+        FILE * f = std::fopen("/proc/meminfo", "r");
+        if (f) {
+            char line[256];
+            while (std::fgets(line, sizeof(line), f)) {
+                unsigned long long kb = 0;
+                if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) {
+                    mem_avail = (uint64_t) kb * 1024ull;
+                    break;
+                }
+            }
+            std::fclose(f);
+        }
+    }
+    if (mem_avail == 0) {
+        // Fallback to sysconf if /proc is unreadable
+        long avail_pages = sysconf(_SC_AVPHYS_PAGES);
+        long page_size   = sysconf(_SC_PAGE_SIZE);
+        if (avail_pages > 0 && page_size > 0) {
+            mem_avail = (uint64_t) avail_pages * (uint64_t) page_size;
+        }
+    }
+    const uint64_t cg_avail = llama_get_cgroup_available_bytes();
+    if (cg_avail > 0 && (mem_avail == 0 || cg_avail < mem_avail)) {
+        return cg_avail;
+    }
+    return mem_avail;
+#elif defined(__APPLE__)
+    mach_port_t host_port = mach_host_self();
+    vm_size_t   page_size = 0;
+    if (host_page_size(host_port, &page_size) != KERN_SUCCESS || page_size == 0) {
+        // Fallback via sysctl HW_PAGESIZE
+        int    mib[2] = { CTL_HW, HW_PAGESIZE };
+        int    ps = 0;
+        size_t plen = sizeof(ps);
+        if (sysctl(mib, 2, &ps, &plen, nullptr, 0) == 0 && ps > 0) {
+            page_size = (vm_size_t) ps;
+        } else {
+            return 0;
+        }
+    }
+    vm_statistics64_data_t vm_stat = {};
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t) &vm_stat, &count) != KERN_SUCCESS) {
+        return 0;
+    }
+    const uint64_t free_pages     = (uint64_t) vm_stat.free_count;
+    const uint64_t inactive_pages = (uint64_t) vm_stat.inactive_count;
+    return (free_pages + inactive_pages) * (uint64_t) page_size;
+#else
+    return 0;
+#endif
+}
+
+enum class llama_rtr_auto_decision_v2 {
+    KEEP,           // Repack is safe; leave params untouched.
+    DISABLE,        // Repack is unsafe; turn it off, log INFO.
+    NOT_APPLICABLE, // Policy does not apply (e.g., dense non-MoE); leave alone.
+    UNKNOWN,        // Could not determine; safety-first disable, log WARN.
+};
+
+static llama_rtr_auto_decision_v2 llama_rtr_auto_should_disable_v2(
+        const std::string & fname,
+        const llama_model_params & params,
+        std::string & reason) {
+    if (!params.repack_tensors || !params.repack_tensors_auto) {
+        return llama_rtr_auto_decision_v2::KEEP;
+    }
+
+    const uint64_t avail_ram = llama_get_available_ram_bytes();
+    if (avail_ram == 0) {
+        reason = "could not query available memory";
+        return llama_rtr_auto_decision_v2::UNKNOWN;
+    }
+
+    try {
+        // Metadata-only probe: use mmap + no repack to inspect arch/hparams cheaply.
+        llama_model_loader probe(
+                fname,
+                params.ncmoe,
+                /*use_mmap*/ true,
+                /*check_tensors*/ false,
+                /*repack_tensors*/ false,
+                params.use_thp,
+                params.merge_qkv,
+                params.merge_up_gate_exps,
+                params.defer_experts,
+                params.kv_overrides,
+                params.tensor_buft_overrides);
+
+        llama_model probe_model;
+        probe_model.hparams.vocab_only = params.vocab_only;
+        llm_load_arch(probe, probe_model);
+        llm_load_hparams(probe, probe_model);
+
+        const bool is_moe        = probe_model.hparams.n_expert > 0 && probe_model.hparams.n_expert_used > 0;
+        const bool is_minimax_m2 = probe_model.arch == LLM_ARCH_MINIMAX_M2;
+        if (!is_moe && !is_minimax_m2) {
+            reason = "policy does not apply (dense model)";
+            return llama_rtr_auto_decision_v2::NOT_APPLICABLE;
+        }
+
+        const uint64_t model_bytes = (uint64_t) probe.n_bytes;
+        const uint64_t threshold   = avail_ram - avail_ram / 10; // 90% of available
+        if (model_bytes <= threshold) {
+            return llama_rtr_auto_decision_v2::KEEP;
+        }
+
+        const char * label = is_minimax_m2 ? "MiniMax M2 model" : "MoE model";
+        reason = format("%s %.1f GiB > 90%% of available memory %.1f GiB",
+                label,
+                model_bytes / 1073741824.0,
+                avail_ram   / 1073741824.0);
+        return llama_rtr_auto_decision_v2::DISABLE;
+    } catch (const std::exception & e) {
+        reason = format("probe failed (%s)", e.what());
+        return llama_rtr_auto_decision_v2::UNKNOWN;
+    }
+}
+
+// === END EXPERIMENTAL: rtr-auto v2 ===
+
 static void llama_tensor_to_float_buffer(const ggml_tensor * tensor, std::vector<float> & output) {
     const size_t nelements = ggml_nelements(tensor);
     output.resize(nelements);
@@ -4621,12 +4922,33 @@ static bool llama_rtr_auto_should_disable(const std::string & fname, const llama
 static int llama_model_load(const std::string & fname, llama_model & model, llama_model_params & params) {
     try {
         if (params.repack_tensors && params.repack_tensors_auto) {
-            std::string reason;
-            if (llama_rtr_auto_should_disable(fname, params, reason)) {
-                params.repack_tensors = false;
-                LLAMA_LOG_INFO("%s: --run-time-repack auto: disabled (%s)\n", __func__, reason.c_str());
+            if (llama_rtr_auto_v2_enabled()) {
+                std::string reason;
+                const auto d = llama_rtr_auto_should_disable_v2(fname, params, reason);
+                switch (d) {
+                    case llama_rtr_auto_decision_v2::DISABLE:
+                        params.repack_tensors = false;
+                        LLAMA_LOG_INFO("%s: --run-time-repack auto v2: disabled (%s)\n", __func__, reason.c_str());
+                        break;
+                    case llama_rtr_auto_decision_v2::UNKNOWN:
+                        params.repack_tensors = false;
+                        LLAMA_LOG_WARN("%s: --run-time-repack auto v2: disabled (uncertainty: %s)\n", __func__, reason.c_str());
+                        break;
+                    case llama_rtr_auto_decision_v2::NOT_APPLICABLE:
+                        LLAMA_LOG_INFO("%s: --run-time-repack auto v2: policy does not apply (%s)\n", __func__, reason.c_str());
+                        break;
+                    case llama_rtr_auto_decision_v2::KEEP:
+                        LLAMA_LOG_INFO("%s: --run-time-repack auto v2: keeping repack enabled\n", __func__);
+                        break;
+                }
             } else {
-                LLAMA_LOG_INFO("%s: --run-time-repack auto: keeping repack enabled\n", __func__);
+                std::string reason;
+                if (llama_rtr_auto_should_disable(fname, params, reason)) {
+                    params.repack_tensors = false;
+                    LLAMA_LOG_INFO("%s: --run-time-repack auto: disabled (%s)\n", __func__, reason.c_str());
+                } else {
+                    LLAMA_LOG_INFO("%s: --run-time-repack auto: keeping repack enabled\n", __func__);
+                }
             }
         }
 

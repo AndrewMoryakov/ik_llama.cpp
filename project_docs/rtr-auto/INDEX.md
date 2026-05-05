@@ -16,6 +16,7 @@
 | 2026-05-05 | `FOLLOWUP_REVIEW_2026-05-05.md`   | review report   | Delta findings D1-D9 + три architecture options A/B/C. Stop rule.             |
 | 2026-05-05 | `ADDITIONAL_REVIEW_2026-05-05.md` | review report   | Cross-reference после DEEP+FOLLOWUP. Independent confirm + 2 small items.     |
 | 2026-05-05 | `FINAL_REVIEW_2026-05-05.md`      | decision report | Final verdict, blocking B1-B3, recommended PR response and next code path.    |
+| 2026-05-05 | `EXPERIMENTAL_V2_LOCAL.md`        | local feature   | Local-only experimental rtr-auto v2 implementation gated by IK_LLAMA_RTR_AUTO_V2 / `--experimental rtr-auto-v2=on`. |
 | —          | `README.md`                       | index           | Общее описание директории, файлы, status.                                     |
 | —          | `INDEX.md`                        | navigation      | Этот файл.                                                                    |
 
@@ -103,7 +104,8 @@
 | OPEN bug, known   | `DMAIVEL_FEEDBACK_2026-05-05.md` Points 2, 3. Также `DEEP_REVIEW` F1, F2.                     |
 | OPEN architectural| `FOLLOWUP_REVIEW_2026-05-05.md` options A/B/C; `FINAL_REVIEW_2026-05-05.md` final recommendation. Awaiting ikawrakow. |
 | Verified clean    | `DEEP_REVIEW_2026-05-05.md` C1-C5; `ADDITIONAL_REVIEW_2026-05-05.md`.                         |
-| Held              | Все code changes до решения maintainer'а. См. `FOLLOWUP_REVIEW_2026-05-05.md` «Stop rule».    |
+| Held              | Все code changes на `pr/rtr-auto-mode` до решения maintainer'а. См. `FOLLOWUP_REVIEW_2026-05-05.md` «Stop rule». |
+| Local opt-in      | `EXPERIMENTAL_V2_LOCAL.md` (на `feature/rtr-auto-v2`); `--experimental rtr-auto-v2=on`.       |
 
 ## Key external links
 

@@ -363,6 +363,7 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         { "hot-expert-trace",          "IK_LLAMA_HOT_EXPERT_TRACE" },
         { "locality-trace",            "IK_LLAMA_LOCALITY_TRACE" },
         { "layer-score-trace",         "IK_LLAMA_LAYER_SCORE_TRACE" },
+        { "rtr-auto-v2",               "IK_LLAMA_RTR_AUTO_V2" },
     };
 
     for (const auto & kv : params.experimental_cli) {
@@ -370,14 +371,14 @@ static bool common_apply_experimental_cli_overrides(const gpt_params & params, s
         if (it == allowed.end()) {
             if (err) {
                 *err = string_format(
-                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range, pg-trace, pg-trace-decode-window, hot-expert-trace, locality-trace, layer-score-trace)",
+                        "unsupported --experimental key '%s' (supported: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window, hot-expert-tail-blend, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range, pg-trace, pg-trace-decode-window, hot-expert-trace, locality-trace, layer-score-trace, rtr-auto-v2)",
                         kv.first.c_str());
             }
             return false;
         }
 
         std::string value = string_strip(kv.second);
-        if (kv.first == "prompt-packed-qkv") {
+        if (kv.first == "prompt-packed-qkv" || kv.first == "rtr-auto-v2") {
             bool enabled = false;
             if (!common_bool_from_string(value, enabled)) {
                 if (err) {
@@ -2618,7 +2619,7 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     options.push_back({ "*",           "       --experimental KEY=VALUE",
                                                                         "set a repeatable experimental runtime override.\n"
                                                                         "supported keys: hot-expert-budget, hot-expert-budget-mult, hot-expert-selection, hot-expert-tail-window,\n"
-                                                                        "hot-expert-tail-blend, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range" });
+                                                                        "hot-expert-tail-blend, prompt-packed-qkv, prompt-packed-preset, prompt-packed-range, rtr-auto-v2" });
     options.push_back({ "*",         "-smf16, --split-mode-f16,",       "Use f16 for data exchange between GPUs (default: %d)", true});
     options.push_back({ "*",         "-smf32, --split-mode-f32,",       "Use f32 for data exchange between GPUs (default: %d)", false});
     options.push_back({ "*",         "-grt, --graph-reduce-type",       "Type for data exchange between GPUs (default: %s)", "f32"});
