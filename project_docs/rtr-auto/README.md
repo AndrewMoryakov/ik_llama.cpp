@@ -80,6 +80,14 @@ description. Здесь — детальный analysis для:
   non-blocking issues, architecture paths A/B/C, recommended PR response,
   and exact next code path if Ivan says "keep auto" vs "make `-rtr`
   self-protective".
+- [`EXPERIMENTAL_V2_LOCAL.md`](EXPERIMENTAL_V2_LOCAL.md) — описание
+  local-only experimental v2 implementation на ветке
+  `feature/rtr-auto-v2`. Gate: `--experimental rtr-auto-v2=on` или
+  `IK_LLAMA_RTR_AUTO_V2=1`. Default behavior на dev unchanged.
+  Содержит: что v2 меняет (available memory + tri-state с
+  safety-first UNKNOWN), как активировать, smoke tests, как
+  port'ить в upstream PR при разных архитектурных выборах, Linux
+  cgroup detection notes.
 
 ## Status (2026-05-05)
 
