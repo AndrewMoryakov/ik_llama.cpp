@@ -48,6 +48,7 @@
 | `Live Observability` | `All` | `dashboard-only tooling` | `helper/tooling` | `helper` | `low` | лишний trace noise, если нужен максимально чистый benchmark |
 | `Experimental preset` | `All` | `dashboard helper` | `helper/tooling` | `helper` | `low` | может включить bundle, который пользователь не до конца понимает |
 | `Link preset to validated settings` | `All` | `dashboard helper` | `helper/tooling` | `helper` | `low` | пресет может перестроить validated baseline шире, чем ожидал пользователь |
+| `rtr-auto v2` (local, gated) | `All (works for MoE, no-op for dense)` | `load-time policy gated by IK_LLAMA_RTR_AUTO_V2 / --experimental rtr-auto-v2=on` | `Qwen3-30B-A3B`, `gpt-oss-20b/120b`, `Qwen3.5-27B Q8_0`, `Qwen3.5-397B-A17B`, `MiniMax M2.5 Tapered-RAM` | `medium across in-RAM MoE / huge swap-bound MoE / dense; multi-shard accumulation real-world confirmed` | `low` | probe failure / OS-query failure → safety-first WARN + disable; dense → NOT_APPLICABLE без побочных эффектов. Gated, default unchanged. Когда maintainer выберет path A, v2 portируется в upstream PR без gate. См. `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md`. |
 
 ---
 

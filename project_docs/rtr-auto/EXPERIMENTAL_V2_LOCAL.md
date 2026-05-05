@@ -100,6 +100,59 @@ code inspection: when both paths land on KEEP, the post-policy state
 (repack on, mmap untouched) is byte-identical, so any difference is
 system noise.
 
+## Practical impact (rtr=off comparison + forced rtr=1 catastrophe)
+
+Two follow-up benches to quantify what v2 actually buys.
+
+### in-RAM: rtr=on vs rtr=off (Qwen3-30B Q4_K_M, r=5)
+
+| Test  | rtr=off          | rtr=on (= auto KEEP) | Δ rtr=on |
+|-------|------------------|----------------------|----------|
+| PP512 | 319.40 ± 37.59   | 369.26 ± 8.20        | +15.6%   |
+| TG32  | 30.01 ± 0.24     | 31.64 ± 0.09         | +5.4%    |
+
+This is the first-time measured rtr=on benefit on the current build.
+σ at rtr=off is roughly 4× larger than at rtr=on, which means perf is
+also more volatile without the AVX-VNNI 256-bit layout. For in-RAM
+Zen4 inference rtr=on is reliably faster, which justifies why the
+auto policy defaults to KEEP whenever the model fits comfortably.
+
+### Swap-bound: rtr=auto+v2 vs forced rtr=1 (MiniMax-M2.5-TaperedRAM, 89.6 GiB on 96 GiB system)
+
+| Metric              | rtr=auto + v2 (DISABLE) | rtr=1 forced            |
+|---------------------|-------------------------|--------------------------|
+| Cold load time      | ~30 sec (mmap streaming) | **213.8 sec (3.5 min)** |
+| PP rate             | 0.83 tok/s              | 1.56 tok/s               |
+| TG rate             | 2.33 tok/s              | 2.25 tok/s               |
+
+The catastrophe is in cold load time, not steady-state throughput.
+Forced rtr=1 paid a ~3 minute load penalty before generating any
+token. TG was almost identical because in both cases the working set
+exceeds available RAM and disk IO becomes the bottleneck.
+
+PP is faster on the forced rtr=1 path because, after the long load,
+prompt-side compute uses repacked tensors. But the load penalty is
+paid every cold start, and this kind of swap-bound model is exactly
+where users do not want a 3-minute wait.
+
+The fork-specific «VM prefetch for swap-bound experts» message in the
+log (`llm_load_print_meta: model > 90% RAM — enabling VM prefetch`)
+is a separate safety mechanism in the loader that prevented an OOM
+crash. On vanilla llama.cpp without that fallback, forced rtr=1 on
+this configuration would likely have failed outright.
+
+### Net practical conclusion
+
+For users who routinely run mixed workloads (in-RAM medium MoE plus
+the occasional huge swap-bound MoE), v2 gives:
+
+- Same PP/TG on in-RAM models as before (KEEP path identical to v1).
+- About 3 minutes of cold-load saved per swap-bound run, automatically,
+  without having to manually toggle `-rtr 0` for big models.
+- Protection against accidental `-rtr 1` on a borderline model that
+  happens to be over the available-memory threshold even though it
+  fits in total RAM (the dmaivel scenario).
+
 ## Quick local re-verification
 
 To rerun just one in-RAM check and one swap-bound check:

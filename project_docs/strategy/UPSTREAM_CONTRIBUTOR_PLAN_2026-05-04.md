@@ -62,23 +62,35 @@
 ## Tier 2 — Real features (1-2 недели)
 
 ### Item 2.1 — `-rtr auto` flag (2-3 часа)
-**Status**: имплементация есть в нашем форке (`llama_rtr_auto_should_disable`), нужна cleanup для upstream  
+**Status**: PR #1738 submitted 2026-05-04 (commit `0115ace21`), awaiting maintainer architectural direction. Community feedback (dmaivel) found two policy gaps. **v2 fix имплементирован локально на `dev` за experimental gate** (`feature/rtr-auto-v2`, merged 2026-05-05). Готов для port'а в upstream PR когда ikawrakow выберет path A.
 **Risk**: 🟡 средний (cross-platform, behavioural change)  
 **Value**: 🟢 высокая — решает known regression (-46-60% TG на swap-bound rtr=on)
 
-**Файлы upstream**:
-- `common/common.cpp` — `-rtr auto` парсинг
-- `common/common.h` — `repack_tensors_auto` flag
-- `examples/llama-bench/llama-bench.cpp` — fields list
-- `include/llama.h` — `llama_get_total_ram_bytes` API (?)
-- `src/llama.cpp` — `llama_rtr_auto_should_disable` function
+**Файлы upstream** (для PR #1738 path A port):
+- `common/common.cpp` — `-rtr auto` парсинг (есть в #1738)
+- `common/common.h` — `repack_tensors_auto` flag (есть в #1738)
+- `examples/llama-bench/llama-bench.cpp` — fields list (есть в #1738)
+- `include/llama.h` — `repack_tensors_auto` member (есть в #1738)
+- `src/llama.cpp` — заменить `llama_rtr_auto_should_disable` на v2 версию: available memory + tri-state + safety-first UNKNOWN
 
-**Prep work перед PR**:
-- Убрать наш `LLM_ARCH_MINIMAX_M2` special branch — generic MoE detection
-- Добавить macOS `sysctl(HW_MEMSIZE)` в `llama_get_total_ram_bytes`
-- Test на Linux (не только Windows)
+**v2 implementation details** (см. `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md`):
+- `llama_get_available_ram_bytes()` — Windows `ullAvailPhys`, Linux `/proc/meminfo MemAvailable` + cgroup v2/v1 walker, macOS `host_statistics64`
+- `enum llama_rtr_auto_decision_v2 { KEEP, DISABLE, NOT_APPLICABLE, UNKNOWN }`
+- `llama_rtr_auto_should_disable_v2()` returns enum; UNKNOWN → safety-first WARN + disable
+- Validated на 6 model classes: Qwen3-30B (KEEP), gpt-oss-20b/120b (KEEP), Qwen3.5-27B Q8_0 dense (NOT_APPLICABLE), Qwen3.5-397B-A17B 6 shards 219 GiB (DISABLE через multi-shard accumulation), MiniMax M2.5 (DISABLE через MINIMAX_M2 special case)
+
+**Bench data для PR description**:
+- v2 dispatch overhead = 0 на Qwen3-30B и gpt-oss-20b (r=5, все дельты в σ overlap)
+- rtr=on perf benefit на in-RAM Zen4: +15.6% PP / +5.4% TG vs rtr=off (Qwen3-30B Q4_K_M r=5)
+- Forced rtr=1 на swap-bound = 213.8s cold load penalty vs ~30s для auto-disable (MiniMax 89.6 GiB / 88.2 GiB available)
+
+**Prep work перед finalize PR (когда maintainer ответит)**:
+- Strip experimental gate (`IK_LLAMA_RTR_AUTO_V2` env var dispatch)
+- Strip `LLM_ARCH_MINIMAX_M2` special branch (нет в upstream tree)
+- Rename `_v2` функции в canonical имена
+- Test на Linux (cgroup walker не runtime-tested локально, только compile-tested)
 - Run `tests/test-backend-ops`
-- Run smoke benchmark показывающий что `-rtr auto` corrects swap-bound model perf
+- Update PR description Validation table с реальными цифрами
 
 **Self-reported complexity**: Medium. PR template требует.
 
@@ -195,7 +207,7 @@ Week 3+:
 | #1733 | Item 1.1 — v3 hybrid docs | ✅ MERGED | 2026-05-04 |
 | #1734 | Item 1.2 — `scripts/build-zen.{sh,bat}` | ✅ MERGED | 2026-05-04 |
 | #1735 | Item 1.3 — README cross-link | ✅ MERGED | 2026-05-04 |
-| #1738 | Item 2.1 — `-rtr auto` | ⏳ Submitted | 2026-05-04 |
+| #1738 | Item 2.1 — `-rtr auto` | ⏳ Submitted, waiting on maintainer; v2 fix ready locally | 2026-05-04 |
 | TBD | Item 2.2 — timings JSON endpoint | Not started | — |
 
 Каждый раз когда PR merges — обновить эту таблицу + memory `MEMORY.md`.
