@@ -1,0 +1,16 @@
+Fast QC v2 summary
+run_dir=bench_results\fast_qc_v2\20260324_110540
+FQC-01 Arithmetic + self-check: 0/10 [ok]
+FQC-02 Exact symbolic transform: 8/10 [ok]
+FQC-03 Strict JSON extraction: 0/15 [ok]
+FQC-04 Distractor-aware extraction: 0/10 [ok]
+FQC-05 Multi-constraint formatting: 15/15 [ok]
+FQC-06 Code generation with execution: 14/20 [ok]
+FQC-07 Bugfix snippet: 2/10 [ok]
+FQC-08 Compact incident diagnosis: 0/10 [ok]
+
+TOTAL: 39/100 (39.0%)
+SECTION TOTALS: {"exactness": 8, "extraction": 0, "instruction_following": 15, "code": 16, "diagnosis": 0}
+GATE: FAIL
+  - FQC-03 below critical minimum: 0.0/15.0 < 60%
+  - total score 39.0 below fail threshold 78.0

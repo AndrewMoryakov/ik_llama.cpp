@@ -1,0 +1,114 @@
+{
+  "suite": "fast_qc_v2",
+  "model_name": "Qwen3.5-27B-Claude-Opus",
+  "quant_name": "Q8_0",
+  "backend_name": "unknown_backend",
+  "backend_version": "unknown_version",
+  "api_base": "http://127.0.0.1:8080",
+  "prompt_mode": "completion",
+  "temperature": 0.0,
+  "seed": null,
+  "max_tokens": 4000,
+  "timeout_sec": 900,
+  "run_id": "20260324_110540",
+  "timestamp_utc": "2026-03-24T08:05:40Z",
+  "run_dir": "bench_results\\fast_qc_v2\\20260324_110540",
+  "total_score": 39,
+  "total_max": 100,
+  "pct": 39.0,
+  "section_totals": {
+    "exactness": 8,
+    "extraction": 0,
+    "instruction_following": 15,
+    "code": 16,
+    "diagnosis": 0
+  },
+  "section_weights": {
+    "exactness": 20,
+    "extraction": 25,
+    "instruction_following": 15,
+    "code": 30,
+    "diagnosis": 10
+  },
+  "results_jsonl": "bench_results\\fast_qc_v2\\20260324_110540\\results.jsonl",
+  "tests": [
+    {
+      "test_id": "FQC-01",
+      "test_name": "Arithmetic + self-check",
+      "score": 0,
+      "weight": 10,
+      "status": "ok",
+      "section": "exactness"
+    },
+    {
+      "test_id": "FQC-02",
+      "test_name": "Exact symbolic transform",
+      "score": 8,
+      "weight": 10,
+      "status": "ok",
+      "section": "exactness"
+    },
+    {
+      "test_id": "FQC-03",
+      "test_name": "Strict JSON extraction",
+      "score": 0,
+      "weight": 15,
+      "status": "ok",
+      "section": "extraction"
+    },
+    {
+      "test_id": "FQC-04",
+      "test_name": "Distractor-aware extraction",
+      "score": 0,
+      "weight": 10,
+      "status": "ok",
+      "section": "extraction"
+    },
+    {
+      "test_id": "FQC-05",
+      "test_name": "Multi-constraint formatting",
+      "score": 15,
+      "weight": 15,
+      "status": "ok",
+      "section": "instruction_following"
+    },
+    {
+      "test_id": "FQC-06",
+      "test_name": "Code generation with execution",
+      "score": 14,
+      "weight": 20,
+      "status": "ok",
+      "section": "code"
+    },
+    {
+      "test_id": "FQC-07",
+      "test_name": "Bugfix snippet",
+      "score": 2,
+      "weight": 10,
+      "status": "ok",
+      "section": "code"
+    },
+    {
+      "test_id": "FQC-08",
+      "test_name": "Compact incident diagnosis",
+      "score": 0,
+      "weight": 10,
+      "status": "ok",
+      "section": "diagnosis"
+    }
+  ],
+  "gate": {
+    "status": "FAIL",
+    "reasons": [
+      "FQC-03 below critical minimum: 0.0/15.0 < 60%",
+      "total score 39.0 below fail threshold 78.0"
+    ],
+    "thresholds": {
+      "fail_total_threshold": 78.0,
+      "borderline_total_threshold": 85.0,
+      "fail_total_drop": 5.0,
+      "fail_code_json_drop": 8.0,
+      "critical_min_pct": 0.6
+    }
+  }
+}

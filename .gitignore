@@ -143,3 +143,8 @@ poetry.toml
 # IDE
 *.code-workspace
 .windsurf/
+
+# Datasets and regenerable evaluation artifacts
+wikitext-2-raw-v1.zip
+wikitext-2-raw/
+expert_stats.csv
