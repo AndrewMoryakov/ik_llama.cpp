@@ -43,6 +43,13 @@ description. Здесь — детальный analysis для:
   делать), стилистику общения с upstream, и placeholder для конкретной
   задачи. Скопировать целиком в начало новой сессии плюс добавить
   конкретную задачу в конце.
+- [`TASK_DEEP_REVIEW_2026-05-05.md`](TASK_DEEP_REVIEW_2026-05-05.md) —
+  конкретная задача для агента: deep critical review текущего состояния
+  PR с фокусом на категории, которые предыдущие ревью покрывали слабо
+  (multi-shard GGUF, ABI compat, concurrency, edge cases в integer
+  arithmetic, cross-compiler warnings, и др.). Содержит 11 направлений
+  для investigation, формат отчёта, guardrails. Использовать вместе
+  с `AGENT_BRIEF.md`.
 
 ## Status (2026-05-05)
 
