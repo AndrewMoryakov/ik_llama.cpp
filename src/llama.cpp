@@ -4440,7 +4440,7 @@ static llama_rtr_auto_decision_v2 llama_rtr_auto_should_disable_v2(
         const bool is_moe        = probe_model.hparams.n_expert > 0 && probe_model.hparams.n_expert_used > 0;
         const bool is_minimax_m2 = probe_model.arch == LLM_ARCH_MINIMAX_M2;
         if (!is_moe && !is_minimax_m2) {
-            reason = "policy does not apply (dense model)";
+            reason = "dense model";
             return llama_rtr_auto_decision_v2::NOT_APPLICABLE;
         }
 

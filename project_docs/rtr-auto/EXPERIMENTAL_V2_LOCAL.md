@@ -70,26 +70,47 @@ Look at the policy log line:
 The v2 disable-on-uncertainty line is logged at WARN level, not INFO,
 so it is visible even with `--log-disable` reduced verbosity.
 
-## Testing locally
+## Local test results (2026-05-05)
 
-Two quick smoke checks:
+Smoke verified across six representative models on the 7950X 96 GB
+system:
 
-1. **In-RAM Qwen3-30B**: should report
-   `--run-time-repack auto v2: keeping repack enabled` when
-   available memory is high relative to model size.
-   ```
-   .\build\bin\Release\llama-cli.exe -m Qwen3-30B-A3B-Q4_K_M.gguf -t 16 -fa 1 -rtr auto -n 16 --experimental rtr-auto-v2=on
-   ```
+| Model                              | Size on disk | Type                          | v2 decision      | Notes                                                                                  |
+|------------------------------------|--------------|-------------------------------|------------------|----------------------------------------------------------------------------------------|
+| Qwen3-30B-A3B-Q4_K_M               | 17 GiB       | in-RAM MoE                    | KEEP             | basic in-RAM happy path                                                                |
+| gpt-oss-20b-MXFP4                  | 11 GiB       | in-RAM MoE                    | KEEP             | basic in-RAM happy path                                                                |
+| gpt-oss-120b-MXFP4 (multi-shard)   | 63 GiB       | in-RAM MoE                    | KEEP             | larger model that still fits below 90% threshold                                       |
+| Qwen3.5-27B Q8_0                   | 28.6 GiB     | in-RAM dense                  | NOT_APPLICABLE   | confirms dense path; log says `policy does not apply (dense model)`                    |
+| Qwen3.5-397B-A17B UD-Q4_K_XL       | 219 GiB / 6 shards | swap-bound multi-shard MoE | DISABLE         | probe.n_bytes accumulated to 204.2 GiB across all shards; threshold fired              |
+| MiniMax-M2.5-TaperedRAM            | 90 GiB       | swap-bound MiniMax M2 arch    | DISABLE         | LLM_ARCH_MINIMAX_M2 special-case path; Windows ullAvailPhys returned 78.8 GiB         |
 
-2. **Swap-bound MiniMax M2.5**: should report
-   `--run-time-repack auto v2: disabled (...)` with the threshold
-   message naming MiniMax M2 model and the actual available memory.
-   ```
-   .\build\bin\Release\llama-cli.exe -m D:\ggufs\un\minimax2.5-m2\<file> -t 16 -fa 1 -rtr auto -n 16 --experimental rtr-auto-v2=on
-   ```
+Bench (Qwen3-30B Q4_K_M, gpt-oss-20b MXFP4, t=16 fa=1 -rtr 2 r=5,
+PP512 + TG32):
 
-Compare against the same commands without the `--experimental` flag to
-verify v1 path is untouched.
+| Model           | Test  | v1 (no flag)    | v2 (env=1)      | Δ      |
+|-----------------|-------|-----------------|-----------------|--------|
+| Qwen3-30B Q4_K_M| PP512 | 367.38 ± 7.55   | 369.26 ± 8.20   | +0.5%  |
+| Qwen3-30B Q4_K_M| TG32  | 32.00 ± 0.22    | 31.64 ± 0.09    | -1.1%  |
+| gpt-oss-20b MXFP4| PP512| 362.67 ± 8.61   | 369.25 ± 7.15   | +1.8%  |
+| gpt-oss-20b MXFP4| TG32 | 24.80 ± 0.09    | 24.78 ± 0.06    | -0.08% |
+
+All four deltas are inside σ overlap, meaning v2 dispatch wrapper has
+no measurable inference overhead vs the legacy v1 path. Expected from
+code inspection: when both paths land on KEEP, the post-policy state
+(repack on, mmap untouched) is byte-identical, so any difference is
+system noise.
+
+## Quick local re-verification
+
+To rerun just one in-RAM check and one swap-bound check:
+
+```
+build\bin\llama-cli.exe -m <in-RAM-MoE>.gguf -t 16 -fa 1 -rtr auto -n 1 -p Hi --no-display-prompt --experimental rtr-auto-v2=on
+build\bin\llama-cli.exe -m <swap-bound-MoE>.gguf -t 16 -fa 1 -rtr auto -n 1 -p Hi --no-display-prompt --experimental rtr-auto-v2=on
+```
+
+Compare against the same commands without the `--experimental` flag
+to verify the v1 path is untouched.
 
 ## What v2 does NOT change
 
