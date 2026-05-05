@@ -29,6 +29,14 @@ description. Здесь — детальный analysis для:
   модели которую feature должна была спасать). Включает root cause analysis,
   test infrastructure gaps, lessons learned, и рекомендованный pre-submit
   checklist для behavioural-change PRs.
+- [`DMAIVEL_FEEDBACK_2026-05-05.md`](DMAIVEL_FEEDBACK_2026-05-05.md) — анализ
+  feedback от community contributor dmaivel, который протестировал
+  `-rtr auto` на реальной swap-bound конфигурации (Linux 64 GB + 120 GB
+  модель + GPU offload + `-ot exps=CPU`). Зафиксировал две дыры: наш
+  `n_gpu_layers > 0` skip ничего не знает про `tensor_buft_overrides`, и мы
+  меряем total RAM вместо available. Документ содержит разбор причин,
+  предложенный фикс (switch to available RAM, drop GPU skip), draft
+  ответа, и обоснование почему мы holдим push до решения maintainer'а.
 
 ## Status (2026-05-05)
 
