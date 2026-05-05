@@ -87,7 +87,7 @@
     moe_in_ram: {
       id: 'moe_in_ram',
       title: { ru: 'MoE (в RAM)', en: 'MoE (In-RAM)' },
-      description: { ru: 'Qwen3-30B-A3B, gpt-oss-20b и похожие in-RAM / near-RAM MoE.', en: 'Qwen3-30B-A3B, gpt-oss-20b, and similar in-RAM / near-RAM MoE.' },
+      description: { ru: 'Qwen3-30B-A3B, gpt-oss-20b и похожие in-RAM / near-RAM MoE. rtr=auto даёт +15.6% PP / +5.4% TG vs rtr=off на Zen4 (Qwen3-30B Q4_K_M r=5, 2026-05-05).', en: 'Qwen3-30B-A3B, gpt-oss-20b, and similar in-RAM / near-RAM MoE. rtr=auto gives +15.6% PP / +5.4% TG vs rtr=off on Zen4 (Qwen3-30B Q4_K_M r=5, 2026-05-05).' },
       applicability: 'moe',
       validation: 'validated',
       confidence: 'medium',
@@ -105,7 +105,7 @@
     qwen3moe_30b: {
       id: 'qwen3moe_30b',
       title: { ru: 'Qwen3-30B-A3B', en: 'Qwen3-30B-A3B' },
-      description: { ru: 'Qwen3-30B-A3B: оптимальный baseline, TG стабилен при любой длине ответа.', en: 'Qwen3-30B-A3B: optimal baseline, TG is stable at any output length.' },
+      description: { ru: 'Qwen3-30B-A3B: оптимальный baseline, TG стабилен при любой длине ответа. rtr=auto подтверждён +15.6% PP / +5.4% TG vs rtr=off (r=5, 2026-05-05).', en: 'Qwen3-30B-A3B: optimal baseline, TG is stable at any output length. rtr=auto confirmed +15.6% PP / +5.4% TG vs rtr=off (r=5, 2026-05-05).' },
       applicability: 'moe',
       validation: 'validated',
       confidence: 'high',
@@ -114,7 +114,7 @@
     minimax_huge_safe: {
       id: 'minimax_huge_safe',
       title: { ru: 'MiniMax huge (safe baseline)', en: 'MiniMax huge (safe baseline)' },
-      description: { ru: 'MiniMax M2.5 UD-Q5 и другие huge-кванты (>100 GiB): консервативный OFF-baseline для явно swap-bound моделей.', en: 'MiniMax M2.5 UD-Q5 and other huge quants (>100 GiB): conservative OFF baseline for clearly swap-bound models.' },
+      description: { ru: 'MiniMax M2.5 UD-Q5 и другие huge-кванты (>100 GiB): консервативный OFF-baseline для явно swap-bound моделей. Forced rtr=1 на 89.6 GiB модели = 213.8 sec cold load penalty (vs ~30 sec для off/auto-disable, 2026-05-05). v2 auto-policy при включении даёт тот же DISABLE.', en: 'MiniMax M2.5 UD-Q5 and other huge quants (>100 GiB): conservative OFF baseline for clearly swap-bound models. Forced rtr=1 on a 89.6 GiB model costs 213.8 sec cold load (vs ~30 sec for off/auto-disable, 2026-05-05). v2 auto-policy reaches the same DISABLE when enabled.' },
       applicability: 'moe-huge',
       validation: 'partial',
       confidence: 'medium',
@@ -123,7 +123,7 @@
     minimax_tapered_ram: {
       id: 'minimax_tapered_ram',
       title: { ru: 'MiniMax Tapered-RAM (~91 GiB)', en: 'MiniMax Tapered-RAM (~91 GiB)' },
-      description: { ru: 'Кастомный квант Tapered-RAM: почти влезает в 96 GB RAM при малом контексте. Безопасный baseline.', en: 'Custom Tapered-RAM quant: nearly fits in 96 GB RAM with small context. Safe baseline.' },
+      description: { ru: 'Кастомный квант Tapered-RAM: почти влезает в 96 GB RAM при малом контексте. Безопасный baseline. v2 auto-policy с available memory (~78-88 GiB) корректно DISABLE на этой модели; rtr=auto+v2 эквивалентен rtr=off, без 3.5 min cold-load penalty от forced rtr=1 (2026-05-05).', en: 'Custom Tapered-RAM quant: nearly fits in 96 GB RAM with small context. Safe baseline. v2 auto-policy using available memory (~78-88 GiB) correctly DISABLEs on this model; rtr=auto+v2 is equivalent to rtr=off, without the 3.5 min cold-load penalty of forced rtr=1 (2026-05-05).' },
       applicability: 'moe-huge',
       validation: 'partial',
       confidence: 'medium',
