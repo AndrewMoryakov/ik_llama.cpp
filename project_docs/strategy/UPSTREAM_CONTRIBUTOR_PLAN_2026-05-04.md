@@ -155,7 +155,16 @@ Body shape:
 
 ## Tier 3 — Discovery (паралельно)
 
-### Item 3.1 — Open issues review (30 минут)
+### Item 3.1 — Open issues review
+
+**2026-05-05 first pass: 0 quick wins из 45 open issues.**
+
+Detailed inspection: #353 (Windows binaries — distribution issue, не fixable без maintainer CI investment), #1382 (Docker build — contributor mcm007 already on it, ikawrakow не считает bug), #361 (ARM CPU detection — нет hardware для testing), #199 (server slot/parallel state — too deep without prior code work), #1629 (merge_up_gate_shexp — maintainer explicitly said no).
+
+Issue queue current shape: dominated by GPU/CUDA debugging (~10 issues), new model arch support (~7), tool-calling/Jinja internals (~3), multi-GPU hardware-specific (~4), ARM (~1), in-progress by others (~3). None match our CPU+build-docs+server-level scope without significant investment.
+
+Repeat scan recommended: every 2-3 weeks, faster if we see issue activity from new contributors.
+
 ```
 gh issue list --repo ikawrakow/ik_llama.cpp --state open --limit 30
 ```
