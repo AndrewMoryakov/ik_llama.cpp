@@ -8,16 +8,61 @@ This file is not a user tutorial.
 
 Its job is to reduce re-discovery cost and point the agent at the current source-of-truth layer quickly.
 
-## First Read Order
+## Latest State (2026-05-05)
 
-Read these first, in this order:
+The auto-memory system loads `MEMORY.md` from the user's
+`.claude/projects/Z--files-projects-ik-llama-proj/memory/` directory
+at the start of every session. That file is the always-on entry
+point. It carries the current `dev` HEAD, settled-facts pointer,
+active priorities, and topic-file index. Everything below assumes
+that file already loaded.
+
+Active upstream contributor work as of 2026-05-05:
+
+- PR #1738 (`-rtr auto`) submitted, awaiting maintainer architectural
+  direction. Path A patch is preassembled on the `pr/rtr-auto-mode-v2`
+  branch, ready to force-push when the maintainer picks path A or
+  the silence threshold (~2026-05-12) hits.
+- Issue #1740 (JSON variant of `/metrics`) posted, awaiting
+  maintainer reaction. Code is not written until the maintainer
+  signals interest.
+
+For continuation of the rtr-auto thread (most active surface area
+right now), use:
+
+- `project_docs/rtr-auto/AGENT_BRIEF.md` — full bootstrap including
+  what was already done, what not to do (specifically: do not push
+  `pr/rtr-auto-mode-v2` to the `fork` remote without explicit
+  approval), reading order across the eleven rtr-auto bundle docs,
+  active threads with `gh` refresh commands.
+- `project_docs/rtr-auto/INDEX.md` — navigation across the eleven
+  rtr-auto bundle docs.
+
+For broader strategy and upstream track:
+
+- `project_docs/strategy/UPSTREAM_CONTRIBUTOR_PLAN_2026-05-04.md` —
+  Tier 1/2/3 items with current status of each.
+- `project_docs/strategy/POST_MERGE_BACKLOG_2026-05-02.md` — four
+  follow-ups after the 2026-05-02 upstream sync. Item 3 (eval
+  framework commit) is done; the other three are open.
+
+## Historical First Read Order (kept for context, not current)
+
+The 2026-02 / 2026-03 era bootstrap pointed at:
 
 1. `project_docs/llm/PROJECT_STATE_FOR_AGENTS_2026-03-04.md`
+   (and `_2026-03-06.md` for the slightly newer snapshot)
 2. `project_docs/llm/SESSION_BOOTSTRAP.md`
 3. `project_docs/strategy/CURRENT_HANDOFF_2026-03-01.md`
 4. `project_docs/release/CURRENT_STATUS_2026-02-28.md`
 
-Then branch only as needed:
+These remain useful for understanding how the project got to its
+current shape (Phase model 1-5, prompt-packed productization,
+Tapered-RAM quant work, dashboard refactor). They are no longer the
+starting point for day-to-day work, which now centers on upstream
+contribution and `-rtr auto` finalization.
+
+Topic-specific lookups (still current):
 
 - `project_docs/benchmarks/current/QWEN3MOE_CURRENT_STATUS_2026-02-28.md`
 - `project_docs/benchmarks/current/GPT_OSS_CURRENT_STATUS_2026-02-28.md`
@@ -78,12 +123,18 @@ Current recommended order:
 
 ## Do Not Re-Discover
 
-These points are already settled enough to avoid repeating the same cycle blindly:
+These points are already settled enough to avoid repeating the same cycle blindly. The full numbered list (24 items as of 2026-05-05) lives in the auto-memory `settled-facts.md`; below is a representative subset:
 
 1. `pg` must not be inferred from `tg` alone
 2. `flash_attn` matters materially for mixed path on validated Zen4 profiles
 3. `rtr=auto` is already a strong start for `Qwen3MoE` and `gpt-oss`
 4. MiniMax hot-expert `24/32` is not a new default candidate on current evidence
+5. CCD pinning hurts perf, SMT disable is catastrophic for TG (settled fact #11)
+6. Forced `rtr=1` on swap-bound MoE = ~3.5 min cold-load penalty (settled fact #23)
+7. rtr=on gives +15.6% PP / +5.4% TG vs rtr=off on in-RAM Zen4 (settled fact #21)
+8. v2 auto-policy (available memory + tri-state) validated on 6 model classes (settled fact #22)
+
+The full list is the source of truth. Always cross-check `settled-facts.md` before proposing experiments that look already-tested.
 
 ## MiniMax-Specific Expensive Benchmark With Good ROI
 
