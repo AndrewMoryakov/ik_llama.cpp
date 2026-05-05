@@ -4,9 +4,9 @@
 **Comment URL**: https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4376277369
 **Status**: response drafted, holding push of code changes pending maintainer input
 **Note on edits**: dmaivel edited his original comment (created 03:08 UTC,
-edited 03:22 UTC) to insert an `EDIT:` paragraph addressing the GPU+CPU
-split case. That paragraph is reflected verbatim in the quote below and
-analysed as Point 5 further down.
+latest observed edit 05:19:53 UTC) to insert/refine an `EDIT:` paragraph
+addressing the GPU+CPU split case. That paragraph is reflected in the quote
+below and analysed as Point 5 further down.
 
 ## Original comment
 
@@ -30,12 +30,11 @@ fire when it should have. Quoting the relevant pieces:
 >     -rtr auto
 > ```
 >
-> EDIT: For the above, I read your note about GPU+CPU split inference,
-> and it makes me confused about the scope of the issue you're trying
-> to solve. If the path can't determine whether repacking should be
-> enabled or disabled, isn't the wiser choice to disable? Otherwise,
-> the user is left with the same failure message they would have
-> gotten if they just used `-rtr` in its current form.
+> EDIT: For the above, I read your note about GPU+CPU split inference;
+> if the path can't determine whether repacking should be enabled or
+> disabled, isn't the wiser choice to disable? Otherwise, the user is
+> left with the same failure message they would have gotten if they
+> just used `-rtr` in its current form.
 >
 > Also, checking total system memory is not sufficient because the
 > allocation can still fail if other processes are consuming a
@@ -130,12 +129,11 @@ trade-off rather than pre-committing.
 
 ### Point 5 (added in edit): uncertainty should default to disable
 
-This is the new paragraph dmaivel added via EDIT after reading our
+This is the new/refined paragraph dmaivel added via EDIT after reading our
 mention that GPU+CPU split inference was the original motivation for the
-`n_gpu_layers > 0` skip. He asks: «if the path can't determine whether
-repacking should be enabled or disabled, isn't the wiser choice to
-disable? Otherwise, the user is left with the same failure message they
-would have gotten if they just used `-rtr` in its current form».
+`n_gpu_layers > 0` skip. He asks: if the path cannot determine whether
+repacking should be enabled or disabled, is disabling the wiser default?
+Otherwise the user gets the same failure mode as plain `-rtr`.
 
 This is a real and well-formed argument. Reframed in our terms:
 
@@ -271,39 +269,65 @@ Estimated change: 30-50 lines for items 1-4, plus ~5 lines for item 5.
 
 ## Why we are not pushing the fix yet
 
-Two reasons:
+The technical fix sketched above is held until ikawrakow chooses
+between (a) keeping the explicit `-rtr auto` design, (b) rewriting
+`-rtr` to be self-protective, or (c) a larger placement-aware design.
+Pushing the focused (a)-shaped patch now and then having to rewrite
+for (b) or (c) would waste review cycles.
 
-1. The architectural question dmaivel raised (drop the `auto` mode and
-   make `-rtr 1` self-protective) materially changes the shape of the
-   PR. Pushing the available-RAM fix now and then having to rewrite for
-   the no-flag design wastes review cycles.
+Default behavior if maintainer is silent: proceed with (a) as the
+smallest reviewable change. Threshold for "silent" is 5 working days
+from the response post (2026-05-05 05:39 UTC), absent any other
+signal in the PR.
 
-2. ikawrakow has not commented yet. Maintainer's preference between the
-   two designs determines what we ship.
+Response to dmaivel was posted on 2026-05-05 05:39 UTC explicitly
+asking ikawrakow to pick between (a)/(b)/(c). See "Response status"
+below.
 
-Best path: post the response that acknowledges dmaivel's points, outlines
-the technical fix, and explicitly defers the architectural question to
-ikawrakow. Then act on whichever direction he chooses.
+## Response status
 
-## Draft response status
+Posted upstream on 2026-05-05 at 05:39:45 UTC.
 
-The response text was prepared in chat but has not been posted upstream and
-there is no committed `DMAIVEL_RESPONSE.md` file in this directory. Use
-`FOLLOWUP_REVIEW_2026-05-05.md` and `ADDITIONAL_REVIEW_2026-05-05.md` for the
-current recommended maintainer-facing wording.
+- URL: https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4376786508
+- Author: AndrewMoryakov
+- Body length: 2753 characters
 
-Key points the response covers:
+The response was a tightened revision of the version drafted in
+`FINAL_REVIEW_2026-05-05.md` lines 247-269 with three corrections:
 
-- Confirms both bugs (GPU offload skip too coarse, total vs available RAM)
+1. The mmap claim was rephrased. After commit `0115ace21`, parser no
+   longer forces `use_mmap=false` for `-rtr auto`. In dmaivel's case
+   mmap is disabled in the load-time "auto keeps repack enabled" else
+   branch, not at parse time. The posted text reflects this.
+2. Dense-model handling was removed from the uncertainty list. Dense
+   means "policy intentionally does not apply", which is distinct from
+   "could not determine". Conflating them in the response would have
+   misled review.
+3. The text was shortened from ~750 to ~470 words to fit a PR-comment
+   audience without losing the technical substance.
+
+Key points the posted response covers:
+
+- Confirms both bugs (GPU offload skip too coarse, total vs available
+  RAM)
 - Explains root cause precisely for each
-- Proposes the available-RAM fix and notes how it compounds-fixes the
-  GPU-offload case
-- Acknowledges the over-estimation caveat for heavy GPU-offload scenarios
+- Proposes the available-memory fix and notes how it compounds-fixes
+  the GPU-offload case
+- Acknowledges the over-estimation caveat for heavy GPU-offload
+  scenarios
+- States the focused fix shape as five numbered steps (item 3 covers
+  the keep/disable/unknown tri-state)
+- Acknowledges Point 5 (uncertainty defaults to disable) from
+  dmaivel's edit
 - Surfaces the architectural alternative without committing to either
-- States we will hold pushing changes pending maintainer direction
-- Acknowledges Point 5 (uncertainty-defaults-to-disable) from
-  dmaivel's edit; agrees with the safety-first reframe; notes we
-  reached the same conclusion in internal review independently
+- Asks ikawrakow to choose between (a) keep auto mode and apply fix,
+  (b) rewrite for self-protective `-rtr`, (c) defer to placement-aware
+  design
+- Declares default behavior on silence: proceed with (a) as smallest
+  reviewable change
+
+Verbatim text of the posted comment is preserved on GitHub at the URL
+above; we did not commit a copy in this repo.
 
 ## What this means for our pre-submit process
 
