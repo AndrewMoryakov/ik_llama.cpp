@@ -97,24 +97,59 @@
 ---
 
 ### Item 2.2 — Stable timings JSON endpoint (1-2 часа)
-**Status**: discovered проблему через наш dashboard fix work  
-**Risk**: 🟡 средний (новый API surface)  
+**Status**: research complete 2026-05-05; code prep deferred until #1738 finalize
+**Risk**: 🟢 низкий (additive, не ломает существующие endpoints)
 **Value**: 🟢 средне-высокая для external tooling
 
-**Мотивация**: текущий `slot print_timing:` text format нестабилен (поменялся в last upstream sync, поломал наш dashboard). External monitoring/dashboard tools на parsing stdout — fragile.
+**Мотивация**: текущий `slot print_timing:` text format нестабилен (поменялся в last upstream sync, поломал наш dashboard). Прометей-формат `/metrics` тоже text-based и предполагает Prometheus parser. Для прямого JSON consumers (dashboards, log aggregators) хочется stable JSON endpoint с теми же данными.
 
-**Предложение**: новый GET endpoint `/timings` или `/v1/metrics` с JSON shape:
+**Текущее upstream состояние** (после code review 2026-05-05):
+
+- `/metrics` endpoint существует в `examples/server/server.cpp:2067` (handle_metrics, lines 800-905). Возвращает Prometheus text v0.0.4. Source data — `server_task_result` от `SERVER_TASK_TYPE_METRICS` task через server task queue.
+- Per-request timings уже доступны через каждый completion response: `task_result.timings.to_json()` см. `examples/server/server-task.h:117-135` для `result_timings` struct и `examples/server/server-task.cpp:3` для `to_json()`. Структура содержит prompt_n/ms/per_token_ms/per_second + predicted_* + draft_* + n_ctx + n_past.
+- `/health` со `?include_slots=1` и `/slots` тоже отдают per-slot data.
+- Чего НЕ хватает: **server-wide aggregate metrics в JSON**. Сейчас агрегаты только в Prometheus text.
+
+**Конкретное предложение**:
+
+Новый GET endpoint `/v1/metrics/json` или `/metrics/json` — JSON-эквивалент текущего `/metrics`. Реиспользует тот же `SERVER_TASK_TYPE_METRICS` task source, форматирует JSON вместо Prometheus text.
+
+Body shape:
 ```json
 {
-  "task_id": 42,
-  "prompt": {"tokens": 80, "ms": 467, "tps": 171.3},
-  "decode": {"tokens": 73, "ms": 2965, "tps": 24.6}
+  "counters": {
+    "prompt_tokens_total": 123456,
+    "prompt_seconds_total": 12.34,
+    "tokens_predicted_total": 78900,
+    "tokens_predicted_seconds_total": 234.56
+  },
+  "gauges": {
+    "prompt_tokens_per_second": 1023.4,
+    "tokens_predicted_per_second": 23.5,
+    "kv_cache_usage_ratio": 0.34,
+    "kv_cache_tokens": 4096,
+    "requests_processing": 1,
+    "requests_deferred": 0
+  },
+  "process_start_time_unix": 1715002345
 }
 ```
 
-**Файл**: `examples/server/server.cpp`
+**Файлы upstream**:
+- `examples/server/server.cpp` — новый handler рядом с `handle_metrics` (~50 строк), регистрация в svr->Get() near line 2067.
+- `examples/server/README.md` — описание endpoint.
 
-**Подход**: сначала **issue** в upstream — описать problem (timings text fragile), propose endpoint. Если ikawrakow agrees — submit PR. Если нет — drop.
+**Сложность**: Low. Pure additive. Reuses existing task type and data shape. Скорее всего ~50 строк C++ + ~10 строк docs.
+
+**Подход**: 
+1. Сначала **issue** в upstream — описать problem (Prometheus text не идеально для JSON consumers, dashboard tooling пишет дубликат parsing). Mention что наш fork dashboard hit this issue после last upstream sync.
+2. Если ikawrakow agrees → branch `pr/server-metrics-json` off origin/main, implement, smoke test (curl против running llama-server), submit PR.
+3. Если ikawrakow prefers keep Prometheus only → drop, document в strategy. Не борьба за этот item.
+
+**Prep work перед issue**:
+- Прочитать (готово, 2026-05-05): handle_metrics impl + result_timings + server task queue
+- Подготовить small repro show разницу между Prometheus text parsing и JSON parsing для a hypothetical dashboard consumer (1 short example)
+- Проверить нет ли уже open issue/PR на эту тему через `gh issue list --repo ikawrakow/ik_llama.cpp --search "json metrics"`
 
 ---
 
