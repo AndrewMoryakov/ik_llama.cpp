@@ -16,6 +16,10 @@ description. Здесь — детальный analysis для:
 - reference при подготовке cross-platform fixes
 - тренинг для будущих behavioural-change PRs
 
+> **Навигация**: для быстрого поиска по темам, статусу, reading order
+> и decision tree «что прочитать если…» см. [`INDEX.md`](INDEX.md).
+> Ниже — описания каждого файла в свободной форме.
+
 ## Files
 
 - [`ANALYSIS.md`](ANALYSIS.md) — полный pre-submit анализ: problem context,
