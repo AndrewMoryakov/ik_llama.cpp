@@ -97,7 +97,7 @@
 ---
 
 ### Item 2.2 — Stable timings JSON endpoint (1-2 часа)
-**Status**: research complete 2026-05-05; code prep deferred until #1738 finalize
+**Status**: issue #1740 posted 2026-05-05 (https://github.com/ikawrakow/ik_llama.cpp/issues/1740). Awaiting maintainer reaction. PR не пишем до согласия. Если ответ положительный, branch off `origin/main`, ~50 строк C++, smoke test через curl + running llama-server, submit. Если negative — drop, не воюем за этот item.
 **Risk**: 🟢 низкий (additive, не ломает существующие endpoints)
 **Value**: 🟢 средне-высокая для external tooling
 
@@ -243,6 +243,7 @@ Week 3+:
 | #1734 | Item 1.2 — `scripts/build-zen.{sh,bat}` | ✅ MERGED | 2026-05-04 |
 | #1735 | Item 1.3 — README cross-link | ✅ MERGED | 2026-05-04 |
 | #1738 | Item 2.1 — `-rtr auto` | ⏳ Submitted, waiting on maintainer; path A patch ready on `pr/rtr-auto-mode-v2` | 2026-05-04 |
+| #1740 | Item 2.2 — JSON metrics endpoint (issue) | ⏳ Issue posted, waiting on maintainer reaction | 2026-05-05 |
 | TBD | Item 2.2 — timings JSON endpoint | Not started | — |
 
 Каждый раз когда PR merges — обновить эту таблицу + memory `MEMORY.md`.
