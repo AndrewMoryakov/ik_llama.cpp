@@ -60,25 +60,23 @@ Pre-merge (r=3): PP512 160.8 / TG128 17.07 (ctk=q8_0)
 
 ---
 
-## 3. Закоммитить eval/ framework и связанные scripts
+## 3. Закоммитить eval/ framework и связанные scripts ✅ DONE 2026-05-05
 
-**Зачем**: качественная eval-инфраструктура (V1–V4 test suites, MiniMax vs
-Qwen3-42B comparison) активно использовалась для validation Tapered-RAM,
-но остаётся untracked в личном workspace.
+Завершено двумя коммитами на dev:
 
-**Что нужно сделать**:
-1. Просмотреть `eval/` (scripts + docs + results) — определить что pubishable
-2. Возможно вынести `bench_results/eval_v*/` (raw results) в gitignore — это
-   тяжёлые JSON-логи measurement archives
-3. Закоммитить framework: `eval/scripts/run_*.py`, `eval/docs/EVAL_*.md`,
-   `eval/README.md`
-4. Скрипты в корне `scripts/`: `run_eval_*.py` (7 файлов), `analyze_expert_stats.py`
+- `f25e1c395` chore: commit eval/ framework + scripts and gitignore
+  datasets — 61 файл, +12,723 строки. Добавлено: `eval/scripts/`,
+  `eval/llm_eval_suite_v1_2/`, `eval/llm_eval_suite_v1_3/`,
+  `eval/llm_eval_suite_v2/`, `eval/docs/`, `eval/README.md`,
+  `eval/results/` (V1–V4 historical outputs). Mirrored top-level
+  `scripts/run_eval_*.py` + `analyze_expert_stats.py` + `run_qc.py`.
+- `5ee25668f` chore: commit historical bench_results for 2026-03 eval
+  and tapered-RAM — 18 файлов, +692 строки. Включает
+  `bench_results/2026-03-21_tapered_ram_baseline/`,
+  `bench_results/2026-03-22_*`, `bench_results/eval_v*/`.
 
-**Оценка**: ~30 минут (выбор что включать + одиночный коммит).
-
-**Решение для следующей сессии**: или коммитим framework без results, или
-делаем большой коммит включая выбранные значимые results (например,
-`eval_v4_comparison.md` — итоговый comparison док).
+`.gitignore` дополнен: `wikitext-2-raw-v1.zip`, `wikitext-2-raw/`,
+`expert_stats.csv` (regenerable artifacts).
 
 ---
 

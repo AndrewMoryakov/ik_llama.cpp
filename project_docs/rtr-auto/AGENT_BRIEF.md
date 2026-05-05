@@ -15,16 +15,40 @@
 PR #1738: https://github.com/ikawrakow/ik_llama.cpp/pull/1738
 Текущий статус: OPEN, awaiting maintainer review.
 
-## Что уже сделано
+## Что уже сделано (актуально на 2026-05-05)
 
 1. Initial commit с feature submitted 2026-05-04 (commit `f9e49b2c0`).
 2. Self-review нашёл `use_mmap` regression bug, force-pushed fix
-   (commit `0115ace21`).
+   (commit `0115ace21`). PR #1738 head стоит на этом.
 3. Community член Ph0rk0z задал UX-вопрос про CLI syntax, ответили.
-4. Community член dmaivel протестировал на реальной swap-bound
-   конфигурации и нашёл два бага в нашей логике. Ответ ему
-   подготовлен но НЕ отправлен. Фикс НЕ запушен. Ждём решения
-   maintainer'а ikawrakow про architectural direction.
+4. Community член dmaivel (collaborator) протестировал на реальной
+   swap-bound конфигурации и нашёл два бага. Также EDIT-нул свой
+   комментарий с пунктом про uncertainty-должна-default-в-disable.
+5. **Posted response 2026-05-05 05:39 UTC** на dmaivel и ikawrakow:
+   https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4376786508
+   Acknowledged оба бага + Point 5, предложили focused 5-step fix,
+   спросили ikawrakow выбрать path (a)/(b)/(c). PR код не тронут.
+6. **v2 fix имплементирован локально на `dev`** за experimental gate
+   (`feature/rtr-auto-v2`, merged commit `b58fe6583`). Активируется
+   через `--experimental rtr-auto-v2=on` или env `IK_LLAMA_RTR_AUTO_V2=1`.
+   Validated на 6 model classes. Default behavior на dev unchanged.
+7. **Path A patch уже подготовлен** на ветке `pr/rtr-auto-mode-v2`
+   (off latest `origin/main`, HEAD `d336a4a23`). Smoke-verified
+   (Qwen3-30B KEEP, MiniMax DISABLE, Qwen3.5-27B NOT_APPLICABLE).
+   Pushed только в `personal` mirror, НЕ в `fork` remote — чтобы
+   не trigger'нуть PR force-push раньше времени.
+8. **Issue #1740 posted** для Item 2.2 (JSON metrics endpoint):
+   https://github.com/ikawrakow/ik_llama.cpp/issues/1740
+9. **Tier 3 scan выполнен 2026-05-05** — 0 quick wins из 45 open
+   issues. См. UPSTREAM_CONTRIBUTOR_PLAN_2026-05-04.md Item 3.1.
+
+## Threshold для autonomous proceed
+
+Если ikawrakow молчит ≥ 5 рабочих дней с 2026-05-05 (примерно
+2026-05-12), proceed по path A автоматически: force-push v2 patch
+из `pr/rtr-auto-mode-v2` на `pr/rtr-auto-mode` через `fork` remote.
+Procedure описана в EXPERIMENTAL_V2_LOCAL.md секция «Force-push
+procedure».
 
 ## Что прочитать перед ревью (в этом порядке)
 
@@ -45,6 +69,15 @@ PR #1738: https://github.com/ikawrakow/ik_llama.cpp/pull/1738
    independent confirmation плюс small patch items.
 9. `project_docs/rtr-auto/FINAL_REVIEW_2026-05-05.md` — финальный
    verdict, recommended PR response, next code path.
+10. `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md` — описание v2
+    local feature (gated), bench results, six-model validation,
+    force-push procedure для path A.
+
+Также в strategy:
+
+- `project_docs/strategy/UPSTREAM_CONTRIBUTOR_PLAN_2026-05-04.md` —
+  актуальный статус всех Tier 1/2 PRs, Item 2.1 (#1738) и Item 2.2
+  (#1740) с deatils.
 
 После этого получить актуальное состояние PR:
 
@@ -100,6 +133,13 @@ remote `fork`.
 4. НЕ закрывать PR.
 5. НЕ переписывать фичу под архитектурную альтернативу dmaivel
    до ответа ikawrakow.
+6. НЕ путать `personal` remote и `fork` remote. `personal` =
+   `AndrewMoryakov/ik_llama.cpp` (mirror, не GitHub fork). `fork` =
+   `AndrewMoryakov/ik_llama-pr` (proper fork, отслеживается PR'ами).
+   Push в `fork` triggers PR force-push если branch уже трекается
+   PR'ом (как `pr/rtr-auto-mode` для #1738).
+7. НЕ пушить `pr/rtr-auto-mode-v2` в `fork` без явного решения
+   maintainer'а path A или истечения 5-day silence threshold.
 
 ## Стилистика общения с upstream
 
@@ -115,13 +155,34 @@ observation», излишних markdown-таблиц где обычная пр
 
 ## Backup info
 
-- Local branches: `dev` (наша интеграционная), `pr/rtr-auto-mode` (PR).
+- Local branches:
+  - `dev` (наша интеграционная, head на момент написания: `d574d5395`)
+  - `pr/rtr-auto-mode` (текущий PR head `0115ace21`, замёрджен в `fork`)
+  - `pr/rtr-auto-mode-v2` (path A patch ready, head `d336a4a23`,
+    pushed only в `personal`)
 - Remote `personal` = `https://github.com/AndrewMoryakov/ik_llama.cpp.git`
   (личный mirror, не fork).
 - Remote `fork` = `https://github.com/AndrewMoryakov/ik_llama-pr.git`
   (proper fork upstream'а, используется для PR).
-- Commits на PR ветке: `f9e49b2c0` initial → `0115ace21` mmap fix.
+- Commits на PR ветке: `f9e49b2c0` initial, `0115ace21` mmap fix.
 - Последний commit на dev: проверь через `git log -1 dev`.
+
+## Active upstream threads (на момент 2026-05-05)
+
+- **PR #1738** (`-rtr auto`): submitted, waiting on maintainer.
+  Posted dmaivel response 2026-05-05. Path A patch готов на
+  `pr/rtr-auto-mode-v2`. Threshold ~2026-05-12 для autonomous
+  proceed.
+- **Issue #1740** (JSON metrics endpoint): posted 2026-05-05,
+  waiting on maintainer reaction. PR не пишем до согласия.
+
+Перед действиями с любым из этих thread'ов проверь актуальное
+состояние через `gh`:
+
+```
+gh pr view 1738 --repo ikawrakow/ik_llama.cpp --comments
+gh issue view 1740 --repo ikawrakow/ik_llama.cpp --comments
+```
 
 ## Конкретная задача в этой сессии
 

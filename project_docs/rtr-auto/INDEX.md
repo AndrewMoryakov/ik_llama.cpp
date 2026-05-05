@@ -106,6 +106,7 @@
 | Verified clean    | `DEEP_REVIEW_2026-05-05.md` C1-C5; `ADDITIONAL_REVIEW_2026-05-05.md`.                         |
 | Held              | Все code changes на `pr/rtr-auto-mode` до решения maintainer'а. См. `FOLLOWUP_REVIEW_2026-05-05.md` «Stop rule». |
 | Local opt-in      | `EXPERIMENTAL_V2_LOCAL.md` (на `feature/rtr-auto-v2`); `--experimental rtr-auto-v2=on`.       |
+| Path A patch ready| `pr/rtr-auto-mode-v2` (off `origin/main`, HEAD `d336a4a23`, pushed only to `personal` mirror). См. EXPERIMENTAL_V2_LOCAL.md секция «Path A patch already prepared». Force-push в `fork` только при ответе maintainer'а или ≥ 2026-05-12 silence. |
 
 ## Key external links
 
