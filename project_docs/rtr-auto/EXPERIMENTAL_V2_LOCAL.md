@@ -208,6 +208,63 @@ When ikawrakow chooses path A (keep `-rtr auto`, fix the policy):
 - Drop the `LLM_ARCH_MINIMAX_M2` special-case (it does not exist in
   the upstream PR's tree).
 
+## Path A patch already prepared (2026-05-05)
+
+A ready-to-force-push branch `pr/rtr-auto-mode-v2` exists locally and
+on `personal` mirror, sitting two commits ahead of `origin/main`:
+
+```
+d336a4a23  runtime : rtr-auto policy uses available memory and tri-state result
+7e65e2011  runtime : add `--run-time-repack auto` mode for swap-bound MoE safety
+```
+
+The first commit is the cherry-pick of the original PR work
+(`0115ace21` from `pr/rtr-auto-mode`). The second is the v2 fix:
+strips `n_gpu_layers > 0` skip, replaces total RAM with available
+memory + cgroup walker, returns enum decision, switches caller
+dispatch with safety-first UNKNOWN. No experimental gate, no
+`LLM_ARCH_MINIMAX_M2` special-case (upstream tree does not have it).
+
+Smoke-verified on the same PR branch on the local Windows build:
+
+- Qwen3-30B Q4_K_M (in-RAM): KEEP, log says
+  `--run-time-repack auto: keeping repack enabled`
+- MiniMax-M2.5-TaperedRAM (89.6 GiB on 96 GiB system): DISABLE,
+  log says `--run-time-repack auto: disabled (MoE model 89.6 GiB
+  > 90% of available memory 87.6 GiB)`
+- Qwen3.5-27B Q8_0 (dense): NOT_APPLICABLE, log says
+  `--run-time-repack auto: policy does not apply (dense model)`
+
+Diff against `origin/main` is 5 files, +210/-5 lines for the
+cherry-pick and an additional +272/-61 for the v2 commit. Squashing
+to a single commit before force-push is recommended for cleaner PR
+history.
+
+### Force-push procedure (when path A is confirmed)
+
+```
+git checkout pr/rtr-auto-mode-v2
+git rebase -i origin/main   # squash d336a4a23 into 7e65e2011
+git push fork +pr/rtr-auto-mode-v2:pr/rtr-auto-mode
+```
+
+The `fork` remote points at `AndrewMoryakov/ik_llama-pr` (the proper
+GitHub fork). PR #1738 tracks the `pr/rtr-auto-mode` branch there;
+force-pushing replaces `0115ace21` with the squashed v2 commit.
+
+### Things to update at force-push time
+
+- PR description Validation table: replace the
+  `-ngl 1` GPU offload row with the real `-ngl 99 -ot exps=CPU`
+  scenario plus the multi-shard Qwen3.5-397B real-world result.
+- PR description: mention the cgroup v1/v2 walker for Linux
+  containers as a follow-up to dmaivel's "checking total memory is
+  not sufficient" point.
+- Force-push commit message body: refer to dmaivel by name and
+  acknowledge the policy-skip and metric-choice reports.
+- Reply on PR thread: short note that force-push lands the focused
+  fix and link to the new commit.
+
 When ikawrakow chooses path B (self-protective `-rtr`):
 
 - v2 is not directly portable. The decision lives at the same load-time
