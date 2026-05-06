@@ -91,6 +91,13 @@ procedure».
 10. `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md` — описание v2
     local feature (gated), bench results, six-model validation,
     force-push procedure для path A.
+11. `project_docs/rtr-auto/V3_DESIGN_2026-05-06.md` — refined v3
+    design после maintainer feedback. **Замораживает** policy
+    layout до того как maintainer ответит на mmap-coupling
+    question. Содержит decision enum (KEEP/DISABLE/UNKNOWN),
+    placement resolver, policy walk pseudocode, walk-through
+    representative cases, caveats. Это primary reference при
+    написании v3 patch когда maintainer ответит.
 
 Также в strategy:
 

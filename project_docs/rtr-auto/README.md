@@ -88,6 +88,15 @@ description. Здесь — детальный analysis для:
   safety-first UNKNOWN), как активировать, smoke tests, как
   port'ить в upstream PR при разных архитектурных выборах, Linux
   cgroup detection notes.
+- [`V3_DESIGN_2026-05-06.md`](V3_DESIGN_2026-05-06.md) — refined
+  v3 design после maintainer feedback на PR #1738. Path A patch
+  на `pr/rtr-auto-mode-v2` superseded — нужна placement+quant-
+  aware policy. Decision enum упрощён (KEEP/DISABLE/UNKNOWN, no
+  NOT_APPLICABLE). Placement resolver mirrors loader semantics
+  exactly (regex_search, first match wins, host buft normalize).
+  Complex modes (`--fit`, `-mqkv`, `-muge`, `-ncmoe`, partial GPU
+  без override) → UNKNOWN → safety-first DISABLE. Implementation
+  заморожена до ответа maintainer'a на mmap-coupling вопрос.
 
 ## Status (2026-05-05)
 

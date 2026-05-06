@@ -17,6 +17,7 @@
 | 2026-05-05 | `ADDITIONAL_REVIEW_2026-05-05.md` | review report   | Cross-reference после DEEP+FOLLOWUP. Independent confirm + 2 small items.     |
 | 2026-05-05 | `FINAL_REVIEW_2026-05-05.md`      | decision report | Final verdict, blocking B1-B3, recommended PR response and next code path.    |
 | 2026-05-05 | `EXPERIMENTAL_V2_LOCAL.md`        | local feature   | Local-only experimental rtr-auto v2 implementation gated by IK_LLAMA_RTR_AUTO_V2 / `--experimental rtr-auto-v2=on`. |
+| 2026-05-06 | `V3_DESIGN_2026-05-06.md`         | design          | Refined v3 policy after maintainer feedback (placement+quant-aware). Decision enum (KEEP/DISABLE/UNKNOWN, no NOT_APPLICABLE), placement resolver (regex_search, ncmoe/fit/merge_* → UNKNOWN), policy walk pseudocode, walk-through of representative cases, caveats, implementation roadmap. Frozen pending maintainer answer on mmap-coupling. |
 | —          | `README.md`                       | index           | Общее описание директории, файлы, status.                                     |
 | —          | `INDEX.md`                        | navigation      | Этот файл.                                                                    |
 
