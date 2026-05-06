@@ -41,6 +41,25 @@ PR #1738: https://github.com/ikawrakow/ik_llama.cpp/pull/1738
    https://github.com/ikawrakow/ik_llama.cpp/issues/1740
 9. **Tier 3 scan выполнен 2026-05-05** — 0 quick wins из 45 open
    issues. См. UPSTREAM_CONTRIBUTOR_PLAN_2026-05-04.md Item 3.1.
+10. **Maintainer ответил 2026-05-06 05:57 UTC** конкретным
+    направлением: «consider actually available RAM, take into
+    account tensor overrides and quantization types (use only
+    tensors that will get repacked when computing required
+    memory)». Также упомянул alternative workflow: offline
+    `llama-quantize --repack` + mmap. См. полный текст в PR thread.
+11. **Posted v3 plan reply 2026-05-06 11:45 UTC**:
+    https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4387595944
+    Описали v3 design (walk `probe.weights`, filter by
+    `iqk_repacked_type()`, resolve placement via
+    `tensor_buft_overrides`/`n_gpu_layers`/`-ncmoe`, compare
+    CPU-resident repackable bytes against available memory).
+    Flag'нули one architectural question: loader forces
+    `use_mmap=false` when `repack_tensors=true`, so KEEP based on
+    repackable bytes alone may still cause swap on huge total.
+    Предложили AND-check total CPU-resident bytes как secondary
+    gate (path b). Disclosure'нули CPU-only без GPU — runtime
+    test для `-ngl 99 -ot exps=CPU` невозможен локально.
+    **Awaiting maintainer answer на mmap question перед coding v3 patch.**
 
 ## Threshold для autonomous proceed
 

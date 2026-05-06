@@ -62,7 +62,13 @@
 ## Tier 2 — Real features (1-2 недели)
 
 ### Item 2.1 — `-rtr auto` flag (2-3 часа)
-**Status**: PR #1738 submitted 2026-05-04 (commit `0115ace21`), awaiting maintainer architectural direction. Community feedback (dmaivel) found two policy gaps. **v2 fix имплементирован локально на `dev` за experimental gate** (`feature/rtr-auto-v2`, merged 2026-05-05). **Path A patch уже подготовлен** на ветке `pr/rtr-auto-mode-v2` (off latest `origin/main`, HEAD `d336a4a23`), smoke-verified на 3 сценариях (Qwen3-30B KEEP / MiniMax DISABLE / Qwen3.5-27B NOT_APPLICABLE), готов к force-push когда ikawrakow ответит. Force-push procedure описана в `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md`.
+**Status**: PR #1738 submitted 2026-05-04 (commit `0115ace21`). Community feedback (dmaivel) found two policy gaps. **v2 fix имплементирован локально на `dev` за experimental gate** (`feature/rtr-auto-v2`, merged 2026-05-05). **Path A patch подготовлен** на ветке `pr/rtr-auto-mode-v2` (off latest `origin/main`, HEAD `d336a4a23`).
+
+**2026-05-06 update**: maintainer ответил с конкретным направлением — «consider actually available RAM, tensor overrides, и quantization types (use only the tensors that will get repacked when computing required memory)». Также pointed at offline `llama-quantize --repack` + mmap как alternative workflow. Эта обратная связь делает path A patch (v2 logic) **insufficient** — нужна v3 policy с placement+quant-aware accounting.
+
+Posted v3 plan reply 2026-05-06 11:45 UTC: https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-4387595944. Flag'нули один architectural question: loader's `use_mmap=false` coupling может оставить KEEP-based-on-repackable-bytes уязвимым на huge total. Предложили AND-check total как secondary gate (path b). Awaiting maintainer ответ. После ответа → write v3 patch on `pr/rtr-auto-mode-v2` + force-push.
+
+Force-push procedure описана в `project_docs/rtr-auto/EXPERIMENTAL_V2_LOCAL.md`.
 **Risk**: 🟡 средний (cross-platform, behavioural change)  
 **Value**: 🟢 высокая — решает known regression (-46-60% TG на swap-bound rtr=on)
 
@@ -251,8 +257,8 @@ Week 3+:
 | #1733 | Item 1.1 — v3 hybrid docs | ✅ MERGED | 2026-05-04 |
 | #1734 | Item 1.2 — `scripts/build-zen.{sh,bat}` | ✅ MERGED | 2026-05-04 |
 | #1735 | Item 1.3 — README cross-link | ✅ MERGED | 2026-05-04 |
-| #1738 | Item 2.1 — `-rtr auto` | ⏳ Submitted, waiting on maintainer; path A patch ready on `pr/rtr-auto-mode-v2` | 2026-05-04 |
-| #1740 | Item 2.2 — JSON metrics endpoint (issue) | ⏳ Issue posted, waiting on maintainer reaction | 2026-05-05 |
+| #1738 | Item 2.1 — `-rtr auto` | ⏳ Maintainer feedback received 2026-05-06; v3 plan posted, awaiting answer on mmap-coupling question | 2026-05-04 |
+| #1740 | Item 2.2 — JSON metrics endpoint (issue) | 🟡 Lukewarm reaction from maintainer 2026-05-05 ("no feelings either way"); deferred — not invested without endorsement | 2026-05-05 |
 | TBD | Item 2.2 — timings JSON endpoint | Not started | — |
 
 Каждый раз когда PR merges — обновить эту таблицу + memory `MEMORY.md`.
