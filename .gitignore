@@ -97,6 +97,7 @@ examples/server/*.html.hpp
 examples/server/*.js.hpp
 examples/server/*.mjs.hpp
 !build_64.sh
+!build_raptor_lake.bat
 !examples/*.bat
 !examples/*/*.kts
 !examples/*/*/*.kts
