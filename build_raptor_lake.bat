@@ -15,14 +15,15 @@ REM works regardless of where the repo is cloned on the laptop.
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >NUL 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [FAILED] Could not find vcvars64.bat at the default Visual Studio 2022 Community location.
-    echo Adjust the path on line 16 of this script for your VS installation, or run
-    echo vcvars64.bat manually before invoking the cmake step below.
+    echo Adjust the vcvars64.bat call above for your VS installation, or run it
+    echo manually before invoking the cmake step below.
     exit /b 1
 )
 
 set CMAKE="C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-set SRC=%~dp0
-set BUILD=%~dp0build
+set SCRIPT_DIR=%~dp0
+set SRC=%SCRIPT_DIR:~0,-1%
+set BUILD=%SCRIPT_DIR%build
 
 echo =============================================
 echo   ik_llama.cpp build (Raptor Lake mobile CPU)
@@ -50,7 +51,7 @@ if %CONF_EXIT% NEQ 0 (
 )
 
 echo === CMAKE BUILD ===
-%CMAKE% --build "%BUILD%" --config Release 2>&1
+%CMAKE% --build "%BUILD%" --config Release -j 8 2>&1
 set BUILD_EXIT=%ERRORLEVEL%
 echo(
 

@@ -152,7 +152,7 @@
       title: { ru: 'Ноутбук (i7-1360p, 16 GB)', en: 'Laptop (i7-1360p, 16 GB)' },
       description: { ru: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI без AVX-512. 7B-13B comfortable, gpt-oss-20b borderline, 30B+ swap-bound (rtr=auto автоматически DISABLE). Thread count под вопросом — нужен sweep -t 4 vs 8 vs 12 vs 16. См. project_docs/hardware/RAPTOR_LAKE_LAPTOP.md', en: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI without AVX-512. 7B-13B comfortable, gpt-oss-20b borderline, 30B+ swap-bound (rtr=auto auto-DISABLEs). Thread count TBD — needs -t 4 vs 8 vs 12 vs 16 sweep. See project_docs/hardware/RAPTOR_LAKE_LAPTOP.md' },
       applicability: 'all',
-      validation: 'placeholder',
+      validation: 'research',
       confidence: 'low',
       values: { threads: 8, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'mixed' }
     },

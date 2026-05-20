@@ -1371,6 +1371,14 @@ elseif (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_GENERATOR_PLATFORM_LW
             endif()
         elseif (GGML_AVX2)
             list(APPEND ARCH_FLAGS /arch:AVX2)
+            # MSVC has no /arch flag enabling AVX-VNNI and does not
+            # define __AVXVNNI__ automatically. Force the macro when
+            # the user opts in. Safe on Alder Lake / Raptor Lake and
+            # later; the IQK GEMM kernels then activate HAVE_VNNI256.
+            if (GGML_AVX_VNNI)
+                add_compile_definitions($<$<COMPILE_LANGUAGE:C>:__AVXVNNI__>)
+                add_compile_definitions($<$<COMPILE_LANGUAGE:CXX>:__AVXVNNI__>)
+            endif()
         elseif (GGML_AVX)
             list(APPEND ARCH_FLAGS /arch:AVX)
         endif()
@@ -1389,6 +1397,9 @@ elseif (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_GENERATOR_PLATFORM_LW
         endif()
         if (GGML_AVX2)
             list(APPEND ARCH_FLAGS -mavx2)
+        endif()
+        if (GGML_AVX_VNNI)
+            list(APPEND ARCH_FLAGS -mavxvnni)
         endif()
         if (GGML_AVX512)
             list(APPEND ARCH_FLAGS -mavx512f)

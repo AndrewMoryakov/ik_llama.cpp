@@ -27,10 +27,21 @@ Use `build_raptor_lake.bat` at the repo root. It sets:
 
 - `GGML_NATIVE=ON` so the compiler picks up F16C and other extensions.
 - `GGML_AVX2=ON` explicitly.
-- `GGML_AVX_VNNI=ON` so the `__AVXVNNI__` macro is defined for the
-  `HAVE_VNNI256` path.
+- `GGML_AVX_VNNI=ON` — option declared on this branch in
+  `ggml/CMakeLists.txt:93`, wired in `ggml/src/CMakeLists.txt`.
+  On MSVC builds where `/arch:AVX2` does not autodefine
+  `__AVXVNNI__`, the option forces the macro via
+  `add_compile_definitions(__AVXVNNI__)`. The IQK GEMM kernels in
+  `ggml/src/iqk/iqk_config.h:52` then activate the `HAVE_VNNI256`
+  fast path (`vpdpbusd` on 256-bit registers), which is the main
+  perf benefit on this CPU class. On GCC/Clang the option appends
+  `-mavxvnni` to ARCH_FLAGS.
 - `GGML_CUDA=OFF`.
 - `CMAKE_BUILD_TYPE=Release`.
+
+`-j 8` is passed to `cmake --build` to parallelize compilation across
+the P-cores (with HT). Build time on a cold cache is roughly 5-8
+minutes on this chip.
 
 Paths in the script are resolved via `%~dp0` (script location), so it
 works regardless of where the repo is cloned on the laptop.
