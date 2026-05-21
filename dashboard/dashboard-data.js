@@ -14,6 +14,12 @@
       totalRamGb: 64, ramBandwidthGbps: 55, ssdReadGbps: 3.0,
       hasAvx512: false, optimalThreads: 8,
     },
+    'i7_1360p_16gb': {
+      name: 'Intel i7-1360p + 16 GB DDR5 (laptop, CPU-only)',
+      cores: 4, threads: 4, ccdCount: 0, l3CacheMb: 18,
+      totalRamGb: 16, ramBandwidthGbps: 50, ssdReadGbps: 3.5,
+      hasAvx512: false, optimalThreads: 4,
+    },
     'custom': {
       name: 'Custom',
       cores: 16, threads: 32, ccdCount: 1,

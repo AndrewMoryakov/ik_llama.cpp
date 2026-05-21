@@ -137,4 +137,29 @@ describe('computeOptimalParams', () => {
     // For non-swap, cache_type_v should be tightened to q8_0 when > 65536
     expect(result.params.cache_type_v).toBe('q8_0');
   });
+
+  it('i7-1360p profile: optimalThreads=4 overrides CCD logic', () => {
+    const profileLaptop = {
+      totalRamGb: 16, cores: 4, ccdCount: 0,
+      hasAvx512: false, optimalThreads: 4,
+    };
+    const result = ctx.computeOptimalParams(
+      { is_moe: false, context_length: 8192 },
+      5,
+      profileLaptop
+    );
+    expect(result.params.threads).toBe(4);
+    const threadReason = result.reasons.find(r => r.param === 'threads');
+    expect(threadReason).toBeDefined();
+    expect(threadReason.en).toMatch(/Hardware profile/);
+  });
+
+  it('fallback cache_type_k is f16 (not q8_0)', () => {
+    const result = ctx.computeOptimalParams(
+      { is_moe: false, context_length: 8192 },
+      5,
+      { totalRamGb: 16, cores: 4, ccdCount: 0, optimalThreads: 4 }
+    );
+    expect(result.params.cache_type_k).toBe('f16');
+  });
 });

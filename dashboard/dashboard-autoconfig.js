@@ -35,7 +35,7 @@
         workload_profile: 'mixed',
         flash_attn: true,
         merge_up_gate_exps: false,
-        cache_type_k: 'q8_0',
+        cache_type_k: 'f16',
         cache_type_v: swapBound ? 'q8_0' : 'f16',
         graph_reuse: true
       },
@@ -62,7 +62,14 @@
     }
 
     // --- Threads ---
-    if (ccdCount >= 2) {
+    if (profile.optimalThreads) {
+      params.threads = profile.optimalThreads;
+      reasons.push({
+        param: 'threads', value: params.threads,
+        ru: `Аппаратный профиль: оптимальное число потоков -t ${params.threads}`,
+        en: `Hardware profile: optimal thread count -t ${params.threads}`,
+      });
+    } else if (ccdCount >= 2) {
       params.threads = Math.min(cores, 16);
       reasons.push({
         param: 'threads', value: params.threads,
