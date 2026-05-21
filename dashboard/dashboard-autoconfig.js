@@ -101,6 +101,26 @@
       });
     });
 
+    // --- KV quant not supported on CPU-only builds without GPU backend ---
+    if (profile.noKvQuant) {
+      if (params.cache_type_k !== 'f16') {
+        params.cache_type_k = 'f16';
+        reasons.push({
+          param: 'cache_type_k', value: 'f16',
+          ru: 'ctk f16: CPU-only сборка не поддерживает KV-квантизацию — принудительно f16.',
+          en: 'ctk f16: CPU-only build does not support KV quantization — forced to f16.',
+        });
+      }
+      if (params.cache_type_v !== 'f16') {
+        params.cache_type_v = 'f16';
+        reasons.push({
+          param: 'cache_type_v', value: 'f16',
+          ru: 'ctv f16: CPU-only сборка не поддерживает KV-квантизацию — принудительно f16.',
+          en: 'ctv f16: CPU-only build does not support KV quantization — forced to f16.',
+        });
+      }
+    }
+
     // --- Runtime Repack ---
     const rtrGuidance = global.IKLLamaEvidenceLayer?.getAutoConfigRtrGuidance?.(
       evidenceCtx,

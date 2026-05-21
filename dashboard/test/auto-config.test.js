@@ -162,4 +162,33 @@ describe('computeOptimalParams', () => {
     );
     expect(result.params.cache_type_k).toBe('f16');
   });
+
+  it('noKvQuant: forces cache_type_k/v to f16 even for MoE runtime profile', () => {
+    const profileLaptop = {
+      totalRamGb: 16, cores: 4, ccdCount: 0,
+      hasAvx512: false, optimalThreads: 4, noKvQuant: true,
+    };
+    // MoE model: evidence-layer would normally suggest cache_type_k q8_0
+    const result = ctxWithEvidence.computeOptimalParams(
+      { is_moe: true, expert_count: 64, expert_used_count: 8, context_length: 4096 },
+      12,
+      profileLaptop
+    );
+    expect(result.params.cache_type_k).toBe('f16');
+    expect(result.params.cache_type_v).toBe('f16');
+  });
+
+  it('noKvQuant: reason entry added when override fires', () => {
+    const profileLaptop = {
+      totalRamGb: 16, cores: 4, ccdCount: 0,
+      hasAvx512: false, optimalThreads: 4, noKvQuant: true,
+    };
+    const result = ctxWithEvidence.computeOptimalParams(
+      { is_moe: true, expert_count: 64, expert_used_count: 8, context_length: 4096 },
+      12,
+      profileLaptop
+    );
+    const kvReason = result.reasons.find(r => r.param === 'cache_type_k' && r.value === 'f16' && r.en.includes('CPU-only'));
+    expect(kvReason).toBeDefined();
+  });
 });

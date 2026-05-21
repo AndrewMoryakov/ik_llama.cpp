@@ -18,7 +18,7 @@
       name: 'Intel i7-1360p + 16 GB DDR5 (laptop, CPU-only)',
       cores: 4, threads: 4, ccdCount: 0, l3CacheMb: 18,
       totalRamGb: 16, ramBandwidthGbps: 50, ssdReadGbps: 3.5,
-      hasAvx512: false, optimalThreads: 4,
+      hasAvx512: false, optimalThreads: 4, noKvQuant: true,
     },
     'custom': {
       name: 'Custom',
