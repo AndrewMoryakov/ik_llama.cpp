@@ -124,18 +124,47 @@ barrier overhead per GEMM kernel dominates for 9B-class block sizes
 on this chip. The winning value is pinned in `dashboard/evidence-layer.js`
 `laptop_raptor_lake_16gb.values.threads = 4`.
 
-## Bench baseline (TBD)
+## Bandwidth / compute regime diagnostic
 
-Empty placeholder until the laptop has had a first build + smoke run.
+Measured 2026-05-21, t=4, fa=1, rtr=2 (or auto for swap-bound), r=1
+(single rep after warmup to avoid thermal throttling). DDR5 ceiling
+50-70 GB/s effective on mobile.
+
+| Model | Disk size | TG32 tok/s | Eff. BW (GB/s) | Regime |
+|-------|-----------|------------|----------------|--------|
+| GLM-Z1-9B Q4_K_M | 5.73 GiB | 4.87 | ~28 | DRAM-bound |
+| phi-4 Q4_K_M (phi3 14B) | 8.43 GiB | 1.59 | ~13 | Below expected* |
+| Qwen3-Coder-30B-A3B (mmap, rtr=0) | 17.35 GiB | 1.70 | ~3 (disk) | Disk-bound |
+
+Notes:
+- GLM-9B effective BW = 28 GB/s = ~40-55% of DDR ceiling. Consistent
+  with DRAM-bound at t=4 not fully saturating the bus.
+- phi-4 expected TG (pure size-ratio from GLM) = 4.87 × 5.73/8.43 = 3.3
+  tok/s, but measured 1.59. Possible causes: phi3 architecture has a
+  large FFN intermediate size adding compute overhead, or residual
+  thermal stress even after 30s cooldown.
+- Qwen3-30B via mmap: rtr=auto correctly DISABLE (17.35 GB > 10.1 GB
+  available). MoE active ~3B params per token → actual bytes/token
+  ≈ 1.7 GiB. 1.70 tok/s implies ~3 GB/s disk read — consistent with
+  NVMe sequential read.
+- **Thermal throttling warning**: with -r 3, phi-4 averaged 0.70 tok/s
+  (2.3× slower than 1.59 at r=1). The i7-1360p throttles sharply under
+  sustained inference load. Always use -r 1 (or at most -r 2) for
+  meaningful single-model benchmarks on this chip; -r 3 with heavy models
+  reflects worst-case thermal state, not steady-state.
+
+## Bench baseline (TBD)
 
 | Model                           | Build commit | Config            | PP512  | TG32   |
 |---------------------------------|--------------|-------------------|--------|--------|
 | Gemma-4-E4B                     | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Generic 7B Q4_K_M               | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| GLM-Z1-9B Q4_K_M                | bfff3fb7     | t=4 fa=1 rtr=2    | 20.78  | 4.63   |
+| phi-4 Q4_K_M (14B dense)        | bfff3fb7     | t=4 fa=1 rtr=2    | TBD    | 1.59   |
+| Qwen3-Coder-30B-A3B (mmap)      | bfff3fb7     | t=4 fa=1 rtr=auto | TBD    | 1.70   |
 | Generic 13B Q4_K_M              | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Gemma-4-26B-A4B                 | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Qwen3.6-35B-A3B (swap-bound)    | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
-| GLM-4.7-Flash                   | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 
 ## Expected `-rtr auto` decisions
 
