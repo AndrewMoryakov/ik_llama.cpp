@@ -161,10 +161,35 @@ Notes:
 | Generic 7B Q4_K_M               | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | GLM-Z1-9B Q4_K_M                | bfff3fb7     | t=4 fa=1 rtr=2    | 20.78  | 4.63   |
 | phi-4 Q4_K_M (14B dense)        | bfff3fb7     | t=4 fa=1 rtr=2    | 10.36  | 1.59   |
-| Qwen3-Coder-30B-A3B (mmap)      | bfff3fb7     | t=4 fa=1 rtr=auto | TBD    | 1.70   |
+| Qwen3-Coder-30B-A3B (mmap)      | bfff3fb7     | t=4 fa=1 rtr=auto | crash† | 1.70   |
 | Generic 13B Q4_K_M              | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Gemma-4-26B-A4B                 | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Qwen3.6-35B-A3B (swap-bound)    | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+
+†PP512 for Qwen3-30B crashes with access violation when MoE virtual-memory
+prefetch is enabled (`ggml_set_moe_vm_prefetch`). Unrelated to AVX-VNNI
+changes; occurs because the prefetch walks a 17 GiB mmap region that
+exceeds available physical memory at the point of touch.
+
+## VNNI gain isolation (2026-05-21)
+
+GLM-Z1-9B Q4_K_M, `-t 4 -fa 1`, r=2, measured after extended bench session
+(thermally suppressed — compare relative, not absolute values).
+
+| Config | PP512 tok/s | TG32 tok/s |
+|---|---|---|
+| rtr=0 (no repack, standard AVX2) | 14.28 ± 0.38 | 2.14 ± 0.10 |
+| rtr=2 (VNNI repack active) | 14.97 ± 0.68 | 3.26 ± 0.20 |
+| **Gain** | **+5%** (within noise) | **+52%** |
+
+TG benefit is large and clearly significant (error bars do not overlap).
+PP benefit is negligible — PP batches reuse weights across tokens,
+shifting the bottleneck toward compute rather than weight-read bandwidth,
+which diminishes the VNNI load/multiply advantage.
+
+Absolute TG values here are ~30% below the thread-sweep baseline (4.63 tok/s)
+due to thermal state after a multi-hour bench session. The relative gain is
+unaffected.
 
 ## Smoke matrix (2026-05-21)
 
