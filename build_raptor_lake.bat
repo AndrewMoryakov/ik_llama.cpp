@@ -21,6 +21,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 set CMAKE="C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+set NINJA="C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 set SCRIPT_DIR=%~dp0
 set SRC=%SCRIPT_DIR:~0,-1%
 set BUILD=%SCRIPT_DIR%build
@@ -33,7 +34,7 @@ echo   BUILD = %BUILD%
 echo(
 
 echo === CMAKE CONFIGURE ===
-%CMAKE% -S "%SRC%" -B "%BUILD%" -G "NMake Makefiles" ^
+%CMAKE% -S "%SRC%" -B "%BUILD%" -G Ninja -DCMAKE_MAKE_PROGRAM=%NINJA% ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DGGML_NATIVE=ON ^
     -DGGML_AVX2=ON ^

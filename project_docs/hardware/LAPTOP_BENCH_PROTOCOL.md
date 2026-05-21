@@ -230,6 +230,15 @@ effective):
 
 "Realistic" accounts for KV cache I/O, attention compute, OS overhead.
 
+**Measured vs predicted (2026-05-21, build `bfff3fb7`, -t 4, r=1):**
+
+| Model | Predicted realistic | Measured TG | Eff BW (GB/s) | Note |
+|---|---|---|---|---|
+| GLM-Z1-9B Q4_K_M (5.73 GiB) | ~6-9 (interpolated) | 4.63-5.28 | ~28 | Below floor; thermal throttle suspected |
+| phi-4 Q4_K_M (8.43 GiB, 14B) | 5-7 | 1.59 | ~13 | Well below; confirmed thermal throttle (r=3 drops to 0.70 tok/s) |
+
+Both results fall short of the "realistic" floor. Effective BW of 28 GB/s (GLM-9B) and 13 GB/s (phi-4) are 45% and 22% of the 60 GB/s ceiling respectively. The i7-1360p throttles sharply under sustained inference; single-rep (-r 1) numbers with 30 s cooldown are still affected. The theoretical table above should be treated as unthrottled ceilings; actual performance on this chip is lower by a factor of 1.5-3×.
+
 PP ceiling is harder to compute simply (depends on batch size, L3
 fit). Rough heuristic for `-p 512`:
 - 7B Q4: ~80-150 tok/s expected
