@@ -254,6 +254,8 @@ class ProcessManager:
                     self._reader_thread.start()
                 else:
                     # Piped mode: capture all output for dashboard (llama-server)
+                    # bufsize=0 + binary mode: avoids TextIOWrapper's 8 KB read-ahead
+                    # which would batch output until the buffer fills on Windows pipes.
                     self.proc = subprocess.Popen(
                         args,
                         stdin=subprocess.PIPE,
@@ -261,8 +263,7 @@ class ProcessManager:
                         stderr=subprocess.STDOUT,
                         cwd=work_dir,
                         env=merged_env,
-                        bufsize=1,
-                        universal_newlines=True,
+                        bufsize=0,
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
                     )
                     self._reader_thread = threading.Thread(
@@ -349,7 +350,7 @@ class ProcessManager:
             if not self.running or not self.proc or not self.proc.stdin:
                 return False, "Process not running or stdin closed"
             try:
-                self.proc.stdin.write(text + "\n")
+                self.proc.stdin.write((text + "\n").encode('utf-8'))
                 self.proc.stdin.flush()
                 return True, "OK"
             except Exception as e:
@@ -360,14 +361,25 @@ class ProcessManager:
         return buf[offset:]
 
     def _read_output(self, stream):
+        pending = b''
         try:
-            for line in stream:
-                clean = line.rstrip("\n\r")
-                self.output_buf.append(clean)
-                self.live_metrics.notify_output_line()
-                self.live_metrics.ingest_line(clean)
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    break
+                pending += chunk
+                while b'\n' in pending:
+                    line, pending = pending.split(b'\n', 1)
+                    clean = line.rstrip(b'\r').decode('utf-8', errors='replace')
+                    self.output_buf.append(clean)
+                    self.live_metrics.notify_output_line()
+                    self.live_metrics.ingest_line(clean)
         except Exception:
             pass
+        if pending:
+            clean = pending.rstrip(b'\r').decode('utf-8', errors='replace')
+            if clean:
+                self.output_buf.append(clean)
 
     def _tail_stderr_file(self, path):
         """Tail a stderr log file (used for Linux terminal mode)."""
