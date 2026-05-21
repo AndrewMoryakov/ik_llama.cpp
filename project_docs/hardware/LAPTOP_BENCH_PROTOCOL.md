@@ -8,6 +8,11 @@ top to bottom.
 The doc is self-contained — open it, follow each section, fill the
 tables. No improvisation needed.
 
+> **Entry point for new sessions / agents:** if you do not yet have
+> context for this branch, read [`AGENT_BRIEF.md`](AGENT_BRIEF.md)
+> first. It explains the branch state, files, workflow, decision tree,
+> and stop rules. This protocol assumes that context is already loaded.
+
 ## 0. Prerequisites
 
 - Repo cloned on the laptop (`git clone` of the personal mirror).

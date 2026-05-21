@@ -46,6 +46,18 @@ For broader strategy and upstream track:
   follow-ups after the 2026-05-02 upstream sync. Item 3 (eval
   framework commit) is done; the other three are open.
 
+For laptop adaptation (i7-1360p / 16 GB CPU-only profile, on branch
+`feature/raptor-lake-laptop`, local-only — do not push to `fork`):
+
+- `project_docs/hardware/AGENT_BRIEF.md` — single entry point for
+  laptop work. Branch state, file map, workflow, decision tree,
+  stop rules.
+- `project_docs/hardware/RAPTOR_LAKE_LAPTOP.md` — hardware profile
+  and tuning notes.
+- `project_docs/hardware/LAPTOP_BENCH_PROTOCOL.md` — step-by-step
+  procedure for the first laptop bench session, with workstation
+  reference numbers populated as anchors.
+
 ## Historical First Read Order (kept for context, not current)
 
 The 2026-02 / 2026-03 era bootstrap pointed at:

@@ -5,6 +5,11 @@ Hardware profile and tuning notes for a CPU-only laptop build of
 workstation profile and where the actual numbers from the laptop will go
 once they are measured.
 
+> **Entry point for new sessions / agents:** read
+> [`AGENT_BRIEF.md`](AGENT_BRIEF.md) first. It is the single bootstrap
+> doc for this branch — state, files, workflow, decision tree, stop
+> rules. This file is the hardware-specific reference it points at.
+
 ## Hardware
 
 - **CPU**: Intel Core i7-1360p (13th gen, Raptor Lake mobile)
