@@ -246,6 +246,19 @@ fit). Rough heuristic for `-p 512`:
 - 30B-class MoE (active ~3-4B): ~50-100 tok/s
 - 30B+ swap-bound MoE: ~5-15 tok/s (disk-limited even with PP batching)
 
+**Measured PP512 (2026-05-21, -t 4, r=1):**
+
+| Model | Measured PP512 | Predicted floor | Ratio |
+|---|---|---|---|
+| GLM-Z1-9B Q4_K_M | ~17.8 tok/s (6-tok proxy) | ~40 (7B floor) | ~0.45× |
+| phi-4 Q4_K_M (14B dense) | **10.36 tok/s** | 40 (13B floor) | **0.26×** |
+
+phi-4 PP is 4× below the 13B predicted floor. Comparison with
+workstation (t=16, AVX-512, phi-4: 110.94 tok/s): ratio = 0.09×.
+Normalized for thread count: `10.36 × (16/4) = 41.4` → ratio 0.37×,
+within the expected 0.3–0.5× range. The raw PP gap is mostly
+thread-count limited (t=4 vs t=16), not SIMD-width limited.
+
 ## 6. Cross-machine workstation reference
 
 Reference numbers from the workstation (Ryzen 9 7950X, 96 GB,

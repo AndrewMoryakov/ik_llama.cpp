@@ -160,7 +160,7 @@ Notes:
 | Gemma-4-E4B                     | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Generic 7B Q4_K_M               | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | GLM-Z1-9B Q4_K_M                | bfff3fb7     | t=4 fa=1 rtr=2    | 20.78  | 4.63   |
-| phi-4 Q4_K_M (14B dense)        | bfff3fb7     | t=4 fa=1 rtr=2    | TBD    | 1.59   |
+| phi-4 Q4_K_M (14B dense)        | bfff3fb7     | t=4 fa=1 rtr=2    | 10.36  | 1.59   |
 | Qwen3-Coder-30B-A3B (mmap)      | bfff3fb7     | t=4 fa=1 rtr=auto | TBD    | 1.70   |
 | Generic 13B Q4_K_M              | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Gemma-4-26B-A4B                 | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
