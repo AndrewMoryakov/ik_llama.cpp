@@ -39,8 +39,9 @@ class of hardware, but the build itself needs:
 2. AVX-VNNI 256-bit code path activated — the chip's main quantized
    GEMM acceleration is AVX-VNNI, not AVX-512. Without this path the
    build falls back to plain AVX2 and loses significant performance.
-3. Reasonable defaults for the P+E hybrid core layout (recommended
-   `-t 8` starting point; sweep needed to confirm).
+3. Correct thread default for the P+E hybrid core layout: **`-t 4`**
+   (P-cores only, confirmed by thread sweep 2026-05-21 — monotonic
+   degradation from t=4 to t=16 due to OpenMP sync overhead).
 
 Target models on this profile:
 
@@ -54,74 +55,55 @@ Target models on this profile:
 
 ## 3. Current state (as of last commit)
 
-Three commits on the branch:
+Branch fully measured and documented. Last commit: `191e879d`.
+Pushed to `origin` (= `AndrewMoryakov/ik_llama.cpp`).
 
 ```
-5caf59653  docs: laptop bench protocol with workstation reference numbers
-a5d622f66  build: add GGML_AVX_VNNI option + fix laptop scaffolding review findings
-3280d53eb  feat: scaffolding for i7-1360p / 16 GB laptop CPU-only profile
+191e879d  docs: user quickstart for i7-1360p laptop (EN + RU)
+1b0741c0  bench: VNNI isolation GLM-9B (+52% TG, +5% PP); Qwen3-30B PP512 crash note
+7e59a9ec  bench: phi-4 PP512=10.36 tok/s; Section 5 measured vs predicted PP note
+765ccc93  build: switch NMake -> Ninja in build_raptor_lake.bat; bench: Section 5 measured vs theoretical
+8b155830  bench: i7-1360p smoke matrix (2026-05-21)
+0b6f7346  bench: bandwidth diagnostic + thermal throttle finding (2026-05-21)
+3f5f43db  bench: i7-1360p thread sweep + update docs (2026-05-21)
+bfff3fb7  fix: MSVC AVX-VNNI VEX vs EVEX intrinsic mismatch on Raptor Lake
 ```
-
-Branched off `dev` at `b226021fc`. Pushed to `personal` remote
-(`AndrewMoryakov/ik_llama.cpp`, mirror), NOT to `fork` remote
-(`AndrewMoryakov/ik_llama-pr`).
 
 What is **DONE**:
 
-- Build script `build_raptor_lake.bat` works from any clone location
-  (uses `%~dp0` with trailing-slash stripped). Sets `GGML_AVX2=ON`,
-  `GGML_AVX_VNNI=ON`, `GGML_CUDA=OFF`. Builds with `-j 8`
-  parallelism.
-- CMake option `GGML_AVX_VNNI` declared in
-  `ggml/CMakeLists.txt:93` and wired in `ggml/src/CMakeLists.txt`
-  for both MSVC (adds `__AVXVNNI__` macro via
-  `add_compile_definitions`) and GCC/Clang (adds `-mavxvnni`
-  flag). Default `OFF`, so existing workstation and CI builds are
-  unaffected. **Verified on the workstation**: clean build with
-  `HAVE_FANCY_SIMD is defined` still present, no regression on
-  the AVX-512 path.
-- Hardware profile doc `project_docs/hardware/RAPTOR_LAKE_LAPTOP.md`
-  describes the chip, expected `-rtr auto` decisions per target
-  model, recommended starting flags (`-t 8 -fa 1 -rtr auto -ctk
-  q8_0`), thread-sweep placeholder, bench baseline placeholder.
-- Bench protocol doc `project_docs/hardware/LAPTOP_BENCH_PROTOCOL.md`
-  describes the step-by-step procedure for the first laptop bench
-  session. Includes a workstation reference table populated with
-  three models bench'd on 2026-05-21:
+- **MSVC AVX-VNNI fix** (`ggml/src/iqk/iqk_config.h`): added
+  `#define _mm256_dpbusd_epi32 _mm256_dpbusd_avx_epi32` alias under
+  `_MSC_VER && __AVXVNNI__ && !__AVX512VNNI__`. Without this, all
+  models crashed with STATUS_ILLEGAL_INSTRUCTION (EVEX opcode on a
+  chip without AVX-512).
+- **Build script** (`build_raptor_lake.bat`): switched from NMake to
+  Ninja so `-j 8` actually parallelises. VS2022 Community default
+  path. Run once, get all binaries in `build\bin\`.
+- **Thread sweep** (2026-05-21, GLM-Z1-9B, r=3): winner is `-t 4`.
+  Monotonic degradation t4 > t8 > t12 > t16. t8 already -15% PP /
+  -24% TG vs t4.
+- **Bandwidth diagnostic** (t=4, r=1 with cooldown): GLM-9B ~28 GB/s
+  effective (DRAM-bound), phi-4 ~13 GB/s (thermal-limited below
+  floor), Qwen3-30B ~3 GB/s (NVMe disk-bound).
+- **Smoke matrix** (5 models): GLM-9B and phi-4 → KEEP; Qwen3-30B /
+  Qwen3-42B / ERNIE-21B → DISABLE via MoE total-size gate
+  (`MoE model X GiB > 90% of RAM 15.7 GiB`, threshold ~14.1 GiB).
+- **VNNI isolation** (GLM-9B, rtr=0 vs rtr=2, r=2): TG +52%,
+  PP +5% (within noise). TG benefit is the main gain.
+- **Dashboard** (`dashboard/evidence-layer.js`): preset
+  `laptop_raptor_lake_16gb` updated to `validation: 'validated'`,
+  `confidence: 'high'`, threads=4, cache_type_k/v='f16' (q8_0 not
+  supported in CPU-only builds).
+- **Docs**: `RAPTOR_LAKE_LAPTOP.md` fully populated; bench protocol
+  sections 1-5 filled with measured data; quickstart guides
+  `QUICKSTART_RAPTOR_LAKE.md` (EN) and `QUICKSTART_RAPTOR_LAKE_RU.md`
+  (RU) created.
 
-  | Model                       | Size      | PP512   | TG32   |
-  |-----------------------------|-----------|---------|--------|
-  | Phi-4-reasoning-plus Q4_K_M | 8.43 GiB  | 110.94  | 7.90   |
-  | Qwen3-30B-A3B Q4_K_M        | 17.35 GiB | 409.52  | 32.58  |
-  | gpt-oss-20b MXFP4           | 11.27 GiB | 447.31  | 26.02  |
+What is **PENDING** (non-blocking, fills in when models become available):
 
-  Use these as cross-machine anchors when laptop results come in.
-- Dashboard preset `laptop_raptor_lake_16gb` in
-  `dashboard/evidence-layer.js` with `validation: 'research'`,
-  `confidence: 'low'`, `threads: 8` placeholder. Pin the winning
-  thread count after the laptop sweep.
-- Bench results placeholder
-  `bench_results/2026-05-20_raptor_lake_baseline/README.md` with
-  empty matrix to fill in.
-
-What is **PENDING**:
-
-- First build on the actual laptop. We do not have access to the
-  laptop from the workstation session.
-- Runtime verification that AVX-VNNI 256-bit is active:
-  - `llama-cli` `system_info` line shows `AVX_VNNI = 1` and
-    `AVX512 = 0`.
-  - `objdump -d build/bin/llama-cli.exe | grep -c vpdpbusd` returns
-    > 100.
-- Smoke matrix bench on the six target models.
-- Thread sweep (`-t 4 / 8 / 12 / 16`) on a small reference model
-  to pick the winning thread count.
-- Bandwidth/compute regime diagnostic (TG at winning `-t` on 3 size
-  classes, classifies bound regime).
-- Populate `RAPTOR_LAKE_LAPTOP.md` tables with real numbers.
-- Pin the winning `-t` in the dashboard preset.
-- Optional: bump `validation` from `'research'` to `'partial'` once
-  numbers exist.
+- Bench baseline TBD rows: Generic 7B Q4_K_M, Generic 13B Q4_K_M,
+  Gemma-4-E4B, Gemma-4-26B-A4B, Qwen3.6-35B-A3B, GLM-4.7-Flash.
+  Follow bench protocol section 2 when these are downloaded.
 
 ## 4. File map
 
@@ -164,9 +146,16 @@ project_docs/hardware/LAPTOP_BENCH_PROTOCOL.md
     agent reads this on the laptop and follows top to bottom; no
     improvisation needed.
 
+project_docs/hardware/QUICKSTART_RAPTOR_LAKE.md
+    User-facing one-page guide (English): build, flags, model table,
+    known issues. No internal detail.
+
+project_docs/hardware/QUICKSTART_RAPTOR_LAKE_RU.md
+    Same guide in Russian.
+
 bench_results/2026-05-20_raptor_lake_baseline/README.md
-    Placeholder matrix file. After the laptop bench, capture raw
-    output here and link to RAPTOR_LAKE_LAPTOP.md summary.
+    Placeholder matrix file. Raw llama-bench output lives here
+    when captured.
 ```
 
 ## 5. Reading order for a new agent
@@ -282,61 +271,66 @@ future sessions know.
 
 ## 8. Key facts to remember (do not re-discover)
 
-From the auto-memory `settled-facts.md`:
+**Laptop-specific settled facts (measured 2026-05-21):**
 
-- **#11**: CCD pinning on the workstation hurts. Not directly
-  relevant to laptop (single unified L3 on Raptor Lake), but the
-  underlying principle applies — let the OS scheduler distribute
-  threads.
-- **#20**: Fork's own `_mm_prefetch` attempts gave 0%. Do not add
-  more.
-- **#22**: rtr-auto v2 validated on six model classes including
-  multi-shard. The v3 logic in main `dev` extends this for the
-  laptop's needs.
-- New laptop-specific facts will accrue here after the first bench.
+- **`-t 4` is the winning thread count.** Monotonic degradation from
+  t=4 to t=16. HT already hurts at t=8 (-15% PP, -24% TG). Root
+  cause: OpenMP barrier overhead dominates over bandwidth gains for
+  9B-class GEMM block sizes. Do not sweep again unless the model
+  class changes dramatically (30B+ dense).
+- **VNNI repack gives +52% TG, +5% PP** on GLM-9B (rtr=0 vs rtr=2).
+  TG is weight-read bottleneck → VNNI helps. PP is compute/batching
+  → VNNI negligible.
+- **`-ctk q8_0` fails in CPU-only builds.** Causes "failed to create
+  context". Never set this flag on this machine.
+- **MoE DISABLE threshold is ~14.1 GiB** (90% of total RAM 15.7 GiB),
+  not 90% of available RAM. Log: `MoE model X GiB > 90% of RAM 15.7 GiB`.
+- **Thermal throttle is severe.** Under sustained load (r=3 bench),
+  a 14B model averages 2-3× below its r=1 number. Always use r=1
+  with 30 s cooldown for meaningful benches on this chip.
+- **MSVC EVEX/VEX mismatch fix** is in `iqk_config.h`. Without it,
+  all models crash with STATUS_ILLEGAL_INSTRUCTION. The fix is a
+  preprocessor alias; it is guarded by `_MSC_VER && __AVXVNNI__ &&
+  !__AVX512VNNI__` so it does not affect GCC/Clang or workstation
+  (which has AVX-512).
+- **Qwen3-30B PP512 crashes** with access violation when MoE virtual
+  memory prefetch is enabled. Use short prompts with disk-bound MoE.
 
-Architectural facts not yet in settled-facts:
+From the repo-wide `settled-facts.md`:
 
-- DDR5-5200 dual-channel on i7-1360p: ~83 GB/s theoretical, mobile
-  reality 50-70 GB/s achievable. For a 14B dense Q4_K_M model
-  reading the full model per token, that caps TG at ~7-8 tok/s
-  (matches our workstation Phi-4 reference; workstation has
-  similar DRAM ceiling for that size class).
-- L3 on i7-1360p is 18 MB unified. Workstation has 64 MB
-  aggregate across two CCDs. Per-layer working set for a 13B model
-  (~10-12 MB for a single weight matrix) almost fits laptop L3 but
-  not comfortably. Larger models suffer more from cache misses.
-- E-core L2 is shared across 4 E-cores in one cluster (4 MB).
-  Putting multiple inference threads on E-cores in the same
-  cluster can thrash that L2. This is the main reason `-t 8`
-  (P-cores plus HT) is the recommended starting point.
+- **#11**: CCD pinning on the workstation hurts. Single L3 on Raptor
+  Lake is less susceptible, but the principle holds.
+- **#20**: Fork's own `_mm_prefetch` gave 0%. Do not add more.
+- **#22**: rtr-auto v3 validated on six model classes; laptop
+  consumes it correctly via `-rtr auto`.
 
 ## 9. What to do next (decision tree)
 
 **You are an agent reading this for the first time, you have no
 specific instruction yet.**
 
-→ Ask the human if they want to: (a) run the laptop bench now (they
-have laptop access), (b) refine docs further (no laptop access), or
-(c) wait until they get to the laptop. Do nothing until told.
+→ The branch is fully measured and documented. Ask the human what
+they want to do: run more models as they become available, use
+the laptop for inference, or something else.
 
-**The human says "I am at the laptop, let us start."**
+**The human asks "how do I run a model?"**
 
-→ Walk them through `LAPTOP_BENCH_PROTOCOL.md` section by section.
-Stop at each section to capture results before moving to the next.
-Help interpret numbers using the ceilings in section 5.
+→ Point them to `QUICKSTART_RAPTOR_LAKE.md` (or the RU version).
+Key: `-t 4 -fa 1 -rtr auto`, no `-ctk q8_0`.
+
+**The human downloads a new model and wants to bench it.**
+
+→ Follow bench protocol section 2 (smoke matrix). Record rtr
+decision, load time, PP, TG. Update `RAPTOR_LAKE_LAPTOP.md` bench
+baseline table. Commit and push to origin.
 
 **The human says "the laptop build fails with X."**
 
-→ Match X against section 6b of this brief. If still unclear, ask
-for exact error text plus `build\CMakeCache.txt` excerpt.
-
-**The human says "the laptop bench numbers are populated, what
-now?"**
-
-→ Execute section 6c. Commit the populated tables, push to
-`personal`. Optionally propose a settled-fact addition if
-something surprising was learned.
+→ Match X against section 6b of this brief. Common:
+- STATUS_ILLEGAL_INSTRUCTION → MSVC EVEX fix in `iqk_config.h` is
+  missing; verify branch is correct.
+- "failed to create context" → remove `-ctk q8_0`.
+- Crash with MoE model at PP → avoid PP512 bench for MoE > 14 GiB.
 
 **The human says "propose GGML_AVX_VNNI upstream."**
 

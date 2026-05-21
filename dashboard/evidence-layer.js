@@ -150,11 +150,11 @@
     laptop_raptor_lake_16gb: {
       id: 'laptop_raptor_lake_16gb',
       title: { ru: 'Ноутбук (i7-1360p, 16 GB)', en: 'Laptop (i7-1360p, 16 GB)' },
-      description: { ru: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI без AVX-512. Winning thread count: -t 4 (только P-cores, без HT). HT и E-core threads снижают perf из-за OpenMP overhead на малых GEMM-блоках. 7B-13B comfortable, 30B+ swap-bound (rtr=auto DISABLE). Sweep 2026-05-21 на GLM-Z1-9B: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0, t16 PP=8.6/TG=1.5. См. project_docs/hardware/RAPTOR_LAKE_LAPTOP.md', en: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI without AVX-512. Winning thread count: -t 4 (P-cores only, no HT). HT and E-core threads hurt perf due to OpenMP overhead on small GEMM blocks. 7B-13B comfortable, 30B+ swap-bound (rtr=auto auto-DISABLEs). Sweep 2026-05-21 on GLM-Z1-9B: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0, t16 PP=8.6/TG=1.5. See project_docs/hardware/RAPTOR_LAKE_LAPTOP.md' },
+      description: { ru: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. AVX-VNNI без AVX-512. Winning -t 4 (только P-cores). VNNI repack: +52% TG / +5% PP vs без repacking. MoE DISABLE порог: 14.1 ГБ (90% от total RAM). Не использовать -ctk q8_0 — CPU-only builds не поддерживают. Sweep 2026-05-21: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0. phi-4 14B: PP=10.4/TG=1.6. Термальный throttle при sustained load — использовать -r 1. Подробнее: project_docs/hardware/RAPTOR_LAKE_LAPTOP.md', en: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. AVX-VNNI without AVX-512. Winning -t 4 (P-cores only). VNNI repack: +52% TG / +5% PP vs no-repack. MoE DISABLE threshold: 14.1 GB (90% of total RAM). Do not use -ctk q8_0 — CPU-only builds do not support KV quant. Sweep 2026-05-21: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0. phi-4 14B: PP=10.4/TG=1.6. Thermal throttle under sustained load — use -r 1. Details: project_docs/hardware/RAPTOR_LAKE_LAPTOP.md' },
       applicability: 'all',
-      validation: 'partial',
-      confidence: 'medium',
-      values: { threads: 4, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'mixed' }
+      validation: 'validated',
+      confidence: 'high',
+      values: { threads: 4, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'f16', cache_type_v: 'f16', model_type: 'mixed' }
     },
     server_prod: {
       id: 'server_prod',
