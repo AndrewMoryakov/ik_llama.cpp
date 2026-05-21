@@ -166,36 +166,41 @@ Notes:
 | Gemma-4-26B-A4B                 | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 | Qwen3.6-35B-A3B (swap-bound)    | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 
+## Smoke matrix (2026-05-21)
+
+Run with `-t 4 -fa 1 -rtr auto -c 2048 -n 16`, build `bfff3fb7`.
+No `-ctk q8_0` — causes "failed to create context" in CPU-only builds.
+
+| Model | rtr auto | Load (s) | PP tok/s | TG tok/s | Notes |
+|---|---|---|---|---|---|
+| GLM-Z1-9B-0414 Q4_K_M | KEEP | 5.55 | 17.79 | 5.28 | |
+| phi-4 Q4_K_M (14B dense) | KEEP | 9.22 | 7.15 | N/A | EOS on first token; raw prompt, no chat template |
+| Qwen3-Coder-30B-A3B Q4_K_M | DISABLE | 10.96 | 1.55 | 4.28† | †page cache warm; cold NVMe TG ~1.7 tok/s |
+| Qwen3-42B-A3B MXFP4_MOE | DISABLE | 16.25 | 0.96 | 2.63 | |
+| ERNIE-4.5-21B Q8_K_XL | DISABLE | 27.12 | 0.57 | 1.18 | |
+
+All three DISABLE cases fired on the **MoE total-size gate**:
+`disabled (MoE model X GiB > 90% of RAM 15.7 GiB)`.
+The threshold is ~14.1 GiB (90% of 15.7 GiB total installed).
+
 ## Expected `-rtr auto` decisions
 
-The v3 policy in `src/llama.cpp` will see roughly:
+The v3 policy has two distinct code paths based on model type:
 
-- **Gemma-4-E4B / 7B / 13B Q4_K_M**: KEEP. CPU-resident repackable
-  bytes well under 90% of available memory; AVX-VNNI repack helps
-  perf.
-- **Gemma-4-26B-A4B**: borderline. If primary repackable gate fits
-  but secondary total gate trips, DISABLE.
-- **Qwen3.6-35B-A3B**: DISABLE. Disk size already over half of
-  available memory; either primary or secondary gate fires.
-- **GLM-4.7-Flash**: depends on size and quant; will be visible in
-  log.
+**Dense models (non-MoE):**
+- KEEP/DISABLE is based on repackable bytes vs available memory.
+- Log line: `--run-time-repack auto: keeping repack enabled`
+- **GLM-Z1-9B, phi-4**: KEEP confirmed.
 
-The auto log line will show the exact bytes used for the decision:
-
-```
---run-time-repack auto: CPU-resident repackable X GiB, total CPU-resident Y GiB, available Z GiB
---run-time-repack auto: keeping repack enabled
-```
-
-or
-
-```
---run-time-repack auto: disabled (CPU-resident repackable X GiB > 90% of available memory Z GiB)
---run-time-repack auto: disabled (CPU-resident tensors Y GiB > 90% of available memory Z GiB)
-```
-
-Capture both numbers from the log when first booting a model on the
-laptop; populate the bench tables above.
+**MoE models:**
+- DISABLE fires when `total_model_size > 90% of total_installed_RAM`.
+- "Total installed RAM" is 15.7 GiB (OS-reported; ~300 MB BIOS-reserved).
+- Effective threshold: ~14.1 GiB. Any MoE file larger than this is disabled.
+- Log line: `--run-time-repack auto: disabled (MoE model X GiB > 90% of RAM 15.7 GiB)`
+- **Qwen3-Coder-30B (17.3G), Qwen3-42B (22.0G), ERNIE-21B (24.8G)**: all DISABLE confirmed.
+- **Gemma-4-26B-A4B**: borderline if its file is near 14 GiB; actual decision TBD.
+- **Qwen3.6-35B-A3B**: DISABLE expected (file > 14 GiB).
+- **GLM-4.7-Flash**: depends on quant size; will be visible in log.
 
 ## Notes
 

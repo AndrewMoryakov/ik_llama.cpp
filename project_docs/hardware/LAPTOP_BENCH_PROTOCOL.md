@@ -111,14 +111,28 @@ From stderr/stdout capture:
 
 Fill the table:
 
-| Model                                | Path on disk | rtr auto decision | Load (s) | PP tok/s | TG tok/s |
-|--------------------------------------|--------------|--------------------|----------|----------|----------|
-| Generic 7B Q4_K_M                    | TBD          | TBD                | TBD      | TBD      | TBD      |
-| Generic 13B Q4_K_M                   | TBD          | TBD                | TBD      | TBD      | TBD      |
-| Gemma-4-E4B                          | TBD          | TBD                | TBD      | TBD      | TBD      |
-| Gemma-4-26B-A4B                      | TBD          | TBD                | TBD      | TBD      | TBD      |
-| Qwen3.6-35B-A3B (Q4_K_M expected)    | TBD          | TBD                | TBD      | TBD      | TBD      |
-| GLM-4.7-Flash                        | TBD          | TBD                | TBD      | TBD      | TBD      |
+Tested 2026-05-21 (build `bfff3fb7`, `-t 4 -fa 1 -rtr auto -c 2048 -n 16`; no `-ctk q8_0` — causes failure in CPU-only builds):
+
+| Model | rtr auto decision | Load (s) | PP tok/s | TG tok/s | Notes |
+|---|---|---|---|---|---|
+| GLM-Z1-9B-0414 Q4_K_M | KEEP (repack enabled) | 5.55 | 17.79 | 5.28 | |
+| phi-4 Q4_K_M (14B dense) | KEEP (repack enabled) | 9.22 | 7.15 | N/A | EOS on first generated token with raw prompt (no chat template) |
+| Qwen3-Coder-30B-A3B Q4_K_M | DISABLE (MoE 17.3 GiB > 90% of RAM 15.7 GiB) | 10.96 | 1.55 | 4.28† | †OS page cache warm from earlier run; cold NVMe TG ~1.7 tok/s |
+| Qwen3-42B-A3B MXFP4_MOE | DISABLE (MoE 22.0 GiB > 90% of RAM 15.7 GiB) | 16.25 | 0.96 | 2.63 | |
+| ERNIE-4.5-21B Q8_K_XL | DISABLE (MoE 24.8 GiB > 90% of RAM 15.7 GiB) | 27.12 | 0.57 | 1.18 | |
+| Generic 7B Q4_K_M | TBD | TBD | TBD | TBD | Not yet available on this laptop |
+| Generic 13B Q4_K_M | TBD | TBD | TBD | TBD | Not yet available |
+| Gemma-4-E4B | TBD | TBD | TBD | TBD | Not yet available |
+| Gemma-4-26B-A4B | TBD | TBD | TBD | TBD | Not yet available |
+| Qwen3.6-35B-A3B | TBD | TBD | TBD | TBD | Not yet available |
+| GLM-4.7-Flash | TBD | TBD | TBD | TBD | Not yet available |
+
+**DISABLE message format note**: for MoE models the policy emits
+`disabled (MoE model X GiB > 90% of RAM Y GiB)` where Y is
+*total installed RAM* (15.7 GiB ≈ 16 GiB minus BIOS/hardware
+reservation), not available memory. The effective threshold is
+~14.1 GiB — any MoE model larger than that disables repack
+regardless of how much memory is free at runtime.
 
 Notes column to capture: KV size, observed swap, anything unusual.
 
