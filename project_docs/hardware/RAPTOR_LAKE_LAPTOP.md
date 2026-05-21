@@ -77,16 +77,19 @@ main 7950X workstation profile, not as a primary laptop target.
 Default starting point for any model:
 
 ```
-llama-cli -m <model.gguf> -t 8 -fa 1 -rtr auto -ctk q8_0
+llama-cli -m <model.gguf> -t 4 -fa 1 -rtr auto -ctk q8_0
 ```
 
 Rationale:
 
-- `-t 8` — start with P-cores + HT only (4 P-cores * 2). E-cores are
-  often slower on AVX-VNNI workloads and may hurt perf when mixed.
-  Sweep `-t 4`, `-t 8`, `-t 12`, `-t 16` to find the actual sweet spot
-  on this chip; OS scheduler may or may not handle the P/E placement
-  cleanly.
+- `-t 4` — **P-cores only, no HT.** Thread sweep on 2026-05-21
+  (GLM-Z1-9B Q4_K_M, r=3) showed monotonic degradation as threads
+  increase: t4 wins on both PP and TG. HT already hurts at t=8 (PP
+  -15%, TG -24%); adding E-cores makes it worse. Root cause: OpenMP
+  synchronization overhead dominates over bandwidth parallelism for
+  9B-class GEMM blocks on this chip. Use `-t 4` as the default; sweep
+  again if a significantly larger model (e.g. 30B+ with large active
+  expert blocks) is used regularly.
 - `-fa 1` — flash attention, always on (settled fact across all
   profiles).
 - `-rtr auto` — let the v3 policy decide. On in-RAM models it will
@@ -102,18 +105,24 @@ work via mmap but TG will be limited by disk read bandwidth (~50-100
 MB/s on SATA SSD, ~3-7 GB/s on NVMe). Expect TG in the 1-5 tok/s
 range on swap-bound MoE.
 
-## Thread count sweep (TBD)
+## Thread count sweep
 
-The right `-t` value on a P+E hybrid is non-trivial. Plan a small
-sweep on the first model that fits, then reuse the winning value.
+Measured 2026-05-21, GLM-Z1-9B Q4_K_M (5.73 GiB), rtr=2, fa=1, r=3.
 
-| Model           | -t 4 (P only)  | -t 8 (P+HT)    | -t 12 (P+HT+E) | -t 16 (all)  |
-|-----------------|----------------|----------------|----------------|--------------|
-| Gemma-4-E4B PP  | TBD            | TBD            | TBD            | TBD          |
-| Gemma-4-E4B TG  | TBD            | TBD            | TBD            | TBD          |
+| -t | Description     | PP512 tok/s      | TG32 tok/s      |
+|----|-----------------|------------------|-----------------|
+| 4  | P-cores only    | **20.78 ± 1.02** | **4.63 ± 0.25** |
+| 8  | P-cores + HT    | 17.57 ± 0.26     | 3.53 ± 0.23     |
+| 12 | P-cores+HT+4E   | 8.34 ± 0.75      | 2.01 ± 0.08     |
+| 16 | All threads     | 8.62 ± 0.45      | 1.53 ± 0.39     |
 
-Populate after first laptop bench session. Pin the winning thread count
-in the dashboard preset.
+**Winner: `-t 4`** (P-cores only). Performance degrades monotonically
+as threads increase. HT already hurts at t=8; adding E-cores causes
+a further large drop. This is atypical: for DRAM-bound TG the usual
+expectation is plateau, not degradation. Most likely cause: OpenMP
+barrier overhead per GEMM kernel dominates for 9B-class block sizes
+on this chip. The winning value is pinned in `dashboard/evidence-layer.js`
+`laptop_raptor_lake_16gb.values.threads = 4`.
 
 ## Bench baseline (TBD)
 
@@ -121,12 +130,12 @@ Empty placeholder until the laptop has had a first build + smoke run.
 
 | Model                           | Build commit | Config            | PP512  | TG32   |
 |---------------------------------|--------------|-------------------|--------|--------|
-| Gemma-4-E4B                     | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
-| Generic 7B Q4_K_M               | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
-| Generic 13B Q4_K_M              | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
-| Gemma-4-26B-A4B                 | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
-| Qwen3.6-35B-A3B (swap-bound)    | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
-| GLM-4.7-Flash                   | TBD          | t=8 fa=1 rtr=auto | TBD    | TBD    |
+| Gemma-4-E4B                     | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| Generic 7B Q4_K_M               | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| Generic 13B Q4_K_M              | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| Gemma-4-26B-A4B                 | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| Qwen3.6-35B-A3B (swap-bound)    | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
+| GLM-4.7-Flash                   | TBD          | t=4 fa=1 rtr=auto | TBD    | TBD    |
 
 ## Expected `-rtr auto` decisions
 

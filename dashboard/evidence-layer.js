@@ -150,11 +150,11 @@
     laptop_raptor_lake_16gb: {
       id: 'laptop_raptor_lake_16gb',
       title: { ru: 'Ноутбук (i7-1360p, 16 GB)', en: 'Laptop (i7-1360p, 16 GB)' },
-      description: { ru: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI без AVX-512. 7B-13B comfortable, gpt-oss-20b borderline, 30B+ swap-bound (rtr=auto автоматически DISABLE). Thread count под вопросом — нужен sweep -t 4 vs 8 vs 12 vs 16. См. project_docs/hardware/RAPTOR_LAKE_LAPTOP.md', en: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI without AVX-512. 7B-13B comfortable, gpt-oss-20b borderline, 30B+ swap-bound (rtr=auto auto-DISABLEs). Thread count TBD — needs -t 4 vs 8 vs 12 vs 16 sweep. See project_docs/hardware/RAPTOR_LAKE_LAPTOP.md' },
+      description: { ru: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI без AVX-512. Winning thread count: -t 4 (только P-cores, без HT). HT и E-core threads снижают perf из-за OpenMP overhead на малых GEMM-блоках. 7B-13B comfortable, 30B+ swap-bound (rtr=auto DISABLE). Sweep 2026-05-21 на GLM-Z1-9B: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0, t16 PP=8.6/TG=1.5. См. project_docs/hardware/RAPTOR_LAKE_LAPTOP.md', en: 'i7-1360p Raptor Lake mobile, 16 GB RAM, CPU-only. P+E hybrid, AVX-VNNI without AVX-512. Winning thread count: -t 4 (P-cores only, no HT). HT and E-core threads hurt perf due to OpenMP overhead on small GEMM blocks. 7B-13B comfortable, 30B+ swap-bound (rtr=auto auto-DISABLEs). Sweep 2026-05-21 on GLM-Z1-9B: t4 PP=20.8/TG=4.6, t8 PP=17.6/TG=3.5, t12 PP=8.3/TG=2.0, t16 PP=8.6/TG=1.5. See project_docs/hardware/RAPTOR_LAKE_LAPTOP.md' },
       applicability: 'all',
-      validation: 'research',
-      confidence: 'low',
-      values: { threads: 8, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'mixed' }
+      validation: 'partial',
+      confidence: 'medium',
+      values: { threads: 4, flash_attn: true, repack_tensors: 'auto', merge_up_gate_exps: false, cache_type_k: 'q8_0', cache_type_v: 'q8_0', model_type: 'mixed' }
     },
     server_prod: {
       id: 'server_prod',
