@@ -52,5 +52,13 @@
 #if defined(__AVXVNNI__) || (defined(__AVX512VNNI__) && defined(__AVX512VL__))
     #define HAVE_VNNI256
 #endif
+// On MSVC, _mm256_dpbusd_epi32 / _mm256_dpwssd_epi32 emit EVEX-encoded
+// instructions that require AVX-512+VNNI.  On Alder Lake / Raptor Lake
+// (AVX-VNNI present, AVX-512 absent) we must use the _avx_ variants which
+// emit VEX-encoded vpdpbusd / vpdpwssd instead.
+#if defined(_MSC_VER) && defined(__AVXVNNI__) && !defined(__AVX512VNNI__)
+    #define _mm256_dpbusd_epi32 _mm256_dpbusd_avx_epi32
+    #define _mm256_dpwssd_epi32 _mm256_dpwssd_avx_epi32
+#endif
 #endif
 
