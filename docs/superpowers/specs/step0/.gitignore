@@ -1,0 +1,4 @@
+# Step-0 benchmark run artifacts (machine-specific, not source)
+step0-results*.csv
+step0_*.log
+step0_*.samples.csv

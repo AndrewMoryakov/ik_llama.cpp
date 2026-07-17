@@ -38,3 +38,13 @@
 
 ## Правило валидации (для КАЖДОГО изменения)
 `llama-perplexity` на **domain-holdout** (не wikitext): +2% accept / +5% reject. Для прунинга дополнительно — routing-coverage обрезанных экспертов <0.1% на holdout.
+
+---
+
+## Апдейт (2026-07-18): smoke-тест харнесса ШАГ 0
+
+Харнесс `step0/step0-bench.ps1` прогнан на маленькой модели — механика ОК,
+но метрики требуют переделки: `ReadTransferCount` не ловит mmap, load/gen слиты.
+Решения (PhysicalDisk-счётчик, наклон в steady-state, фазирование cache_hit) и
+новый CSV — в `analysis-3-step0-measurements.md`. Реальные числа ждут целевой
+машины Ryzen9/96 ГБ + MiniMax-M2 (>RAM).
