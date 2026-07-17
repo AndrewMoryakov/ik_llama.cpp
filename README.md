@@ -283,3 +283,12 @@ $ echo "source ~/.llama-completion.bash" >> ~/.bashrc
 - [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
 - [miniaudio.h](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
 - [subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain
+
+## Fork-specific notes: MoE inference speedup (CPU-only)
+
+Заметки и спеки этого форка по ускорению MoE-инференса на CPU-only железе, когда
+модель не влезает в RAM (кейс: MiniMax M2.7, ~110 GB модель vs 96 GB RAM,
+disk-bound пейджинг экспертов с SSD). Разбор bottleneck'а, измерительный плейбук и
+восемь направлений оптимизации (от runtime top-k override до прунинга экспертов):
+
+- [docs/superpowers/specs/00-INDEX.md](./docs/superpowers/specs/00-INDEX.md) — точка входа
