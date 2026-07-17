@@ -3122,6 +3122,7 @@ static bool llm_load_tensors(
                     throw std::runtime_error("unable to allocate backend CPU buffer");
                 }
                 model.bufs.push_back(buf);
+                model.has_mmap_backed_buffers = true;
                 bufs.emplace(idx, buf);
 #ifdef GGML_USE_CUDA
                 if (n_layer >= n_gpu_layers) {
@@ -3147,6 +3148,7 @@ static bool llm_load_tensors(
                     throw std::runtime_error("unable to allocate backend metal buffer");
                 }
                 model.bufs.push_back(buf);
+                model.has_mmap_backed_buffers = true;
                 bufs.emplace(idx, buf);
             }
         }
@@ -3276,6 +3278,7 @@ static bool llm_load_tensors(
     }
 
     if (!ml.use_mmap && ml.repack_tensors) {
+        model.repack_pass_executed = true;
         int n_repacked = 0;
         for (auto& it : model.tensors_by_name) {
             if (ggml_backend_buffer_is_host(it.second->buffer)) {
@@ -3285,6 +3288,7 @@ static bool llm_load_tensors(
                 if (it.second->type != orig_type) ++n_repacked;
             }
         }
+        model.n_repacked = n_repacked;
         if (n_repacked > 0) LLAMA_LOG_INFO("============ Repacked %d tensors\n", n_repacked);
     }
 
@@ -3986,6 +3990,7 @@ static llama_rtr_auto_decision llama_rtr_auto_should_disable(
 // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
 static int llama_model_load(const std::string & fname, llama_model & model, llama_model_params & params) {
     try {
+        model.use_mmap_requested = params.use_mmap;
         model.rtr_status = params.repack_tensors ?
                 LLAMA_RTR_STATUS_ENABLED : LLAMA_RTR_STATUS_DISABLED;
         if (params.repack_tensors && params.repack_tensors_auto) {
@@ -4094,6 +4099,7 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
         )) {
             return -2;
         }
+        model.use_mmap_loader_enabled = ml.use_mmap;
     } catch (const std::exception & err) {
         LLAMA_LOG_ERROR("%s: error loading model: %s\n", __func__, err.what());
         return -1;
@@ -7309,6 +7315,22 @@ uint64_t llama_model_size(const struct llama_model * model) {
 
 enum llama_rtr_status llama_model_rtr_status(const struct llama_model * model) {
     return model ? model->rtr_status : LLAMA_RTR_STATUS_DISABLED;
+}
+
+bool llama_model_loader_mmap_enabled(const struct llama_model * model) {
+    return model && model->use_mmap_loader_enabled;
+}
+
+bool llama_model_has_mmap_buffers(const struct llama_model * model) {
+    return model && model->has_mmap_backed_buffers;
+}
+
+bool llama_model_repack_pass_executed(const struct llama_model * model) {
+    return model && model->repack_pass_executed;
+}
+
+uint64_t llama_model_n_repacked(const struct llama_model * model) {
+    return model ? model->n_repacked : 0;
 }
 
 const char* llama_model_chat_template(const struct llama_model* model, const char* name) {
