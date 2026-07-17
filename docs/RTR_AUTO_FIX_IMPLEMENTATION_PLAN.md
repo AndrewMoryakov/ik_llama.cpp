@@ -18,13 +18,9 @@
 
 ## 2. Подтверждённые проблемы
 
-### P1. Forced RTR не выполняет repack при mmap по умолчанию
+### Проверено: forced RTR coupling уже работает в loader
 
-- `common/common.cpp:1641-1675` включает `repack_tensors`, но не отключает mmap.
-- `src/llama.cpp:3991-4024` отключает mmap только для `AUTO_KEEP`.
-- Repack pass выполняется только при `!ml.use_mmap && ml.repack_tensors` в `src/llama.cpp:3278-3289`.
-
-Результат: `-rtr`, `-rtr 1` и `-rtr on` могут выставить статус `ENABLED`, но не изменить ни одного тензора.
+Предыдущая оценка этого пункта как P1 была ошибочной: parser действительно сохраняет requested mmap, но `llama_model_loader` при `repack_tensors=true` устанавливает свой `use_mmap=false` в `src/llama-model-loader.cpp:581-592`. Поэтому для `-rtr`, `-rtr 1` и `-rtr on` условие repack pass `!ml.use_mmap && ml.repack_tensors` в `src/llama.cpp:3278-3289` истинно. Нужен regression test и accurate effective-state reporting, а не новая forced-coupling реализация.
 
 ### P1. SQL exporter несовместим со штатными consumers
 
@@ -46,25 +42,14 @@
 
 Текущий `test-rtr-params` проверяет только состояние parser и не исполняет loader policy, status lifecycle или exporters.
 
-## 3. Этап 1: восстановить forced RTR coupling
+## 3. Этап 1: защитить существующий forced RTR coupling
 
 ### Реализация
 
-1. Сохранить last-option-wins поведение parser: parser не должен необратимо изменять mmap.
-2. После разрешения auto-policy централизованно финализировать параметры загрузки:
-
-```cpp
-if (params.repack_tensors) {
-    params.use_mmap = false;
-}
-```
-
-3. Выполнять финализацию до создания `llama_model_loader`.
-4. Вынести переходы состояния в небольшую pure/helper-функцию, чтобы проверить их без загрузки большого GGUF.
-5. Явно обработать несовместимость forced RTR и `--defer-experts`:
-   - forced RTR (`-rtr`, `-rtr 1`, `-rtr on`) вместе с `--defer-experts` считается ошибкой конфигурации;
-   - `-rtr auto` вместе с `--defer-experts` отключает repack через `AUTO_UNKNOWN`/`AUTO_DISABLE` и сохраняет mmap/deferral;
-   - loader не должен молча отменять запрошенную deferred loading.
+1. Сохранить last-option-wins поведение parser: parser не должен необратимо изменять requested mmap.
+2. Сохранить loader-side coupling `if (repack_tensors) use_mmap = false` в `llama_model_loader`; не дублировать его изменением `params.use_mmap` до конструктора.
+3. Добавить regression test, проходящий parser → loader → repack loop с forced RTR и mmap по умолчанию.
+4. Не менять в этой серии текущую platform-specific семантику `--defer-experts`: forced+defer configuration error требует отдельного решения о cross-platform контракте.
 
 ### Матрица состояний
 
@@ -83,7 +68,7 @@ if (params.repack_tensors) {
 - `-rtr`, `-rtr 1` и `-rtr on` доходят до repack pass;
 - `-rtr 1 -rtr auto` и `-rtr 1 -rtr 0` сохраняют last-option-wins;
 - auto disable/unknown не выключают mmap, если пользователь отдельно этого не запросил;
-- forced RTR плюс `--defer-experts` завершается явной диагностикой до начала model load.
+- regression test подтверждает, что loader-side coupling не регрессирует.
 
 ## 4. Этап 2: recorded effective state
 
@@ -268,7 +253,7 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 
 ## 9. Порядок реализации
 
-1. Forced RTR coupling.
+1. Forced RTR coupling regression test.
 2. Effective state API и benchmark metadata.
 3. SQL compatibility.
 4. Cgroup mountinfo.
@@ -321,7 +306,7 @@ ABI-риск не считается закрытым одной переста�
 
 ## 12. Рекомендуемое разбиение на коммиты
 
-1. `fix: restore forced runtime repack coupling` + policy/finalization tests.
+1. `test: protect forced runtime repack coupling` + loader regression test.
 2. `fix: record effective rtr and mmap state` + C API/status/exporter contract tests.
 3. `fix: preserve llama-bench sql compatibility` + SQLite migration/consumer fixtures.
 4. `fix: resolve cgroup memory hierarchy mounts` + mountinfo/cgroup fixtures.
@@ -330,14 +315,14 @@ ABI-риск не считается закрытым одной переста�
 
 ## 13. Итог ревью реализации (`45dfd803..78b48540`)
 
-Независимое и внешнее ревью фактического кода подтвердили: предыдущая оценка готовности была завышена. Вердикт: **not ready — implementation blockers remain**. Разделы 1–12 остаются источником истины для требуемых изменений.
+Независимое и внешнее ревью фактического кода подтвердили, что SQL compatibility, effective state и platform safety остаются незавершёнными. Последующая перепроверка также установила, что прежний P1 о forced RTR был ложным: coupling уже выполняется внутри `llama_model_loader`. Вердикт: **not ready — implementation blockers remain**. Разделы 1–12 остаются источником истины для требуемых изменений с учётом уточнения этапа 1.
 
 Статус этапов по факту кода:
 
 | Этап основного плана | Статус | Подтверждённый факт |
 |---|---|---|
-| 1 — forced RTR coupling | ❌ **P1 blocker** | Для `-rtr 1` mmap остаётся включённым; repack pass требует `!ml.use_mmap`, поэтому может не выполниться. |
-| 2 — recorded effective state | ⚠️ **partial** | Public enum содержит 5 статусов, но `llama-bench` сохраняет запрошенный, а не effective mmap; `ENABLED` не доказывает выполнение repack. |
+| 1 — forced RTR coupling | ✅ **verified** | `llama_model_loader` отключает свой mmap при `repack_tensors=true`; отсутствует только loader-level regression test. |
+| 2 — recorded effective state | ⚠️ **partial** | Public enum содержит 5 статусов, но `llama-bench` сохраняет запрошенный, а не effective mmap; `ENABLED` не сообщает `n_repacked`. |
 | 3 — SQL compatibility | ❌ **P1 open** | Writer использует `test_v2`, штатные consumers и README читают `test`. |
 | 4 — cgroup mount resolution | ❌ **open** | Нет разбора `/proc/self/mountinfo`; используются захардкоженные `/sys/fs/cgroup` и `/sys/fs/cgroup/memory`. |
 | 5 — Windows Job Object memory limits | ❌ **open** | Нет `IsProcessInJob`, `QueryInformationJobObject` или `JOB_OBJECT_LIMIT_PROCESS_MEMORY`. |
@@ -345,10 +330,9 @@ ABI-риск не считается закрытым одной переста�
 
 ### Подтверждённые blockers и действия
 
-1. **Восстановить forced RTR coupling в loader.** Для forced режима (`repack_tensors=true`, `repack_tensors_auto=false`) loader должен выставлять `use_mmap=false` до создания `llama_model_loader`. Исправление не следует возвращать в parser: loader — единственная точка, где можно сохранить семантику повторных опций и auto-policy.
-2. **Восстановить SQL compatibility.** Нужны migration/dual-read либо сохранение совместимой таблицы `test`, а также тесты для `scripts/compare-llama-bench.py`.
-3. **Реализовать либо явно отложить platform safety.** До реализации Job Object accounting и mountinfo resolution нельзя заявлять защиту от ложного `AUTO_KEEP` в соответствующих окружениях.
-4. **Добавить loader-level и integration tests.** Минимальный регрессионный кейс: `-rtr 1` при mmap по умолчанию должен приводить к фактическому repack. Отдельно покрыть auto KEEP/DISABLE/UNKNOWN, effective mmap и SQL consumers.
+1. **Восстановить SQL compatibility.** Нужен compatible consumer для `test`/`test_v2` и тесты для `scripts/compare-llama-bench.py`; versioned schema для новых effective полей требует отдельного контракта.
+2. **Реализовать либо явно отложить platform safety.** До реализации mountinfo resolution и безопасной стратегии для Job Object нельзя заявлять защиту от ложного `AUTO_KEEP` в соответствующих окружениях.
+3. **Добавить loader-level и integration tests.** Минимальный регрессионный кейс: `-rtr 1` при mmap по умолчанию должен входить в repack pass. Отдельно покрыть auto KEEP/DISABLE/UNKNOWN, effective mmap и SQL consumers.
 
 ### Уточнения по тестам и CLI
 
