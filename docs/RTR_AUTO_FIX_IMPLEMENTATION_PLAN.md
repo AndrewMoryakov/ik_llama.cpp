@@ -3,7 +3,7 @@
 Дата: 2026-07-17  
 Рабочая ветка: `feature/rtr-auto-review-fixes`  
 Проверенный диапазон RTR: `45dfd803..78b48540`  
-Статус: обновлён после независимого review плана
+Статус: уточнён после внешней перепроверки фактического кода
 
 ## 1. Цель
 
@@ -330,30 +330,28 @@ ABI-риск не считается закрытым одной переста�
 
 ## 13. Итог ревью реализации (`45dfd803..78b48540`)
 
-Независимое агентное ревью фактического кода (не только плана). Вердикт: **approved with action items** — семантика policy, проба памяти и согласованность с loader корректны; критических багов в финальном состоянии диапазона не найдено. Коммиты `15e04dec`, `d4032bc1`, `78b48540` закрывают предыдущие находки ревьюеров.
+Независимое и внешнее ревью фактического кода подтвердили: предыдущая оценка готовности была завышена. Вердикт: **not ready — implementation blockers remain**. Разделы 1–12 остаются источником истины для требуемых изменений.
 
 Статус этапов по факту кода:
 
-| Этап | Статус | Примечание |
+| Этап основного плана | Статус | Подтверждённый факт |
 |---|---|---|
-| 1 — forced RTR coupling | ✅ done | `common/common.cpp` `-rtr` handling; loader финализирует mmap |
-| 2 — placement resolver | ✅ done | `llama_rtr_auto_ncmoe_cpu_override`; regex first-match зеркалит loader |
-| 3 — per-OS memory probe | ✅ done | `ullAvailPhys` / `MemAvailable`+cgroup v2/v1 / `host_statistics64` |
-| 4 — effective state + 4 статуса RTR | ✅ done | статусы в `include/llama.h`, surfaced в llama-bench |
-| 5 — Windows Job Object limits | ✅ done | `IsProcessInJob` / `JOB_OBJECT_LIMIT_PROCESS_MEMORY` |
-| 6 — cgroup mount resolution | ✅ done | v2 unified + v1 memory-controller, clamp `UINT64_MAX` |
-| P1/P2 — тесты | ⚠️ **partial** | `tests/test-rtr-params.cpp` покрывает только CLI-парсинг |
+| 1 — forced RTR coupling | ❌ **P1 blocker** | Для `-rtr 1` mmap остаётся включённым; repack pass требует `!ml.use_mmap`, поэтому может не выполниться. |
+| 2 — recorded effective state | ⚠️ **partial** | Public enum содержит 5 статусов, но `llama-bench` сохраняет запрошенный, а не effective mmap; `ENABLED` не доказывает выполнение repack. |
+| 3 — SQL compatibility | ❌ **P1 open** | Writer использует `test_v2`, штатные consumers и README читают `test`. |
+| 4 — cgroup mount resolution | ❌ **open** | Нет разбора `/proc/self/mountinfo`; используются захардкоженные `/sys/fs/cgroup` и `/sys/fs/cgroup/memory`. |
+| 5 — Windows Job Object memory limits | ❌ **open** | Нет `IsProcessInJob`, `QueryInformationJobObject` или `JOB_OBJECT_LIMIT_PROCESS_MEMORY`. |
+| 6 — тестовое покрытие | ⚠️ **partial** | `tests/test-rtr-params.cpp` проверяет только CLI-парсинг. |
 
-### Оставшиеся action items (тесты)
+### Подтверждённые blockers и действия
 
-1. **Харнесс не умеет негативные тесты** (`tests/test-rtr-params.cpp:11-28`): `parse()` делает `assert(ok)` на `gpt_params_parse_ex`, поэтому отклонение мусора (`-rtr banana`, `-rtr 2`, `-rtr -1`) непроверяемо. Нужен `parse_fails()`, возвращающий bool, + 3–4 rejection-кейса.
-2. **Тест не перспективен для фичи под ревью** (`tests/test-rtr-params.cpp:31-56`): все 4 кейса — только CLI-парсинг. Если удалить все `llama_rtr_auto_*` из `src/llama.cpp`, тест всё равно пройдёт. Не покрыты placement resolver, memory gates (90% ceiling, вторичный total-CPU-bytes gate) и tri-state KEEP/DISABLE/UNKNOWN. Нужно вынести резолвер+гейты за инжектируемый memory-probe seam и добавить unit-кейсы на каждую ветку решения.
-3. **Нет кейсов на два спекокритичных написания**: голый `-rtr` (= legacy `-rtr 1`) и алиас `-rtra` — ровно обещания обратной совместимости из тела PR.
-4. (minor) Тест молчит при успехе (exit 0, пустой вывод) — по строке `fprintf` на кейс упростит триаж CI.
-5. (minor) Дублирование условий `-ncmoe` между policy (`src/llama.cpp:3709-3738`) и loader (`src/llama-load-tensors.cpp:233-296`): сегодня это точные логические комплементы, но живут в двух местах — добавить перекрёстный комментарий.
+1. **Восстановить forced RTR coupling в loader.** Для forced режима (`repack_tensors=true`, `repack_tensors_auto=false`) loader должен выставлять `use_mmap=false` до создания `llama_model_loader`. Исправление не следует возвращать в parser: loader — единственная точка, где можно сохранить семантику повторных опций и auto-policy.
+2. **Восстановить SQL compatibility.** Нужны migration/dual-read либо сохранение совместимой таблицы `test`, а также тесты для `scripts/compare-llama-bench.py`.
+3. **Реализовать либо явно отложить platform safety.** До реализации Job Object accounting и mountinfo resolution нельзя заявлять защиту от ложного `AUTO_KEEP` в соответствующих окружениях.
+4. **Добавить loader-level и integration tests.** Минимальный регрессионный кейс: `-rtr 1` при mmap по умолчанию должен приводить к фактическому repack. Отдельно покрыть auto KEEP/DISABLE/UNKNOWN, effective mmap и SQL consumers.
 
-### Фактическая верификация
+### Уточнения по тестам и CLI
 
-- Configure VS 2022, `-DGGML_CUDA=OFF -DGGML_BLAS=OFF -DLLAMA_BUILD_SERVER=OFF -DCMAKE_BUILD_TYPE=Release` в `build-review` — OK.
-- Build `test-rtr-params` → exit 0; 0 warnings в файлах дифа (C4244/C4065/C4141 только в пре-существующих `ggml/src/iqk/*`).
-- Run `test-rtr-params.exe` → EXIT=0, все 12 assert'ов живые (`NDEBUG` снят до `<cassert>`) и прошли.
+- `test-rtr-params` запускается успешно, но это **parser-only** верификация; она не подтверждает loader, memory policy, exporter или consumers.
+- В файле 13 статических `assert`; `assert(ok)` выполняется для каждого из четырёх вызовов `parse()`. Не следует характеризовать этот прогон как комплексную runtime-проверку.
+- Негативные кейсы для `-rtr banana`, `-rtr 2` и `-rtr -1` добавлять только после явного решения о CLI-грамматике: сейчас значение `-rtr` опционально, а неизвестный следующий токен может быть positional model path.
