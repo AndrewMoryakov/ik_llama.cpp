@@ -99,7 +99,7 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 - SQL writer продолжает писать versioned `test_v2`; legacy `test` не изменяется.
 - `scripts/compare-llama-bench.py` обнаруживает только фиксированные имена `test` и `test_v2` через `sqlite_master`/`PRAGMA table_info` и строит общий logical source как явную проекцию полей, используемых самим script. `SELECT *` и подстановка произвольных DB object names запрещены.
 - Если присутствующая таблица не содержит обязательное поле, script завершается понятной ошибкой `table <name> is not compatible`; он не пропускает таблицу молча.
-- Если существуют обе таблицы, script делает `UNION ALL` совместимых явных проекций. Текущий writer не делает dual-write, поэтому это сохраняет возможность сравнить legacy baseline и v2 candidate. Появление dual-write в будущем требует отдельного `run_id`/deduplication дизайна до изменения этого правила.
+- Если существуют обе таблицы, script делает `UNION ALL` совместимых явных проекций. Это допустимо **только пока** writer не делает dual-write и строки не могут обозначать один прогон в обеих таблицах; текущий writer удовлетворяет этому условию. Появление dual-write обязано одновременно заменить `UNION ALL` на deduplication по `run_id` из reviewed v3 manifest до включения write-side изменения.
 - `repack` и `repack_auto` входят в key/boolean/pretty properties только для table variants, где они документированно присутствуют. Старые `test` без этих колонок нормализуются в `NULL`/unknown, а не в `0`: cross-version comparison с такой unknown configuration не должен молча match/усредняться с известной RTR configuration.
 - `repack_effective` и `repack_status` не входят в cross-version join key, поскольку legacy schema их не содержит.
 - README использует `test_v2` для нового output; устаревший 26-column SQL dump удаляется или заменяется командой `.schema test_v2`, чтобы не дублировать evolving schema.
@@ -113,9 +113,10 @@ SQLite fixture tests должны подтверждать:
 1. чистая БД с `test_v2` работает с writer и compare;
 2. legacy БД только с `test` работает с compare;
 3. mixed БД с `test` и `test_v2` позволяет сравнить только records с полной сопоставимой configuration; unknown legacy RTR configuration не match с known RTR configuration;
-4. отсутствие обеих таблиц и отсутствие обязательной колонки дают controlled error;
-5. runs с `repack=0` и `repack=1` не match/не усредняются;
-6. `get_fields()` и `get_values()` имеют одинаковую длину, а effective RTR/mmap значения сериализуются согласованно.
+4. `UNION ALL` разрешён только для fixture без dual-write; fixture с общим `run_id` для будущей v3 schema требует deduplication, а не union;
+5. отсутствие обеих таблиц и отсутствие обязательной колонки дают controlled error;
+6. runs с `repack=0` и `repack=1` не match/не усредняются;
+7. `get_fields()` и `get_values()` имеют одинаковую длину, а effective RTR/mmap значения сериализуются согласованно.
 
 ## 6. Linux: cgroup mount resolution
 

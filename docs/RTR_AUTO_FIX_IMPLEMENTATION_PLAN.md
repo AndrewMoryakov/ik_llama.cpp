@@ -119,7 +119,7 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 1. Считать уже выпущенную `test_v2` immutable: не добавлять в неё новые колонки через повторный `CREATE TABLE IF NOT EXISTS` и не менять смысл `use_mmap` (это requested mmap).
 2. Не делать raw dual-write в произвольную legacy-таблицу `test`: её schema не гарантированно совпадает с emitter, а без общего `run_id` нельзя строго устранить дубликаты.
 3. Обновить `scripts/compare-llama-bench.py`: обнаруживать `test` и `test_v2` через фиксированный whitelist, валидировать обязательные колонки и строить явную общую projection вместо `SELECT *`.
-4. Если обе таблицы совместимы, объединять их через `UNION ALL`: current writer не делает dual-write, поэтому это восстанавливает сравнение legacy baseline и v2 candidate. Unknown RTR configuration legacy rows не должна match с known RTR configuration.
+4. Если обе таблицы совместимы, объединять их через `UNION ALL` только пока current writer не делает dual-write: это восстанавливает сравнение legacy baseline и v2 candidate. Введение dual-write обязано в том же изменении заменить union на deduplication по `run_id` из reviewed v3 manifest. Unknown RTR configuration legacy rows не должна match с known RTR configuration.
 5. Обновить `examples/llama-bench/README.md`: новый workflow использует `test_v2`; устаревший SQL dump заменить командой `.schema test_v2`.
 
 ### Отложенная versioned schema работа
