@@ -2123,6 +2123,13 @@ struct markdown_printer : public printer {
 };
 
 struct sql_printer : public printer {
+    // Schema v2 adds the effective RTR decision fields. Keep a versioned table
+    // name so SQL output can be appended to databases created by older builds
+    // without failing on missing columns in the legacy `test` table.
+    static const char * table_name() {
+        return "test_v2";
+    }
+
     static std::string escape_sql(const std::string & value) {
         std::string escaped;
         for (auto c : value) {
@@ -2151,7 +2158,7 @@ struct sql_printer : public printer {
 
     void print_header(const cmd_params & params) override {
         std::vector<std::string> fields = test::get_fields();
-        fprintf(fout, "CREATE TABLE IF NOT EXISTS test (\n");
+        fprintf(fout, "CREATE TABLE IF NOT EXISTS %s (\n", table_name());
         for (size_t i = 0; i < fields.size(); i++) {
             fprintf(fout, "  %s %s%s\n", fields.at(i).c_str(), get_sql_field_type(fields.at(i)).c_str(),  i < fields.size() - 1 ? "," : "");
         }
@@ -2161,7 +2168,7 @@ struct sql_printer : public printer {
     }
 
     void print_test(const test & t) override {
-        fprintf(fout, "INSERT INTO test (%s) ", join(test::get_fields(), ", ").c_str());
+        fprintf(fout, "INSERT INTO %s (%s) ", table_name(), join(test::get_fields(), ", ").c_str());
         fprintf(fout, "VALUES (");
         std::vector<std::string> values = t.get_values();
         std::transform(values.begin(), values.end(), values.begin(), escape_sql);
