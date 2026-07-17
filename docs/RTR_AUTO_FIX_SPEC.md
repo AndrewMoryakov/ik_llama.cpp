@@ -2,7 +2,7 @@
 
 Дата: 2026-07-17
 
-Статус: draft для review до начала реализации
+Статус: reviewed; уточнён после внешней проверки
 
 Связанный план: `docs/RTR_AUTO_FIX_IMPLEMENTATION_PLAN.md`
 
@@ -14,7 +14,7 @@
 
 1. существующая forced RTR coupling должна быть защищена regression test и точно отражена в документации;
 2. public/benchmark state должен описывать факт загрузки, а не только запрос;
-3. SQL output `llama-bench` и штатный consumer должны снова работать вместе;
+3. release-blocker SQLite workflow должен снова работать: output `llama-bench`, штатный consumer и README не должны расходиться;
 4. auto-policy не должна выдавать `AUTO_KEEP`, если Linux cgroup или Windows Job Object limit нельзя надёжно учесть.
 
 Не входят в эту работу: смена семантики bare `-rtr`, отклонение неизвестного следующего токена CLI, произвольная миграция пользовательских SQLite БД и заявление поддержки непроверяемых nested Windows jobs. Эти решения требуют отдельного контракта/дизайна.
@@ -49,6 +49,8 @@ Parser по-прежнему не получает coupling обратно. Тр
 | auto | DISABLE | false | requested | `AUTO_DISABLE` |
 | auto | UNKNOWN | false | requested | `AUTO_UNKNOWN` |
 
+`Final mmap` в таблице означает внутренний `ml.use_mmap`, а не `params.use_mmap`: для forced RTR requested mmap может остаться `true`, пока loader mmap уже `false`.
+
 `--no-mmap` всегда сохраняет false. Цепочки `-rtr 1 -rtr auto` и `-rtr 1 -rtr 0` определяются последним RTR option до loader finalization.
 
 ### 3.2 Deferred experts
@@ -72,8 +74,8 @@ uint64_t n_repacked;
 ```
 
 - `use_mmap_requested` snapshot до policy;
-- `use_mmap_loader_enabled` записывается из `ml.use_mmap` после `create_tensors()`;
-- `has_mmap_backed_buffers` выставляется в точке успешного создания mmap-backed CPU/Metal buffer, а не выводится из `model.mappings`;
+- сразу после успешного возврата `llm_load_tensors()` и до выхода `ml` из scope `llama_model_load()` его `ml.use_mmap` копируется в `use_mmap_loader_enabled`; запрещено восстанавливать это значение из `params.use_mmap`;
+- `has_mmap_backed_buffers` выставляется в точке успешного создания mmap-backed CPU/Metal buffer во время `llm_load_tensors`, а не выводится из `model.mappings`;
 - `repack_pass_executed` выставляется при входе в repack loop;
 - `n_repacked` увеличивается только при фактической смене типа тензора.
 
@@ -86,7 +88,7 @@ LLAMA_API bool     llama_model_repack_pass_executed(const struct llama_model * m
 LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 ```
 
-Существующий `llama_model_rtr_status()` остаётся решением policy из пяти значений и не меняет контракт. Новый двусмысленный API вида `llama_model_uses_mmap()` не добавляется. Новые символы требуют C API compile/link test; существующее изменение by-value `llama_model_params` остаётся отдельным ABI gate.
+Существующий `llama_model_rtr_status()` остаётся решением policy из пяти значений и не меняет контракт. Единый двусмысленный mmap API не вводится; вместо него используются три явных mmap/repack getters выше. Новые символы требуют C API compile/link test; существующее изменение by-value `llama_model_params` остаётся отдельным ABI gate.
 
 `llama-bench` обязан различать requested (`inst.use_mmap`, requested RTR), policy (`repack_status`) и effective значения. Нельзя переопределять существующий `test_v2.use_mmap` как effective mmap: в `test` и текущем `test_v2` это requested configuration, и такая смена сломает cross-version comparison. В immediate fix `test_v2` сохраняет current requested semantics; `repack_effective` исправляется на `llama_model_n_repacked() > 0` без изменения schema. Полный SQL export requested/effective state требует отдельной immutable `test_v3` schema с разными колонками `use_mmap_requested`, `use_mmap_loader_enabled`, `has_mmap_backed_buffers`, `repack_pass_executed` и `n_repacked`.
 
@@ -102,7 +104,7 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 - `repack_effective` и `repack_status` не входят в cross-version join key, поскольку legacy schema их не содержит.
 - README использует `test_v2` для нового output; устаревший 26-column SQL dump удаляется или заменяется командой `.schema test_v2`, чтобы не дублировать evolving schema.
 
-Выбор более новой схемы `test_v3`, migration или dual-write допускается только отдельной спецификацией с immutable column set, `schema_version`, stable `run_id` и идемпотентной migration utility.
+До начала `test_v3` должен появиться один versioned schema manifest с полным упорядоченным списком текущих v2 колонок и новыми `schema_version`, `run_id`, `use_mmap_requested`, `use_mmap_loader_enabled`, `has_mmap_backed_buffers`, `repack_pass_executed`, `n_repacked`. Из manifest должны быть получены DDL, writer projection, README и migration fixtures. Только после review этого manifest допускается отдельная спецификация v3/migration; dual-write требует дополнительно проверяемого legacy projection и deduplication по `run_id`.
 
 ### 5.2 Проверки
 
@@ -133,7 +135,7 @@ SQLite fixture tests должны подтверждать:
 
 ## 7. Windows: Job Object memory limits
 
-В Windows ветке `GlobalMemoryStatusEx` остаётся host cap. Immediate safety fix под `#if defined(_WIN32)` сначала вызывает `IsProcessInJob(GetCurrentProcess(), NULL, &in_job)`: error или `in_job=true` возвращает unknown и тем самым запрещает `AUTO_KEEP`. Это безопасно, потому что WinAPI не даёт общего runtime-способа перечислить/доказать все parent и nested effective job limits.
+Windows-проблема формулируется как safety issue, а не как требование немедленного точного accounting: процесс с неучтённым Job Object limit не должен получить ложный `AUTO_KEEP`. `GlobalMemoryStatusEx` остаётся host cap. Immediate safety fix под `#if defined(_WIN32)` сначала вызывает `IsProcessInJob(GetCurrentProcess(), NULL, &in_job)`: error или `in_job=true` возвращает unknown и тем самым запрещает `AUTO_KEEP`. Это безопасно, потому что WinAPI не даёт общего runtime-способа перечислить/доказать все parent и nested effective job limits.
 
 Расширенный Job Object accounting — отдельная фаза после доказуемого platform contract. Только в ней private probe сможет добавить job cap:
 
@@ -146,7 +148,7 @@ SQLite fixture tests должны подтверждать:
 
 Ошибка любого требуемого WinAPI вызова либо limit с неизвестным current usage даёт `AUTO_UNKNOWN`. До появления runtime-проверяемого способа доказать полную topology любой job membership остаётся `AUTO_UNKNOWN`. Нельзя заявлять general nested-job support на основании одного `QueryInformationJobObject(NULL, ...)` или только test harness.
 
-Зависимость `GetProcessMemoryInfo` (`<psapi.h>` и Psapi linkage либо документированная Kernel32 альтернатива) должна быть явно добавлена и проверена на поддерживаемых MSVC/MinGW конфигурациях.
+Зависимость `GetProcessMemoryInfo` (`<psapi.h>` и Psapi linkage либо документированная Kernel32 альтернатива) должна быть явно добавлена и проверена на поддерживаемых MSVC/MinGW конфигурациях. Immediate fallback не зависит от этих optional symbols; если extended probe не собирается или символ недоступен для конкретного toolchain, он отключается с деградацией в `AUTO_UNKNOWN`, а не меняет Windows build contract.
 
 ## 8. Тестовая стратегия и критерии приёмки
 
@@ -156,16 +158,16 @@ SQLite fixture tests должны подтверждать:
 
 - pure state helper: off, forced, auto KEEP/DISABLE/UNKNOWN, repeated options, explicit no-mmap;
 - C API: queries на `nullptr`, пять RTR statuses, compile/link test;
-- loader integration на RTR-capable IQK fixture: forced `use_mmap=true` -> `ENABLED`, loader mmap false, pass executed, `n_repacked > 0`; отсутствие fixture допускает явный skip, не pass;
+- loader integration на RTR-capable IQK fixture: каждый из `-rtr`, `-rtr 1`, `-rtr on` при requested mmap=true -> `ENABLED`, `ml.use_mmap=false`, pass executed и `n_repacked > 0`; `-rtr 1 -rtr 0` -> repack off и requested mmap сохранён; отсутствие fixture допускает явный skip, не pass;
 - policy integration через injectable memory-probe seam: AUTO KEEP/DISABLE/UNKNOWN и current supported defer behavior;
 - mmap fallback: `create_tensors()` failure фиксирует loader mmap false;
 - Linux parser/resolver fixtures: v1, v2, hybrid, co-mount, custom root, bind, escapes, prefix rejection, inherited cap, malformed/missing input;
-- Windows injected WinAPI-ops unit tests: no job, each API error, process/job/both limit, zero headroom, host cap below job cap; Windows harness с реальным process/job limit;
+- Windows injected WinAPI-ops unit tests: immediate job-membership fallback, no job и error `IsProcessInJob`; для отдельной extended phase — process/job/both limit, zero headroom и host cap below job cap; build-check MSVC и MinGW, Windows harness с реальным process/job limit;
 - SQL SQLite fixtures из раздела 5.2.
 
 Definition of done:
 
-1. `-rtr 1` при mmap по умолчанию доказуемо выполняет repack pass; существующая loader coupling не регрессирует.
+1. `-rtr`, `-rtr 1` и `-rtr on` при mmap по умолчанию доказуемо выполняют repack pass и увеличивают `n_repacked` на RTR-capable fixture; `-rtr 1 -rtr 0` сохраняет last-option-wins.
 2. C API различает requested/loader/buffer/repack state; `repack_effective` не подменяется policy status. SQL requested mmap semantics не меняется до v3.
 3. Новый SQL output читается штатным compare script, а legacy rows с неизвестной RTR configuration не сопоставляются с known RTR runs.
 4. Неразрешённый cgroup/job limit никогда не приводит к `AUTO_KEEP`.

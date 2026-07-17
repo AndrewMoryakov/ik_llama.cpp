@@ -22,9 +22,9 @@
 
 Предыдущая оценка этого пункта как P1 была ошибочной: parser действительно сохраняет requested mmap, но `llama_model_loader` при `repack_tensors=true` устанавливает свой `use_mmap=false` в `src/llama-model-loader.cpp:581-592`. Поэтому для `-rtr`, `-rtr 1` и `-rtr on` условие repack pass `!ml.use_mmap && ml.repack_tensors` в `src/llama.cpp:3278-3289` истинно. Нужен regression test и accurate effective-state reporting, а не новая forced-coupling реализация.
 
-### P1. SQL exporter несовместим со штатными consumers
+### P1 / release blocker. SQL exporter несовместим со штатными consumers
 
-`llama-bench` пишет в `test_v2`, а `scripts/compare-llama-bench.py` и примеры в README продолжают читать `test`.
+`llama-bench` пишет только в `test_v2`, а `scripts/compare-llama-bench.py` и примеры в README продолжают читать `test`. Следствие — SQLite workflow на этой ветке сейчас неработоспособен, поэтому это release blocker.
 
 ### P2. Benchmark metadata не отражает effective mmap
 
@@ -34,9 +34,9 @@
 
 Пути `/sys/fs/cgroup` и `/sys/fs/cgroup/memory` захардкожены. Не учитываются mount point и mount root из `/proc/self/mountinfo`.
 
-### P2. Windows Job Object limits не учитываются
+### P2. Windows Job Object limits могут приводить к ложному `AUTO_KEEP`
 
-`GlobalMemoryStatusEx` показывает системный headroom, но не ограничение конкретного process/job.
+Цель — не немедленный точный accounting, а safety guarantee: если Job Object limit нельзя полностью и достоверно учесть, auto-policy должна вернуть `AUTO_UNKNOWN`, а не `AUTO_KEEP`.
 
 ### P2. Недостаточное тестовое покрытие
 
@@ -85,13 +85,13 @@
    - policy status и reason;
    - `repack_pass_executed`;
    - `n_repacked`;
-   - финальный loader mmap mode;
+    - финальный loader mmap mode, скопированный из `ml.use_mmap` до разрушения локального `llama_model_loader`;
    - наличие mmap-backed model buffers после загрузки.
 4. Развести mmap-семантики:
    - `use_mmap_requested` — входной параметр;
    - `use_mmap_loader_enabled` — финальный `ml.use_mmap` после loader-side решений;
    - `has_mmap_backed_buffers` — фактическое наличие mmap-backed buffers в загруженной модели.
-5. Не использовать неоднозначный API `llama_model_uses_mmap()`. Добавить APIs с явным контрактом, например:
+5. Не вводить единый неоднозначный mmap API. Добавить APIs с явным контрактом, например:
 
 ```cpp
 LLAMA_API bool     llama_model_loader_mmap_enabled(const struct llama_model * model);
@@ -112,32 +112,27 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 - pass с нулём изменённых тензоров сообщает `pass_executed=true`, `n_repacked=0`, `repack_effective=false`;
 - benchmark metadata совпадает с финальным состоянием loader и model mappings.
 
-## 5. Этап 3: SQL compatibility
+## 5. Этап 3: SQL compatibility (release blocker)
 
-### Рекомендуемая переходная схема
+### Immediate consumer fix
 
-1. Считать уже выпущенную на текущей ветке таблицу `test_v2` immutable. Не добавлять в неё новые колонки через повторный `CREATE TABLE IF NOT EXISTS`.
-2. Создать `test_v3` с полным и окончательно определённым набором requested/policy/executed RTR и mmap полей.
-3. Продолжать dual-write совместимой проекции в legacy-таблицу `test`, чтобы старые consumers видели новые запуски.
-4. Добавить явное поле `schema_version` в `test_v3` и стабильный `run_id`/fingerprint для миграции и дедупликации.
-5. Обновить `scripts/compare-llama-bench.py`:
-   - предпочитать `test_v3`;
-   - откатываться на `test_v2`, затем на `test`;
-   - не выполнять неявный `UNION` между dual-written таблицами;
-   - объединять history только через migration/deduplication по `run_id`/fingerprint.
-6. Добавить отдельную migration utility для переноса legacy `test`/`test_v2` в `test_v3`. Миграция должна быть идемпотентной.
-7. Обновить `examples/llama-bench/README.md` и SQL-примеры.
-8. Зафиксировать номер и список колонок каждой схемы в одном месте.
+1. Считать уже выпущенную `test_v2` immutable: не добавлять в неё новые колонки через повторный `CREATE TABLE IF NOT EXISTS` и не менять смысл `use_mmap` (это requested mmap).
+2. Не делать raw dual-write в произвольную legacy-таблицу `test`: её schema не гарантированно совпадает с emitter, а без общего `run_id` нельзя строго устранить дубликаты.
+3. Обновить `scripts/compare-llama-bench.py`: обнаруживать `test` и `test_v2` через фиксированный whitelist, валидировать обязательные колонки и строить явную общую projection вместо `SELECT *`.
+4. Если обе таблицы совместимы, объединять их через `UNION ALL`: current writer не делает dual-write, поэтому это восстанавливает сравнение legacy baseline и v2 candidate. Unknown RTR configuration legacy rows не должна match с known RTR configuration.
+5. Обновить `examples/llama-bench/README.md`: новый workflow использует `test_v2`; устаревший SQL dump заменить командой `.schema test_v2`.
 
-### Критерии готовности
+### Отложенная versioned schema работа
 
-- documented SQLite workflow работает на чистой БД;
-- новый вывод можно добавить в БД со старой таблицей `test`;
-- новый вывод можно добавить в БД с уже существующей `test_v2` без ошибки missing column;
-- штатный compare script работает с `test`, `test_v2` и `test_v3`;
-- dual-write строки не удваиваются в compare output;
-- migration utility можно безопасно запустить повторно;
-- новые RTR-поля доступны consumers, которые понимают v3.
+Перед добавлением effective mmap и прочих новых SQL полей создать reviewed manifest с полным ordered column set v3, `schema_version`, stable `run_id`, отдельными requested/effective полями и migration/deduplication контрактом. Только тогда допустимы `test_v3`, migration utility или dual-write projection.
+
+### Критерии готовности immediate fix
+
+- documented SQLite workflow работает на чистой `test_v2` БД;
+- штатный compare script работает с legacy `test`, `test_v2` и mixed fixtures;
+- mixed fixture не теряет history и не сопоставляет unknown legacy RTR configuration с known RTR run;
+- отсутствие ожидаемой таблицы или обязательной колонки даёт controlled error;
+- документация не утверждает, что новый writer пишет в `test`.
 
 ## 6. Этап 4: cgroup mount resolution
 
@@ -244,12 +239,12 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 
 - одинаковая длина `get_fields()` и `get_values()`;
 - requested/effective значения JSON/CSV/Markdown;
-- SQL v1/v2 create и insert;
-- SQL v3 create и insert;
-- migration `test`/`test_v2` -> `test_v3`;
-- идемпотентность migration и отсутствие duplicate rows;
+- SQL `test`/`test_v2` discovery и явная shared projection;
+- legacy-only, v2-only и mixed SQLite fixtures;
+- controlled error для отсутствующей обязательной таблицы/колонки;
+- отсутствие match для unknown legacy RTR configuration и known RTR run;
 - smoke test через SQLite;
-- запуск `compare-llama-bench.py` над legacy, v2 и v3 fixtures.
+- запуск `compare-llama-bench.py` над legacy, v2 и mixed fixtures.
 
 ## 9. Порядок реализации
 
@@ -257,7 +252,7 @@ LLAMA_API uint64_t llama_model_n_repacked(const struct llama_model * model);
 2. Effective state API и benchmark metadata.
 3. SQL compatibility.
 4. Cgroup mountinfo.
-5. Windows Job Object limits.
+5. Windows Job Object membership safety fallback.
 6. Сквозная тестовая матрица и platform smoke tests.
 7. Повторное независимое ревью полного диапазона RTR.
 
@@ -286,7 +281,7 @@ ABI-риск не считается закрытым одной переста�
 
 - Release build: `test-rtr-params`, `llama-bench`, `llama-cli`;
 - focused RTR tests;
-- Job Object tests или отдельный test harness;
+- job-membership fallback tests; MSVC и MinGW build-check;
 - SQL exporter/consumer smoke test.
 
 ### Linux
@@ -308,9 +303,9 @@ ABI-риск не считается закрытым одной переста�
 
 1. `test: protect forced runtime repack coupling` + loader regression test.
 2. `fix: record effective rtr and mmap state` + C API/status/exporter contract tests.
-3. `fix: preserve llama-bench sql compatibility` + SQLite migration/consumer fixtures.
+3. `fix: restore llama-bench SQLite workflow` + `test`/`test_v2` consumer fixtures.
 4. `fix: resolve cgroup memory hierarchy mounts` + mountinfo/cgroup fixtures.
-5. `fix: honor Windows job memory limits` + WinAPI harness tests.
+5. `fix: disable RTR auto under unverified Windows jobs` + WinAPI fallback tests.
 6. `test: cover cross-platform rtr integration matrix` — только сквозные и platform smoke tests.
 
 ## 13. Итог ревью реализации (`45dfd803..78b48540`)
@@ -323,15 +318,15 @@ ABI-риск не считается закрытым одной переста�
 |---|---|---|
 | 1 — forced RTR coupling | ✅ **verified** | `llama_model_loader` отключает свой mmap при `repack_tensors=true`; отсутствует только loader-level regression test. |
 | 2 — recorded effective state | ⚠️ **partial** | Public enum содержит 5 статусов, но `llama-bench` сохраняет запрошенный, а не effective mmap; `ENABLED` не сообщает `n_repacked`. |
-| 3 — SQL compatibility | ❌ **P1 open** | Writer использует `test_v2`, штатные consumers и README читают `test`. |
+| 3 — SQL compatibility | ❌ **P1 release blocker** | Writer использует `test_v2`, штатные consumers и README читают `test`; SQLite workflow неработоспособен. |
 | 4 — cgroup mount resolution | ❌ **open** | Нет разбора `/proc/self/mountinfo`; используются захардкоженные `/sys/fs/cgroup` и `/sys/fs/cgroup/memory`. |
-| 5 — Windows Job Object memory limits | ❌ **open** | Нет `IsProcessInJob`, `QueryInformationJobObject` или `JOB_OBJECT_LIMIT_PROCESS_MEMORY`. |
+| 5 — Windows Job Object memory safety | ❌ **open** | Нет даже job-membership fallback; process с неучтённым job limit может получить `AUTO_KEEP`. |
 | 6 — тестовое покрытие | ⚠️ **partial** | `tests/test-rtr-params.cpp` проверяет только CLI-парсинг. |
 
 ### Подтверждённые blockers и действия
 
 1. **Восстановить SQL compatibility.** Нужен compatible consumer для `test`/`test_v2` и тесты для `scripts/compare-llama-bench.py`; versioned schema для новых effective полей требует отдельного контракта.
-2. **Реализовать либо явно отложить platform safety.** До реализации mountinfo resolution и безопасной стратегии для Job Object нельзя заявлять защиту от ложного `AUTO_KEEP` в соответствующих окружениях.
+2. **Реализовать platform safety.** До mountinfo resolution и Windows job-membership fallback нельзя заявлять защиту от ложного `AUTO_KEEP` в соответствующих окружениях; точный Job Object accounting остаётся отдельной фазой.
 3. **Добавить loader-level и integration tests.** Минимальный регрессионный кейс: `-rtr 1` при mmap по умолчанию должен входить в repack pass. Отдельно покрыть auto KEEP/DISABLE/UNKNOWN, effective mmap и SQL consumers.
 
 ### Уточнения по тестам и CLI
