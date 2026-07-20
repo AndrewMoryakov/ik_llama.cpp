@@ -2,6 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+> [!NOTE]
+> Contributors and AI agents working in this fork should read
+> [FORK_WORKFLOW.md](FORK_WORKFLOW.md) before choosing a branch or worktree.
+
 ## TL;DR
 
 This repository is a fork of [llama.cpp](https://github.com/ggerganov/llama.cpp) with better CPU and hybrid GPU/CPU performance, new SOTA quantization types, first-class Bitnet support, better DeepSeek performance via MLA, FlashMLA, fused MoE operations and tensor overrides for hybrid GPU/CPU inference, row-interleaved quant packing, etc.
