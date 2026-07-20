@@ -175,7 +175,7 @@ currently enable a non-multiple-of-four registered format.
   mmap-backed=false, repack executed, `n_repacked > 0`, status enabled;
 - a 60-column `test_v3` row was imported and compared successfully.
 
-## 7. Latest full-build checkpoint
+## 7. Full-build and differential-test checkpoint
 
 The entire available MSVC build completed successfully.
 
@@ -185,33 +185,38 @@ CTest result:
 22/26 passed
 ```
 
-Four tests failed:
+Four tests failed in the PR build:
 
 1. `test-tokenizer-0-bert-bge`;
-2. `test-jinja` / the Python parity cases;
+2. `test-jinja-py` (the plain C++ `test-jinja` test passed);
 3. `test-chat-template`;
 4. `test-eval-callback` (its run attempted external model/data access).
 
-The RTR-specific tests still passed. However, **do not yet claim these four
-failures are unrelated**. The immediate task is to compare them with the same
-tests from an unmodified `upstream/main` build under the same environment.
-
-An upstream control build was prepared under the temporary directory:
+The same selection was then run against the exact unmodified PR base commit
+`9d07d8681ece159a89fb4e16a1f9c9f3a5fac20f` with matching arguments and
+environment. Both builds produced:
 
 ```text
-F:\Temp\ik-llama-rtr-baseline-890015f8740f4678b9f328dc18f5f76b
+20% tests passed, 4 tests failed out of 5
 ```
 
-If that exact directory is absent, a temporary control tree may instead be
-named similar to:
+| Test | RTR PR | Exact upstream base | Classification |
+|---|---|---|---|
+| `test-tokenizer-0-bert-bge` | failed | failed identically | baseline fixture/tokenizer issue |
+| `test-jinja-py` | failed | failed identically | Windows CRLF Python parity issue |
+| `test-chat-template` | exit `0xc0000409` | same assertion/exit | baseline failure |
+| `test-eval-callback` | model initialization failed without libcurl | same | build/environment dependency |
+
+These four failures reproduce on the exact upstream base and are therefore not
+RTR-only regressions. Do not modify RTR code to conceal them. Raw evidence is
+stored in:
 
 ```text
-F:\Temp\ik-llama-rtr-*
+docs/rtr-handoff/pr-four-tests.log
+docs/rtr-handoff/upstream-four-tests.log
 ```
 
-Do not rely on a temp directory surviving. Recreate it from the exact PR base
-if necessary. The control executables needed are `test-tokenizer-0`,
-`test-jinja`, `test-chat-template`, and `llama-eval-callback`.
+The original full PR suite remains `22/26`; all RTR-specific tests pass.
 
 ## 8. Exact next steps
 
@@ -235,35 +240,21 @@ expected head repo: AndrewMoryakov/ik_llama-pr
 expected head ref: pr/rtr-auto-mode
 ```
 
-### B. Classify the four failures with the control build
+### B. Continue the PR
 
-Run each test in PR and control builds with identical arguments, working
-directory, DLL search path and environment. Record:
-
-| Test | PR build | upstream control | Classification | Action |
-|---|---|---|---|---|
-| tokenizer BGE | pending | pending | pending | pending |
-| jinja parity | pending | pending | pending | pending |
-| chat template | pending | pending | pending | pending |
-| eval callback | pending | pending | pending | pending |
-
-Interpretation:
-
-- same failure on exact upstream base => environment/baseline issue; document
-  evidence, do not modify RTR code to mask it;
-- only PR fails => regression; bisect or inspect relevant RTR state changes and
-  fix before further PR updates;
-- eval callback external download failure => classify separately from an
-  assertion or computation failure.
-
-### C. Only after classification
-
-1. Re-run all RTR and compare-bench tests after any code change.
-2. Re-run full CTest if RTR code changes.
-3. Update `AndrewMoryakov/ik_llama-pr:pr/rtr-auto-mode`, not the similarly named
+1. Verify the live GitHub PR state and read any new maintainer comments.
+2. If the differential result is not already recorded on PR #1738, post a
+   concise evidence-based comment stating that all four failures reproduce on
+   the exact upstream base.
+3. Wait for and respond to `@ikawrakow` review.
+4. Rebase and retest only if `upstream/main` advances or review requests code
+   changes.
+5. Re-run all RTR and compare-bench tests after any RTR code change, and rerun
+   full CTest when the change can affect the full suite.
+6. Update `AndrewMoryakov/ik_llama-pr:pr/rtr-auto-mode`, not the similarly named
    branch in the other fork.
-4. Post a short evidence-based PR comment; do not promise untested platforms.
-5. Wait for and respond to `@ikawrakow` review.
+7. Do not promise universal CUDA, Metal, MinGW or complete upstream-CI
+   guarantees; those remain outside the local validation boundary.
 
 ## 9. Definition of done
 
@@ -306,5 +297,7 @@ checkpoint:
 - MSVC built `test-moe-trace-writer` and `llama-cli` from `build-review`;
 - `build-review/bin/Debug/test-moe-trace-writer.exe` passed.
 
-These results validate the transport snapshot, not the four unresolved full
-CTest failures in the separate RTR PR checkout.
+These results validate the transport snapshot. The four full-CTest failures in
+the separate RTR PR checkout have also been differentially classified as
+reproducing on the exact upstream base; see section 7 and
+`docs/rtr-handoff/MIGRATION_STATE.md`.
