@@ -663,6 +663,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "-bf" || arg == "--binary-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i], std::ios::binary);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -680,6 +681,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "-f" || arg == "--file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i]);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -986,6 +988,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--cfg-negative-prompt-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i]);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -1153,6 +1156,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--suffix-corpus") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.speculative.suffix_corpus = argv[i];
         return true;
     }
@@ -1227,6 +1231,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--mmproj") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.mmproj.path = argv[i];
         return true;
     }
@@ -1563,6 +1568,18 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
             }
         return true;
     }
+    if (arg == "--moe-trace") {
+        if (!params.supports_moe_trace) {
+            return false;
+        }
+        CHECK_ARG
+        params.moe_trace_file = argv[i];
+        if (params.moe_trace_file.empty()) {
+            fprintf(stderr, "error: --moe-trace path must not be empty\n");
+            invalid_param = true;
+        }
+        return true;
+    }
     if (arg == "--override-tensor" || arg == "-ot") {
         CHECK_ARG
         if (!parse_buft_overrides(std::string{ argv[i] }, params.tensor_buft_overrides)) {
@@ -1776,6 +1793,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--banned-string-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::string files = read_file(std::string(argv[i]));
         std::vector<std::string> ban_strings=string_split(files, "\n");
         std::vector<std::string> ban_phrases;
@@ -1964,6 +1982,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--grammar-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i]);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -2025,6 +2044,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--api-key-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream key_file(argv[i]);
         if (!key_file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -2042,11 +2062,13 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--ssl-key-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.ssl_file_key = argv[i];
         return true;
     }
     if (arg == "--ssl-cert-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.ssl_file_cert = argv[i];
         return true;
     }
@@ -2063,6 +2085,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "-spf" || arg == "--system-prompt-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i]);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -2124,6 +2147,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--sqlite-zstd-ext-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.sqlite_zstd_ext_file = argv[i];
         return true;
     }
@@ -2140,6 +2164,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--chat-template-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::string chat_template = read_file(std::string(argv[i]));
         if (!common_chat_verify_template(chat_template, true)) {
             fprintf(stderr, "error: the supplied chat template is not supported: %s\n", argv[i]);
@@ -2241,6 +2266,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--context-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         std::ifstream file(argv[i], std::ios::binary);
         if (!file) {
             fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
@@ -2360,11 +2386,13 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     // cvector params
     if (arg == "--positive-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.cvector_positive_file = argv[i];
         return true;
     }
     if (arg == "--negative-file") {
         CHECK_ARG
+        params.protected_input_paths.emplace_back(argv[i]);
         params.cvector_negative_file = argv[i];
         return true;
     }
@@ -2766,6 +2794,10 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     options.push_back({ "*",           "       --override-kv KEY=TYPE:VALUE",
                                                                         "advanced option to override model metadata by key. may be specified multiple times.\n"
                                                                         "types: int, float, bool, str. example: --override-kv tokenizer.ggml.add_bos_token=bool:false" });
+    if (params.supports_moe_trace) {
+        options.push_back({ "main",    "       --moe-trace FILE",
+                                                                        "experimental: write versioned MoE routing NDJSON (measurement only; adds synchronization overhead)" });
+    }
     options.push_back({ "*",           "       --lora FNAME",           "apply LoRA adapter (can be repeated to use multiple adapters)" });
     options.push_back({ "*",           "       --lora-scaled FNAME S",  "apply LoRA adapter with user defined scaling S (can be repeated to use multiple adapters)" });
     options.push_back({ "*",           "       --control-vector FNAME", "add a control vector\n"

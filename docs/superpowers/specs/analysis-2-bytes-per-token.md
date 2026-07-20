@@ -1,17 +1,26 @@
 # Analysis 2 — Wall 2: Reduce Bytes/Token (MiniMax M2.7, CPU-only, ik_llama.cpp)
 
-Expansion of **Wall 2** ("Стена 2 — Полоса RAM") in `docs/superpowers/specs/2025-moe-ssd-inference-speedup.md`. All code claims grounded at HEAD with file:line; unverifiable points marked **[UNVERIFIED]**.
+Expansion of **Wall 2** in `2025-moe-ssd-inference-speedup.md`. Code-path
+claims were checked against the tree; hardware, residency, quality and
+throughput remain hypotheses until the target MiniMax Step0 run.
 
 ## 0. Framing: bytes/token is a *residency* problem, not a linear-shave problem
 
-Recipe ~**115 GB** vs **96 GB** RAM (minus OS/KV/compute → ~85–90 GB usable page cache) → **the model does not fit resident**; we `mmap`-page experts from the 970 (Gen3) every token.
+The ~115 GB artifact cannot be wholly resident together with OS, KV and runtime
+allocations in 96 GB RAM. This creates pressure, but does not prove physical SSD
+bytes/token or the bottleneck.
 
-| Path | Bandwidth | 4.9 GB/tok → t/s |
-|------|-----------|------------------|
-| 970 Gen3 NVMe (paged) | ~3.5 GB/s | **~1.4** ← matches observed 1.5–2 |
-| DDR5 dual-channel AM5 | **measure (AIDA64/mbw)**; ~40–50 GB/s | ~8–10 |
+| Scenario input | Illustrative value | Status |
+|---|---:|---|
+| Sequential SSD ceiling | ~3.5 GB/s | device spec, not mmap-fault measurement |
+| Estimated active weights | ~4.9 GB/token | logical recipe estimate; compute from GGUF |
+| DDR5 bandwidth | ~40–50 GB/s | estimate; measure on target |
 
-Observed 1.5–2 t/s ≈ the SSD-bound prediction → **we are disk-bound now**, not RAM-bandwidth-bound. Therefore the dominant lever is crossing **115 GB → ≤ ~85 GB resident** (a ~14× step, not a linear bpw shave). This resolves the hot-expert tension: **prune the cold/dead tail to shrink total; keep the hot set resident at higher bpw** — complementary, not competing.
+Unit correction: `4.9/3.5 = 1.4 s/token = 0.71 t/s`, not 1.4 t/s.
+Therefore the observed 1.5–2 t/s does **not** prove disk-bound behavior. Step0
+must distinguish SSD/page-fault, RAM-bandwidth and mixed regimes. Crossing a
+measured residency cliff may be nonlinear, but neither the cliff nor its speedup
+is known yet.
 
 **Accounting model:** active ≈ 9.8 B params/token; with **no shared experts** almost all of it is 8 routed experts × 62 layers (attention @ hidden 3072, GQA 48q/8kv, + routers = small fixed cost). Bytes/token = `Σ (params_tensor × bpw_tensor/8)` — **compute from the real per-tensor recipe**; flat-4 (~4.9 GB) is a floor (attention kept at Q8 doubles its share).
 
@@ -21,7 +30,14 @@ Verified — imatrix already counts per-expert activations. `examples/imatrix/im
 
 **Gap (verified):** `save_imatrix` writes `values[i]/counts[i]*ncall` — it **folds counts into the floats and does not persist raw per-expert counts**. So the on-disk `.imatrix` doesn't expose temperature.
 
-**Path:** (1) ~15-line patch to `imatrix.cpp` to dump `e.counts` to a sidecar (`{tensor,expert_idx,count,ncall}`); (2) run `llama-imatrix` over a corpus representing the user's real domains (one run/domain); (3) aggregate to per-expert hit rate `count/(ncall×tokens)`, band as hot / warm / dead (< ~0.1% over ≥100k tokens). Command: `llama-imatrix -m M2.7-<recipe>.gguf -f user_domain.txt --chunks 200 -c 512 -ngl 0 -o user_domain.imatrix`. **Honesty:** without the patch only the binary `bad_experts` (used/never) signal is obtainable.
+**Path:** add a sidecar with `{tensor/layer, expert_idx, selected_count,
+total_token_opportunities}` and optional scores/logits. The denominator is the
+sum of token opportunities observed for that tensor, **not** `ncall×tokens`.
+Keep calibration and holdout separate by documents/sessions. Counts nominate
+candidates; safety is evaluated for the complete removal mask, not by an
+independent per-expert threshold. Command: `llama-imatrix -m
+M2.7-<recipe>.gguf -f user_domain.txt --chunks 200 -c 512 -ngl 0 -o
+user_domain.imatrix`.
 
 ## 2. Tiered-quant by temperature — granularity is the wall
 
@@ -29,30 +45,50 @@ Verified — imatrix already counts per-expert activations. `examples/imatrix/im
 
 Verified bpw: IQ4_K 4.5 (L86), IQ4_KS 4.25 (L71), IQ3_K 3.44 (L83), IQ2_K 2.375 (L76), IQ2_KS 2.1875 (L78), IQ1_KT 1.75 (L79); `*_R4` = same bpw, CPU row-interleave repack. Role flags exist for output/token-embd/router/attn/ffn (`quantize.cpp:164–180`).
 
-| Strategy (whole-expert band) | expert bpw | GB/tok | resident ≤~85 GB? | t/s if resident |
+| Strategy | expert bpw | estimated logical GB/tok | residency candidate | throughput |
 |---|---|---|---|---|
-| Flat IQ4_K (~now) | 4.5 | ~5.1 | no (~115) | SSD ~1.4 |
-| Flat IQ3_K | 3.44 | ~3.9 | close (~88) | near, risk↑ |
-| Flat IQ2_K + attn/router hi-bpw | ~2.6 | ~3.0 | **yes (~67)** | **~8–10** |
+| Flat IQ4_K (~now) | 4.5 | ~5.1 | no (~115 GB) | measure |
+| Flat IQ3_K | 3.44 | ~3.9 | borderline (~88 GB) | measure |
+| Flat IQ2_K + attn/router hi-bpw | ~2.6 | ~3.0 | plausible (~67 GB) | measure |
 
-**Tension (honest):** residency needs the *whole* expert pop at 2–3 bpw, degrading hot experts too — and we can't protect them within a layer. Keep attention + `ffn_gate_inp` at high bpw (tiny, quality-critical, cheap — verified expressible). Layer-tiering (later layers more compressed) is the only temperature-ish knob available and is **[UNVERIFIED]** for M2.7. **Lean on §3 pruning** for the residency step, since it *can* target individual cold experts.
+Per-expert temperature cannot drive quantization while experts remain one 3D
+tensor. The available knob is sensitivity-guided per-layer/per-tensor quant:
+sweep a layer or group by one quant step, measure ΔNLL/logit divergence and
+kernel t/s, then optimize bytes saved versus quality loss. Do not assume later
+layers are automatically less sensitive, and quantize candidates from a
+high-precision source rather than requantizing an already lossy GGUF.
 
-## 3. Structured pruning of near-dead experts — the real lever
+## 3. Structured pruning — high-upside artifact experiment
 
-**Feasible & confirmed.** Router maps 1:1 to expert slots; experts are contiguous dim-2 slots. Offline GGUF rewrite, per layer: (1) **slice dim-2** of `ffn_{gate,up,down}_exps` to kept indices; (2) **drop matching rows of** `ffn_gate_inp {n_embd,n_expert}` (+ `ffn_gate_inp_b` if present — **[UNVERIFIED]** for M2.7); (3) **update** `minimax-m2.expert_count` (`gguf-py/gguf/constants.py:88` `EXPERT_COUNT="{arch}.expert_count"`). Tensor names in `tensor_mapping.py` (`FFN_{UP,GATE,DOWN}_EXP`, "merged"). Must keep `n_kept ≥ n_expert_used = 8`. **Constraint:** GGUF `expert_count` is single-valued → **[UNVERIFIED]** loader tolerance of per-layer-varying counts; in practice use a **uniform `n_kept`** across layers.
+**Mechanically plausible, not end-to-end confirmed.** Per layer choose a retained
+set with common cardinality `n_kept`; slice dim-2 of
+`ffn_{gate,up,down}_exps`, the matching expert dimension of `ffn_gate_inp`, and
+the required MiniMax `ffn_exp_probs_b`. Update `minimax-m2.expert_count`.
+Retained IDs may differ by layer, but the current global metadata requires the
+same count. Prototype quantized slicing/re-quantization, remapping and loader
+compatibility on a small MoE before treating the artifact rewrite as proven.
 
-| Keep | model size | resident? | t/s |
+| Keep | recipe-scaled model size | residency hypothesis | throughput |
 |------|-----------|-----------|-----|
-| 256 | ~115 GB | no | ~1.5 |
-| 192 (−25%) | ~87 GB | borderline | partial→~5 |
-| **176 (−31%)** | **~80 GB** | **yes** | **~8–10** |
-| 160 (−37%) | ~73 GB | yes+headroom | ~8–10 |
+| 256 | ~115 GB | no | user-observed baseline 1.5–2 |
+| 224 (−12.5%) | recompute from GGUF | likely still paging | measure |
+| 208 (−18.8%) | recompute from GGUF | test for cliff | measure |
+| 192 (−25%) | ~87 GB | borderline | measure |
+| 176 (−31%) | ~80 GB | candidate; verify OS/KV headroom | measure |
 
-Pruning ~30% of the never-hot tail reaches residency **while preserving hot experts at full bpw** — opposite trade-off from blunt tiering. **Risks:** an expert dead on the imatrix corpus but live on a real prompt → catastrophic mis-route; prune only hit-rate < ε over a large multi-domain corpus, keep a margin, validate per §5. New offline gguf-py tooling required (primitives exist); **[UNVERIFIED]** that a sliced merged tensor re-quantizes/loads — prototype on a tiny MoE first.
+Select a complete mask on calibration data and evaluate it on an independent
+holdout/critical set. Report aggregate token-layer intersections with original
+top-8, removed normalized routing mass, replacement margins and per-domain/layer
+tails. A separate `<0.1%` rule for every expert is unsafe because risks compound.
+Once any removed expert intersects the selected set, only a full masked-runtime
+or rewritten-model run captures downstream hidden-state and routing changes.
 
 ## 4. `-ser` — currently inert; real mechanism
 
-**Verified inert at HEAD.** Parsed `common.cpp:1446` → `min_experts`/`thresh_experts`, copied to cparams (`common.cpp:3699`, `llama.cpp:6620`), logged `llama.cpp:6728`. But `llama-build-context.cpp:1089–1091`:
+**Verified inert at HEAD.** Parsed at `common/common.cpp:1446–1452`, copied
+through `common/common.cpp:3699–3700` and `src/llama.cpp:6585–6586`, and logged
+at `src/llama.cpp:6693`. The live MiniMax path calls the common MoE builder from
+`src/graphs/build_minimaxm2.cpp:241–251`.
 ```cpp
 //selected_experts = ggml_top_k_thresh(ctx, selection_probs, n_expert_used,
 //        lctx.cparams.min_experts, lctx.cparams.thresh_experts);
@@ -60,32 +96,47 @@ selected_experts = ggml_top_k(ctx, selection_probs, n_expert_used);
 ```
 `ggml_top_k_thresh` has **zero active callers repo-wide** (decl `ggml.h:2398`, def `ggml.c:10127`, one commented line) → inert for **all** archs. M2 does route here: `build_minimaxm2()` (`llama-build-context.cpp:2443`) → `llm_build_moe_ffn` (L1012, contains L1089).
 
-**Mechanism (from `ggml.c:10127`):** threshold-based & **dynamic, not fixed 8→7/6** — `ggml_argsort_thresh(a, min_entries, thresh)` keeps experts above `thresh` with a `min_experts` floor → variable experts/token. Fewer selected → `ggml_get_rows`/`mul_mat_id` gather fewer slabs → fewer bytes.
+**Mechanism:** threshold is relative to the maximum selection probability. The
+first `min_entries` survive; later entries below `max_value*thresh` become `-1`
+in the fixed-width top-k result, and the CPU MoE path skips/zeros those slots.
+This reduces the logical selected-expert fraction; physical I/O must be measured.
 
-| avg experts/tok | bytes vs top-8 |
+| avg active experts/token | logical selected-expert fraction vs top-8 |
 |---|---|
 | 8.0 | 1.00× |
 | 7.0 | 0.875× (−12.5%) |
 | 6.0 | 0.75× (**−25%**) |
 
-Payoff = f(router peakedness) = exactly what §1 measures. **Activate:** uncomment `llama-build-context.cpp:1089–1090`, rebuild, sweep `-ser 6,0.05 … 7,0.02`, validate §5. Saves on the *resident-bandwidth* ceiling; stacks with, doesn't replace, pruning.
+Do **not** reactivate SER as an unconditional one-line uncomment. Preserve the
+fused top-k path when SER is off; validate parameter ranges, `-1` IDs, zeroed
+weights, normalization/no-NaN and identical baseline logits. Benchmark threshold
+sort/fusion overhead. Compare SER with fixed top-k at the same measured average
+experts/token and log the full expert-count distribution plus removed mass.
 
 ## 5. Perplexity / quality validation (on REAL tasks)
 
-Baseline on current recipe: `llama-perplexity -m M2.7-baseline.gguf -f user_realtask_holdout.txt -c 512 -ngl 0` → `P0` (use **domain holdout**, not wikitext). Per candidate, same command; gate: **accept** ΔPPL ≤ +2%; **review** +2–5% (only if it crosses into residency + task spot-checks pass); **reject** > +5% or any qualitative real-task regression. **Pruning-specific:** via the §1 counts patch, require pruned-expert hit-rate on holdout **< 0.1%** (average PPL hides rare catastrophic routes). **`-ser`:** plot PPL vs measured avg-experts/token, pick the knee within +2%. **Order:** measure (§1) → prune tail (§3) → revalidate → `-ser` (§4) → layer-tier (§2) only if still not resident; re-gate after **each** step.
+Use disjoint calibration and domain holdout sets. Report per-domain NLL/PPL with
+confidence intervals, code/math/tool/JSON task success, multilingual and
+long-context slices, lost routing mass, gap `k/k+1`, logit-KL and top-1 token
+flips. The old +2/+5% PPL thresholds are provisional heuristics, never the sole
+gate. Re-run physical bytes/token, RSS, t/s and routing trace after every
+candidate. Order: Step0 → fixed top-k 8/7/6 → routing instrumentation → safe SER
+experiment → staged full pruning artifacts → sensitivity quant if needed.
 
-## Honesty ledger (not verifiable in code)
+## Status / remaining uncertainties
 - Exact `n_ff_exp`/intermediate size of M2.7 → GB/token figures are recipe-scaled approximations; compute from real GGUF tensor sizes.
 - DDR5 bandwidth → must measure (AIDA64/mbw).
-- Router bias (`ffn_gate_inp_b`) / shared experts on M2.7 → check `llama-load-tensors.cpp:4099` (M2 branch).
-- Loader tolerance of per-layer-varying `expert_count` → likely forces uniform prune budget.
+- MiniMax requires `ffn_exp_probs_b`, which pruning must remap; there is no
+  shared-expert branch to rewrite.
+- Current metadata/loader requires one global expert cardinality; retained IDs
+  may differ per layer, cardinality may not.
 - That a sliced/re-quantized merged-expert tensor loads cleanly → prototype required.
 - Empirical PPL of any tier/prune/`-ser` → unknowable without running §5.
 
 ## 5-line summary
 
-1. We are **SSD-bound** (4.9 GB/tok ÷ 3.5 GB/s ≈ 1.4 t/s ≈ observed); the real lever is making the hot working set **resident** (115 GB → ≤ ~85 GB) — a ~14× step, not a linear bpw shave.
-2. **`-ser` is inert at HEAD** — parsed/logged but the `ggml_top_k_thresh` call is commented out (`llama-build-context.cpp:1089`, zero active callers repo-wide); it's threshold-based/dynamic, and activating it is a one-line uncomment + rebuild.
+1. The 115/96 GB mismatch makes paging plausible, not proven; Step0 must identify SSD-, RAM- or mixed-bound behavior.
+2. **`-ser` is inert at HEAD** and safe reactivation needs gating, correctness tests, observability and benchmarking—not a blind uncomment.
 3. **Per-expert tiered quant is NOT expressible** — experts are one merged 3D tensor per layer with a single type; `--custom-q` granularity is per-*layer*, so hot experts can't be selectively protected via quant.
-4. **Structured pruning of the never-hot tail is the primary lever**: slice dim-2 of `ffn_*_exps` + drop `ffn_gate_inp` rows + update `minimax-m2.expert_count`; pruning ~30% (256→~176) reaches ~80 GB → resident → ~8–10 t/s, preserving hot experts at full bpw.
-5. Measure temperature via a small `imatrix.cpp` per-expert-`counts` dump on the user's real corpus, then gate every change with `llama-perplexity` on a **domain holdout** (+2% accept / +5% reject) plus a pruned-expert routing-coverage check (<0.1% hit-rate).
+4. Task-specific pruning is a high-upside, high-risk staged experiment; it must also slice `ffn_exp_probs_b` and validate a complete rewritten artifact.
+5. Gate candidates with aggregate routing-tail metrics, domain task quality and real physical I/O/residency measurements; PPL alone is insufficient.

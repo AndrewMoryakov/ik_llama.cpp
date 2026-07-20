@@ -24,9 +24,14 @@ cd "O:\user files\Projects\ik_llama.cpp"
 
 ## Шаг 2 — Disk read MB/s во время decode → GB/токен
 
-> **Канонический метод — скрипт `step0/step0-bench.ps1`** (реализует решения A2/B2 из ревизии внизу: PhysicalDisk по инстансу диска модели вместо `_Total`, таймстампированный кумулятивный ряд, наклон в steady gen-фазе с отбросом fault-in транзиента, корректное CSV-квотирование). Валидирован 2026-07-18 на малой модели (выравнивание колонок 17/17; warm-поведение ~0 диска подтверждено).
+> **Канонический метод — скрипт `step0/step0-bench.ps1`.** Его
+> `phys_gen_bytes_per_tok` — device-level **estimator**, не PID/file ground truth:
+> `PhysicalDisk` включает другие reads/read-ahead, sampling идёт примерно раз в
+> секунду, а fallback `_Total` ещё шумнее. Нужны тихий диск, pagefile на другом
+> физическом устройстве,
+> raw samples, ≥3 повтора/error bars и sensitivity `TransientFraction` 20/30/40%.
 > ```powershell
-> .\docs\superpowers\specs\step0\step0-bench.ps1 -ModelPath "<MODEL>" -Label baseline -ColdCache -KeepLog
+> .\docs\superpowers\specs\step0\step0-bench.ps1 -ModelPath "<MODEL>" -Label baseline -Repeat 3 -ColdCache -KeepLog
 > ```
 > Ручной сниппет ниже — **упрощённый fallback**. Он усредняет чтение по всему прогону и потому **смешивает load и generation** (`Start-Sleep 8` — грубый пропуск загрузки, не работает при model>RAM, где load размазан по всему прогону). Для steady-state bytes/token пользуйся скриптом.
 
@@ -81,7 +86,10 @@ python gguf-py\scripts\gguf_dump.py "<MODEL_PATH>" --markdown | `
   Select-String "expert_count|expert_used_count|expert_shared_count|architecture"
 ```
 
-**4c — реальные active bytes/token (НЕ file size, НЕ плоский bpw).** MoE читает только `n_expert_used` из `n_expert` роутинг-экспертов за токен:
+**4c — оценка logical active bytes/token (НЕ physical I/O).** MoE выбирает
+только `n_expert_used` из `n_expert`, но точное число требует graph-aware
+accounting: embedding `get_rows`, tied output и fused tensors нельзя надёжно
+вывести только из размера всех GGUF tensors.
 
 ```
 active_bytes/token ≈ Σ_layers(attn_* + norm_* + ffn_gate_inp + *_shexp)
@@ -115,7 +123,8 @@ for t in reader.tensors:
     per_type.setdefault(str(t.tensor_type), [0, 0])
     per_type[str(t.tensor_type)][0] += 1
     per_type[str(t.tensor_type)][1] += nb
-    if any(s in t.name for s in (".ffn_gate_exps", ".ffn_down_exps", ".ffn_up_exps")):
+    if any(s in t.name for s in (".ffn_gate_exps", ".ffn_down_exps",
+                                 ".ffn_up_exps", ".ffn_gate_up_exps")):
         routed_bytes += nb
     else:
         always_bytes += nb
@@ -128,12 +137,12 @@ print(f"n_expert={n_expert} n_expert_used={n_expert_used} n_expert_shared={n_exp
 print(f"always-active bytes = {always_bytes/1e9:.3f} GB")
 print(f"routed total bytes  = {routed_bytes/1e9:.3f} GB")
 print(f"routed active bytes = {active_routed/1e9:.3f} GB")
-print(f"ACTIVE BYTES/TOKEN  = {active_bytes_per_token/1e9:.3f} GB")
+print(f"ACTIVE BYTES/TOKEN UPPER ESTIMATE = {active_bytes_per_token/1e9:.3f} GB")
 for ty, (cnt, nb) in sorted(per_type.items(), key=lambda x: -x[1][1]):
     print(f"  {ty:10s} n={cnt:4d} {nb/1e9:8.3f} GB")
 ```
 
-## Шаг 5 — Large-pages / mlock проверка
+## Шаг 5 — mlock/VirtualLock проверка (не large pages)
 
 ```powershell
 whoami /priv | Select-String "SeLockMemoryPrivilege"
@@ -141,7 +150,9 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 .\build\bin\llama-cli.exe -m "<MODEL_PATH>" --mlock -n 1 -p "hi" --no-display-prompt 2>&1 | `
   Select-String "mlock|failed to mlock|failed to VirtualLock"
 ```
-Источник предупреждений: `src/llama-mmap.cpp:576` (`failed to mlock`), `:599` (`failed to VirtualLock`, через `VirtualLock` `:595`). Нет предупреждений = mlock прошёл полностью.
+Источник предупреждений: `src/llama-mmap.cpp:576` (`failed to mlock`), `:599`
+(`failed to VirtualLock`). Успешный `VirtualLock` закрепляет обычные страницы;
+Windows mmap path не создаёт large pages (`use_thp` игнорируется).
 
 ## Итоговая таблица результатов (шаблон)
 
@@ -152,10 +163,14 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 | 2b | GB/token (disk) | Y/1024/X | `<Z GB>` | совпадает с 4c? |
 | 3a/3b | RAM BW EXPO on/off | MLC `--bandwidth_matrix` | `<W1>/<W2> GB/s` | потолок RAM |
 | 4a | n_expert/used/shared | llama-cli log | `<N/K/S>` | "нет shared экспертов" если S=0 |
-| 4c | Active bytes/token | скрипт выше | `<A GB>` | реальный рецепт, не 4bpw |
+| 4c | Logical bytes/token estimate | скрипт выше | `<A GB>` | recipe upper estimate; уточнить trace |
 | 5a/5b | mlock privilege / success | `whoami /priv`, log | `<Enabled/Disabled>`, `<Yes/No>` | mmap-стратегия валидна |
 
-Интерпретация: Z≈A (±20-30%) → диск-bound, стратегия A/B валидна. Z≪A → часть весов уже в page cache; сравнить A/X с W1 — если близко, RAM-bandwidth-bound, pivot на bytes/token.
+Интерпретация: `Z≪A` показывает, что значительная доля logical bytes обслужена
+не физическим чтением. Disk-bound нельзя объявлять только по `Z≈A`: нужны также
+`Z×t/s`, disk active time/queue/read latency и hard-fault correlation относительно
+измеренной для workload SSD-полосы. Даже небольшой miss volume может быть
+latency-bound.
 
 ---
 
@@ -170,8 +185,9 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 
 1. **`Win32_Process.ReadTransferCount` не видит mmap.** `IO_COUNTERS` считает
    только явный `ReadFile`/`ReadFileEx`. llama.cpp грузит веса через mmap, а
-   страничные фолты mmap обслуживает менеджер памяти и учитывает как *hard
-   faults* (`PageFaultCount` / `Memory\Page Reads/sec`), НЕ в счётчиках чтения
+   страничные фолты mmap обслуживает менеджер памяти. Process `PageFaultCount`
+   смешивает soft+hard faults; hard-fault attribution требует ETW, а system-wide
+   `Memory\Page Reads/sec` не привязан к PID. Этот трафик НЕ попадает в счётчики чтения
    процесса. В смоук-прогоне: `logical=5.7 МБ` (токенизатор/метаданные) против
    `phys=2613 МБ` реального mmap-трафика с диска. Итог `cache_hit = 1 −
    phys/logical = −458` — мусор. **Колонки `logical_read_MB` / `cache_hit_ratio`
@@ -196,14 +212,20 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 
 ### Принятые решения (обсудили и взвесили)
 
-- **A. Источник физического чтения → A2:** `PhysicalDisk(<инстанс SSD с моделью>)`
+- **A. Источник физического чтения → A2 estimator:** `PhysicalDisk(<инстанс SSD с моделью>)`
   вместо `_Total`. Дёшево, отсекает трафик других дисков; ловит mmap-фолты
   (device-level). Резерв — **A3 (ETW per-process disk I/O)**, если на целевой
-  машине шум процессов на том же диске реально помешает.
+  машине шум процессов на том же диске реально помешает. ETW должен
+  коррелировать DiskIO + FileIO/GGUF path + memory hard faults/page-fault stacks:
+  mmap paging I/O может быть приписан System/memory manager, а не PID llama.
 
-- **B. Отделение load от steady-state → B2 (наклон за один прогон):** логируем
-  дисковый счётчик с таймстампами каждый ~1 с; границу фазы генерации берём из
-  маркеров самого llama (`prompt eval time` / `eval time`), а не на глаз; берём
+- **B. Отделение load от steady-state → B2 estimator (наклон за один прогон):** логируем
+  дисковый счётчик с таймстампами каждый ~1 с. Текущий скрипт **не получает
+  живые phase markers**: он реконструирует `genStart = processEnd - tokens/tps`
+  и предполагает равномерную скорость токенов. Поэтому teardown и variable
+  token latency сдвигают окно. Следующая B3-инструментовка должна писать
+  monotonic events: model-load/prompt/decode start/end и token index timestamps;
+  после этого берём
   наклон (байт/с) на плато gen-фазы и делим на gen tok/s. Один cold-прогон
   (важно: для >RAM модели каждый cold — чтение ~100 ГБ, два прогона расточительны).
   Сырые посэмпловые данные сохраняем в отдельный лог — тогда при желании
@@ -212,9 +234,12 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 - **C. logical / cache_hit → фазировать:**
   - *Фаза 1 (сейчас):* только физический steady-state `bytes/token` — это уже
     главная цель оптимизаций, работает и портируемо.
-  - *Фаза 2 (позже):* `logical_touched = байты routed-экспертов + shared + KV`
+  - *Фаза 2 (позже):* `logical_touched = mmap-backed weight pages`, включая
+    routed/shared/dense weights, но **не KV** (KV не GGUF-backed model traffic)
     из инструментовки `LLAMA_MOE_STATS`; `cache_hit = 1 − phys/logical`. Это
-    принципиально верное число, прямо оценивающее prefetch/pin. Перед реализацией
+    полезное отношение, но не точный cache-hit ratio без path attribution:
+    device reads включают page granularity/read-ahead/noise. Baseline trace также
+    не переносится после top-k/SER/pruning — нужен trace каждого режима. Перед реализацией
     надо проверить, что именно печатает текущая `LLAMA_MOE_STATS` (есть ли
     суммарные touched-байты экспертов на токен/прогон).
 
@@ -222,18 +247,24 @@ whoami /priv | Select-String "SeLockMemoryPrivilege"
 
 ```
 timestamp,label,model,n_gen,threads,ctx,prompt_tps,gen_tps,gen_tokens,wall_s,
-phys_load_MB,phys_gen_MB,phys_gen_bytes_per_tok,peak_ws_MB,extra_args
+disk_instance,phys_total_MB,phys_pregen_MB,phys_gen_steady_MB,
+phys_gen_bytes_per_tok,peak_ws_MB,extra_args
 ```
 
-- `phys_load_MB` — всплеск чтения до начала eval-фазы (одноразовая загрузка).
-- `phys_gen_MB` — чтение в фазе генерации.
-- `phys_gen_bytes_per_tok` — **ключевая метрика** (steady-state, цель оптимизаций).
+- `phys_total_MB` — всё device reading за процессное окно.
+- `phys_pregen_MB` — estimator накопленного чтения до реконструированного gen start.
+- `phys_gen_steady_MB` — чтение после отброса transient части gen-окна.
+- `phys_gen_bytes_per_tok` — ключевой текущий estimator; сохранять рядом метод,
+  disk instance, sample interval, transient fraction и repeat statistics.
 - Плюс отдельный per-sample лог `<label>_<run>_<ts>.csv` (таймстамп + кумулятивные
   байты) для расчёта наклона и пост-фактум subtraction.
 - `extra_args` квотируется корректно (баг `",,"` устранён).
+- Текущая строка ещё не хранит transient fraction/sample interval/error bars;
+  это B3 TODO вместе с live phase events.
 
 ### Статус харнесса
 
-- ✅ Механика (запуск, парсинг timings, дисковый счётчик, запись CSV) — работает.
-- ⏳ Переделка метрик по решениям A2/B2/C-фаза1 — TODO в `step0-bench.ps1`.
+- ✅ A2/B2/C-фаза1 реализованы; это estimator с перечисленными ограничениями.
+- ⏳ B3: live phase/token timestamps, invariant-culture sidecar CSV, 20/30/40%
+  sensitivity, disk latency/queue counters и ETW attribution cross-check.
 - ⛔ Реальный baseline — ждёт целевой машины (Ryzen9/96 ГБ) + MiniMax-M2 (>RAM).

@@ -286,6 +286,8 @@ struct gpt_params {
     std::string lookup_cache_static  = ""; // path of static ngram cache file for lookup decoding
     std::string lookup_cache_dynamic = ""; // path of dynamic ngram cache file for lookup decoding
     std::string logits_file          = ""; // file for saving *all* logits
+    std::string moe_trace_file       = ""; // experimental per-token/layer MoE routing trace
+    std::vector<std::string> protected_input_paths; // file-valued options consumed during parsing
     std::string rpc_servers          = ""; // comma separated list of RPC servers
 
     std::string cuda_params          = ""; // comma separated list of cuda parameters key=value1,key2=value2
@@ -336,6 +338,7 @@ struct gpt_params {
     bool   kl_divergence    = false; // compute KL divergence
 
     bool usage             = false; // print usage
+    bool supports_moe_trace = false; // executable implements --moe-trace
     bool use_color         = false; // use color to distinguish generations and inputs
     bool special           = false; // enable special token output
     bool interactive       = false; // interactive mode

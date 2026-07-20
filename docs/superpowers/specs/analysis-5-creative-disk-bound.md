@@ -1,15 +1,19 @@
-# Analysis 5 — Творческие/нестандартные решения при неустранимой disk-bound (MiniMax M2.7, CPU-only, ik_llama.cpp)
+# Analysis 5 — Творческие решения, если подтвердится disk-bound (MiniMax M2.7, CPU-only)
 
 ## Вводная и ограничения задачи (заданы пользователем)
 
-- Модель **~110 GB**, RAM **96 GB** → **резидентность недостижима**, модель пейджится с SSD (Samsung 970, Gen3, ~3.5 GB/s).
+- Модель **~110 GB**, RAM **96 GB** → весь artifact вместе с runtime state не
+  помещается; объём steady-state physical SSD I/O на токен ещё надо измерить.
 - **Кванты на пределе** — сжать сильнее нельзя (потеря качества неприемлема).
 - **RAM разогнана максимально** — полоса памяти выжата.
 - Задача: найти ускорение в **оптимизации софта/модели**, творчески и нестандартно.
 
 ## Ключевая рамка для всех решений
 
-При **disk-bound** узкое горло — чтение ~4.9 GB/токен с SSD; **CPU и полоса RAM при этом простаивают**, ожидая диск. Значит любой размен вида «**потратить простаивающий CPU/RAM, чтобы сократить или амортизировать чтение с диска**» — почти бесплатен. Три вектора атаки на `bytes_from_disk / token`:
+`~4.9 GB/token` — logical active weights, не доказанные physical reads. Если
+Step0 подтвердит SSD/page-fault bound режим, тратить часть CPU/RAM на снижение
+physical bytes/token может быть выгодно, но не бесплатно: проверять CPU overhead,
+page-cache displacement, working set и реальный I/O.
 
 1. **Читать МЕНЬШЕ** экспертов за токен.
 2. **Амортизировать** чтение на несколько токенов.
@@ -18,7 +22,8 @@
 ## Grounding (проверено в дереве этого форка)
 
 - Runtime-цепочка top-k: `%s.expert_used_count` (`src/llama-arch.cpp:120`) → `ml.get_key(LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used, false)` (`src/llama-hparams.cpp:73`) → `ggml_top_k(ctx, selection_probs, n_expert_used)` (`src/llama-build-context.cpp:1091`).
-- `--override-kv` парсится (`common/common.cpp:1557`), передаётся в лоадер `params.kv_overrides` (`src/llama.cpp:3865,4029`) — то есть **`n_expert_used` можно переопределить на рантайме без пересборки и без правки GGUF**. **[UNVERIFIED]** что override типа `int` применяется к `expert_used_count` до чтения в hparams — проверить прогоном (см. эксперимент №1).
+- `--override-kv` позволяет переопределить `n_expert_used` до чтения hparams.
+  В прогоне всё равно проверить loader log `Using metadata override`.
 - `-ser` неактивен: `ggml_top_k_thresh` только объявление (`ggml/include/ggml.h:2398`) + определение (`ggml/src/ggml.c:10127`) + **один закомментированный вызов** (`src/llama-build-context.cpp:1089`); живой путь — `ggml_top_k`.
 - Спекулятивное декодирование: `-md/--model-draft` (`common/common.cpp:1082`), `--draft/--draft-max/--draft-n` (`common/common.cpp:1021`), примеры `examples/speculative`, `examples/lookup` присутствуют.
 
@@ -26,67 +31,108 @@
 
 ## A. Читать МЕНЬШЕ экспертов — доступно сегодня, без пересборки
 
-### №1 — Runtime top-k override: 8 → 6 → 4 (нулевой риск, мгновенная проверка)
+### №1 — Runtime top-k override: обратимый, но влияющий на качество
 
 Модель не трогаем вообще:
 ```powershell
 .\build\bin\llama-cli.exe -m "<MODEL>" --override-kv minimax-m2.expert_used_count=int:6 ...
 ```
-Экспертные слабы — почти все 4.9 GB/tok → **top-6 ≈ −25% диска, top-4 ≈ −50%** → потенциально **1.5–2× t/s**. MoE часто деградирует мягко при снижении top-k, если роутер Zipf-пиковый (это же меряет imatrix-патч из `analysis-1`/§ measurement). Гейт: perplexity на domain-holdout, +2% accept / +5% reject.
-**Точное имя ключа** зависит от arch-префикса GGUF (`minimax-m2` vs иное) — взять из `analysis-3` Шаг 4b (`gguf_dump`). Если override не применится — тот же эффект даёт правка одной строки в `llama-hparams.cpp:73` + пересборка.
+Начать 8→7→6; 5/4 тестировать только если routing/quality gates проходят.
+Selected-expert fraction падает линейно, но physical I/O и t/s — нет: остаются
+фиксированные тензоры, page/cache effects и alignment. MiniMax ренормирует
+оставшиеся веса (`norm_w=true`), хотя обучался с top-8. Измерять removed routing
+mass, domain quality, physical bytes/token и t/s; после каждого режима — retrace.
 
-### №2 — `-ser` (раскомментировать 1 строку)
-Динамический аналог №1: порог по уверенности роутера вместо жёсткого k → переменное число экспертов/токен, режется только «хвост» неуверенных. Разобрано в `analysis-2` §4. Caveat: код мог быть отключён мейнтейнером как незавершённый — валидировать тщательнее.
+### №2 — SER: отдельный implementation experiment
+Threshold path отключён при fused-selection refactor. Возвращать его только
+отдельной веткой с сохранением fused baseline, проверками `-1` IDs,
+normalization/no-NaN и benchmark overhead. Сравнивать с fixed top-k при
+одинаковом среднем числе экспертов и делать реальный retrace.
 
 ---
 
 ## B. Амортизировать чтение — спекулятивное декодирование
 
-### №3 — Драфт-модель в RAM + верификация пачкой (самый недооценённый ход)
+### №3 — Драфт-модель в RAM + верификация пачкой
 
-Маленькая модель (1–2 GB, свободно резидентна в RAM) генерирует K токенов-кандидатов; большая M2.7 **верифицирует всю пачку одним forward-проходом**. Эксперты слоя читаются с диска **один раз на K токенов вместо K раз**. При acceptance ~3–4 → disk-cost/token падает кратно. Инфраструктура в форке (`examples/speculative`, `-md`, `--draft`).
-**Честный caveat:** токены пачки роутятся в РАЗНЫЕ эксперты → union прочитанных экспертов на слой растёт, поэтому выигрыш < идеального K×. Но: (а) attention/нормы/эмбеддинги амортизируются полностью; (б) пересечение экспертов между соседними токенами обычно ненулевое; (в) даже union из 8 уникальных на пачку ≈ читается как 1 токен вместо K. Нужен подходящий драфт (дистиллят/меньший чекпойнт того же токенизатора) — **[UNVERIFIED]** доступность совместимого драфта для M2.7.
+Совместимый draft может амортизировать target calls, но не автоматически expert
+I/O: при низком overlap target batch может затронуть до
+`min(n_expert, 8 × K)` expert IDs на слой в каждом expert-weight tensor; rejected
+позиции тоже вычисляются. Draft допустим только при прохождении проверок vocab
+type, special tokens и token content из `examples/speculative/speculative.cpp`.
+Он также занимает RAM/page cache. Sweep K=1/2/4/8 и измерять accepted/drafted,
+union, target calls/output token, общий RSS, physical bytes/token и end-to-end t/s.
 
 ### №4 — `examples/lookup` (prompt-lookup): драфт БЕЗ драфт-модели
-Кандидаты берутся из n-грамм самого контекста. Бесплатно; особенно сильно на задачах с повторами — код, редактирование файлов, RAG, длинные структурированные ответы. Стоит попробовать раньше №3 (нет второй модели).
+Кандидаты берутся из n-грамм контекста. Вторая модель не нужна, но lookup и
+rejected target positions не бесплатны. Отдельно benchmark repetitive code/RAG
+и open-ended prose, с hit/acceptance, physical bytes/token и net t/s.
 
 ---
 
 ## C. Читать УМНЕЕ — те же байты, быстрее / реже с диска
 
 ### №5 — Queue depth / асинхронный батч-префетч
-Demand-paging через page-fault'ы = очень низкий QD; NVMe отдаёт полные ~3.5 GB/s только на глубокой очереди, на random single-fault реальная полоса может быть в разы ниже паспортной. Выдать I/O на все 8 выбранных экспертов **сразу после top_k слоя, до compute FFN** (это дизайн `analysis-1`). QD-аргумент означает: выигрыш возможен **даже без предсказания следующего эксперта** — чисто от параллельной/батчевой выдачи чтений. Самый «чистый» инженерный выигрыш при неустранимой disk-bound.
+Если Step0 покажет низкую эффективную SSD-полосу и page-fault dominated access,
+сначала тестировать previous-token predictor (без mid-graph sync). Same-layer
+IDs возникают внутри графа; callback/readback создаёт synchronization boundary и
+может съесть выигрыш. Измерять реальный queue depth/effective throughput, не
+выводить пользу из паспортных 3.5 GB/s.
 
 ### №6 — Точечный `VirtualLock` горячих экспертов (обход вердикта «per-expert невыразим»)
-Квантом отдельный эксперт защитить нельзя (слитый 3D-тензор, единый тип — `analysis-2` §2). Но **байтовые диапазоны** отдельных экспертов известны: они лежат непрерывными dim-2 слабами с вычислимыми из GGUF офсетами. → `VirtualLock` (уже используется в `src/llama-mmap.cpp:595`) на диапазоны top-N горячих экспертов (по imatrix-counts), холодные оставить пейджиться. Если ~30% экспертов дают ~70% активаций — средние GB/tok с диска падают кратно, **без изменения формата модели**. Требует: карту офсетов эксперт→байты + новый код выборочного lock. **[UNVERIFIED]** взаимодействие выборочного VirtualLock с mmap-регионом и общий лимит рабочего набора под 96 GB.
+Per-expert ranges концептуально адресуемы внутри merged tensor, но текущий
+`expert_tensor_index` хранит только whole-tensor ranges и Windows defer path не
+реализован. Нужны `offs + expert*nb[2]`, page alignment, shards, lifetime и
+проверка VirtualLock privilege/working-set limits. Сценарий 30/70 не считать
+фактом; бюджет и payoff определяет trace.
 
 ### №7 — GGUF re-layout соседних тензоров эксперта
-Перепаковать так, чтобы `gate/up/down` эксперта i лежали рядом на диске → **1 последовательное чтение вместо 3 разнесённых сиков** на эксперта на слой. Последовательное чтение NVMe кратно быстрее random. Оффлайн-rewrite gguf-py; ортогонально всему остальному.
+Standard GGUF не может interleave `gate[i]/up[i]/down[i]`, сохранив три
+монолитных 3D tensor contiguous. Реальный существующий путь — offline fused
+loader-supported offline `ffn_gate_up_exps` artifact (если conversion/quantization
+pipeline его создаёт) + отдельный `down`, затем mmap **без runtime `-muge`**.
+Полный expert-major layout — новый format/loader/kernel, не gguf-py-only rewrite.
 
 ---
 
 ## D. Структурно
 
 ### №8 — Прунинг 256 → ~176 экспертов
-Уточнение к ограничению «сжать нельзя»: оно про **кванты**. Обрезка мёртвого/никогда-не-активируемого хвоста экспертов **ортогональна квантам** — это не «сжатие весов», а удаление неиспользуемых. Единственный путь к полной резидентности (~80 GB → влезает в 96 GB → ~8–10 t/s). Механика и риски — `analysis-2` §3. Гейт по routing-coverage <0.1% на holdout.
+Task-specific pruning — staged high-risk путь к меньшему artifact, не доказанный
+«мёртвый хвост». Тестировать 224/208/192/176, включая required
+`ffn_exp_probs_b`, и искать измеренный residency/I/O cliff. Маску выбирать на
+calibration, затем проверять aggregate top-8 intersections, removed mass и
+domain quality на независимом holdout.
 
 ---
 
-## Отвергнутые направления (честный отчёт)
-- **On-the-fly декомпрессия весов при чтении** — кванты уже почти несжимаемы (LZ даёт ~5–10%), а CPU-декомпрессия добавит латентности; не окупается.
-- **Layer-skip / early-exit** — риск/выгода хуже прунинга экспертов, и ломает качество непредсказуемо.
-- **Крутить тайминги RAM дальше** — по условию уже выжато; и при disk-bound это не узкое горло.
+## Deprioritized pending measurement
+- **On-the-fly compression** — отложено до замера compressibility реального
+  artifact и decompression throughput.
+- **Layer-skip / early-exit** — требует отдельного sensitivity/quality study;
+  сравнение с pruning пока не доказано.
+- **Дальнейший RAM tuning** — вне scope по условию пользователя; релевантность
+  всё равно зависит от Step0.
 
 ## Рекомендованный порядок (по возрастанию затрат/риска)
-1. **№1** (top-6/top-4 override) — сегодня, нулевой риск, мгновенный замер t/s + PPL. **Начать отсюда.**
-2. **№4** (prompt-lookup) — бесплатно, без второй модели.
-3. **№3** (спекулятивный драфт) — если найдётся совместимый драфт.
-4. **№5** (батч-префетч / QD) + **№6** (VirtualLock горячих) — инженерная работа, высокий потолок.
-5. **№8** (прунинг) — оффлайн, максимальный выигрыш, максимальная подготовка.
+1. Target MiniMax **Step0** с контролями и повторами.
+2. Routing trace + offline cache simulator как prioritization tool. Baseline
+   trace точен для неизменённой модели/no-intersection masks; после первого
+   изменения маршрута это не end-to-end quality или Windows paging simulator.
+3. Fixed top-k 8/7/6 с routing, quality и physical-I/O gates; retrace каждого.
+4. Prompt lookup на повторяющихся реальных workloads.
+5. Previous-token prefetch только если Step0/trace поддерживают bottleneck model.
+6. SER после безопасной реактивации; draft speculation — если есть совместимый draft.
+7. Selective lock/slab cache и staged pruning — только после измерений.
 
 ## 5-line summary
-1. Резидентность недостижима → атакуем сам факт чтения 4.9 GB/token: читать меньше / амортизировать / читать умнее (CPU и RAM простаивают — размен «CPU за диск» бесплатен).
-2. **Сегодня без пересборки:** `--override-kv ...expert_used_count=int:6` (top-8→6→4, −25/−50% диска, ~1.5–2× t/s) — цепочка override→hparams→ggml_top_k подтверждена в коде.
-3. **Амортизация:** спекулятивный драфт в RAM (`-md`/`examples/speculative`) и prompt-lookup (`examples/lookup`) читают экспертов раз на K токенов вместо K раз.
-4. **Умнее:** батч-префетч всех выбранных экспертов после top_k (выигрыш от queue depth даже без предсказания) + `VirtualLock` байтовых диапазонов горячих экспертов (обход «per-expert невыразим» — не квантом, а lock'ом).
-5. **Структурно:** прунинг мёртвого хвоста экспертов (256→~176) ортогонален квантам и единственный даёт полную резидентность (~80 GB, ~8–10 t/s). Начать с №1 сегодня.
+1. Paging plausible, но не подтверждён; оптимизировать измеренный physical I/O,
+   а не принимать 4.9 GB/token за SSD-трафик.
+2. Fixed top-k — самый дешёвый обратимый quality experiment; идти 8→7→6 и
+   проверять фактический I/O, а не обещать линейное ускорение.
+3. Спекуляция выгодна только когда acceptance и expert overlap перекрывают
+   rejected work и память draft.
+4. Prefetch/selective lock требуют измеренных page-fault/working-set оснований;
+   standard GGUF не даёт expert-interleaved gate/up/down простым relayout.
+5. Pruning может создать residency cliff, но требует complete-mask анализа,
+   `ffn_exp_probs_b` remap и полного теста переписанного artifact.

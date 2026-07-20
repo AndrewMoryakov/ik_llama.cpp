@@ -69,7 +69,11 @@ Confirmed in `common/common.cpp`:
 ### A.5 KV bandwidth vs weight-read cost — when KV starts to matter
 
 Two DRAM/NVMe-bandwidth-bound components per decode step:
-1. **Weight read**: ~10B active params/token; at ~4.5 bits/weight effective mixed quant ⇒ ~5.6 GB/token, every token, independent of context length. This is the dominant baseline cost (consistent with the parent spec's Amdahl analysis in `docs/superpowers/specs/2025-moe-ssd-inference-speedup.md`).
+1. **Logical weight stream**: ~10B active params/token; at ~4.5 bits/weight
+   effective mixed quant ⇒ ~5.6 GB/token logically touched, every token,
+   independent of context length. This is **not** the physical SSD traffic:
+   resident pages are served from RAM. The exact 4.9-vs-5.6 value depends on the
+   real mixed recipe and must be computed from GGUF.
 2. **KV read**: one pass over the whole KV cache so far per decode step — the full-cache sizes from A.3.
 
 Crossover (KV bytes ≈ weight bytes, assuming ~5.6 GB/token weight read):
@@ -83,7 +87,10 @@ Crossover (KV bytes ≈ weight bytes, assuming ~5.6 GB/token weight read):
 
 **Interpretation:** past ~40-45K tokens with f16 KV, KV reads become comparable to/larger than the MoE weight-read cost per step, and decode degrades further with context (no cross-token amortization at decode time). q8_0 KV roughly doubles that threshold to ~80K; q4_0 pushes it near the top of the 200K window (~157K). **KV quantization is therefore not just a memory optimization here — beyond ~40-80K tokens it directly protects decode throughput.** Below ~20-30K tokens, KV reads are a minor fraction of cost and not worth trading against quality.
 
-These are back-of-envelope bandwidth-ratio estimates from the byte formulas, not measured t/s — treat the ~40K/~80K/~157K crossovers as order-of-magnitude guidance; they depend on the actual achieved bytes/active-param of the chosen quant mix (varies with `-ot` layer placement, per-expert vs per-tensor quant), which was not measured.
+These are back-of-envelope **logical bandwidth** ratios, not measured t/s or
+physical disk-miss estimates. Treat the ~40K/~80K/~157K crossovers as
+order-of-magnitude guidance; they also depend on flash-attention implementation,
+KV dequant cost and the actual mixed quant recipe.
 
 ## PART B — CPU generation levers on AMD AM5
 
@@ -105,15 +112,26 @@ AM5 Zen 4 (7000-series) and Zen 5 (9000-series) both implement AVX-512 (Zen 4: d
 - `README.md:137`: "Zen4: Faster PP for `IQ2_KS, IQ4_KS, IQ5_KS`" (PR 428) — Zen4-specific tuning already exists.
 - `README.md:208`: AVX2 correctness fix for `IQ4_K, IQ4_KS, IQ5_K, IQ6_K` (PR 427).
 
-The `_R4` ("row-interleaved ×4") variants are purpose-built for CPU GEMV throughput. `README.md:10` warns: *"do not use `-rtr` unless you know what you are doing… k-quants (Q2_K, Q3_K, Q4_K, Q5_K, Q6_K) do not have CUDA row-interleaved implementation."* Since this is a pure-CPU deployment, that caveat is moot in the negative direction — it's actually an argument *for* `_R4`/`-rtr` here, since there's no GPU offload to break.
+The `_R4` ("row-interleaved ×4") variants are purpose-built for CPU GEMV
+throughput. However, runtime `-rtr` sets loader mmap off. For a ~110 GB model on
+96 GB RAM that can force full allocation/copy and lead to OOM or swap. CPU-only
+removes the CUDA-layout compatibility risk, **not** this memory risk.
 
-**Recommendation:** prefer `_R4` row-interleaved IQK quants (`IQ4_KS_R4`, `IQ5_KS_R4`, `IQ4_K_R4`, `IQ3_K_R4`, `IQ2_K_R4`, etc.) or non-R4 IQK counterparts if `_R4` isn't available at the target bit-width, over plain llama.cpp K-quants (`Q4_K`, `Q5_K`, etc.) for CPU GEMV throughput-per-byte. `-rtr` is safe here specifically because there's no GPU tensor split. Not benchmarked on this box — kernel-fit argument from the README's PR history, not a measured comparison.
+**Recommendation:** create/use an **offline `_R4` GGUF** (`IQ4_KS_R4`,
+`IQ5_KS_R4`, `IQ4_K_R4`, `IQ3_K_R4`, `IQ2_K_R4`, etc.) and load it through mmap
+**without runtime `-rtr`**. Likewise, do not use runtime `-muge`: it materializes
+the merged tensor and also disables mmap; use an offline fused
+`ffn_gate_up_exps` GGUF when available. Benchmark `_R4` against the non-R4
+counterpart on this 7950X; kernel fit is not a measured win yet.
 
 ### B.3 Threading: single-socket AM5, but CCD/CCX topology matters
 
 AM5 is single-socket, no classic multi-socket NUMA. But:
 - Multi-CCD parts (12/16-core Ryzen 9, e.g. 7900X/7950X/9900X/9950X) have two CCDs, each with its own L3, sharing one memory controller (IOD) via Infinity Fabric. Not OS-visible NUMA by default, but cross-CCD coherency traffic/L3-locality can hurt if threads bounce across CCDs — pinning to one CCD or capping thread count to one CCD's physical cores is a known lever, especially for bandwidth-bound decode.
-- SMT should be disabled or thread count capped to physical cores for bandwidth-bound GEMV — SMT siblings mostly add contention (general llama.cpp CPU-inference guidance, not fork-specific).
+- SMT and CCD placement require A/B. For resident bandwidth-bound GEMV, SMT may
+  add contention; for page-fault/I/O-bound execution it can instead raise useful
+  queue depth. Sweep one CCD (8 physical), 10/12/14/16 physical cores and selected
+  SMT variants rather than disabling SMT by rule.
 
 Flags exposed (`common/common.cpp`):
 - `-t, --threads N` (`common/common.cpp:605`) — generation thread count.
@@ -122,24 +140,34 @@ Flags exposed (`common/common.cpp`):
 
 No explicit CPU-affinity/pinning flag was found in the grepped `common.cpp` sections (`-t`, `-tb`, `--numa` only); CCD pinning would need OS-level affinity. Double-check with a broader grep (`cpu-mask`, `cpu-range`, `priority`) before relying on it — that grep was not done in this pass.
 
-### B.4 Missing input: exact CPU model
+### B.4 Concrete target: Ryzen 9 7950X
 
-**The one clearly missing input to finalize CPU-specific advice.** "AMD AM5" spans:
+The target is now known: **Zen 4, 16 cores / 32 threads, two 8-core CCDs**. The
+remaining platform inputs are DIMM topology/rank, DDR5 MT/s and measured RAM BW.
+For context, AM5 spans:
 - **Zen 4** (Ryzen 7000: 7950X/7900X/7700X/7600X): AVX-512 via double-pumped 256-bit units, up to 16 cores/2 CCDs (7950X/7900X) or 1 CCD (7700X/7600X), dual-channel DDR5 (~5200-6000 MT/s typical).
 - **Zen 5** (Ryzen 9000: 9950X/9900X/9700X/9600X): native full-width AVX-512, higher IPC and DDR5 support speeds.
-- **X3D vs non-X3D**: 3D V-Cache trades clock for larger L3 — for bandwidth-bound MoE-decode streaming ~10B active params/token, working set >> cache, so X3D unlikely decisive; raw memory bandwidth and core count for GEMV parallelism matter more.
+- **X3D vs non-X3D**: working set is much larger than L3, so extra cache is
+  unlikely to dominate; actual SSD/RAM/compute split still requires Step0.
 
-What changes with the exact model:
+Implications for this target:
 - **Core count** → sets the practical `-t`/`-tb` ceiling and whether CCD-pinning is even a decision.
-- **Zen4 vs Zen5** → ~2× AVX-512 throughput/cycle difference, more relevant to compute-bound prefill than the already-bandwidth-bound decode path — mostly affects PP, not the reported 1.5-2 t/s decode.
-- **DDR5 speed/rank/channel config** → likely the single biggest software-independent lever, since decode is bandwidth-bound. Confirm *achieved* bandwidth (AIDA64/`mbw`, not rated MT/s) — real-world dual-channel DDR5 on AM5 (~60-90 GB/s typical) directly caps max possible decode t/s for a ~5-6 GB/token active-weight read.
+- **Zen 4 AVX-512** → benchmark resident/control phases; it may matter more for
+  compute-heavy prefill than single-token decode, but the latter's bottleneck is
+  not yet proven.
+- **DDR5 speed/rank/channel config** → caps the RAM-resident phase. Confirm
+  *achieved* bandwidth (AIDA64/`mbw`, not rated MT/s) before deriving a roofline.
 
-**Need: exact CPU model, DDR5 speed/kit (MT/s, single vs dual rank, 2x vs 4x DIMMs), and if possible measured RAM bandwidth** to finalize this section.
+**Need: DDR5 speed/kit (MT/s, single vs dual rank, 2x vs 4x DIMMs) and measured
+RAM bandwidth** to finalize the sweep.
 
 ## Summary of concrete, actionable items
 
 1. M2.7 is confirmed plain GQA (`build_minimaxm2.cpp`) — no MLA/FlashMLA benefit available; hard architectural ceiling, not a missed flag.
 2. Use `-ctk q8_0 -ctv q8_0` (or tested `q4_0`) for KV cache — saves ~4.4-17 GiB at 128-200K context, and past an estimated ~40-80K-token crossover directly protects decode t/s since KV reads start rivaling the active-weight read per token.
 3. AMX is Intel-only (confirmed via issue #437) and irrelevant to AM5; don't chase it.
-4. Prefer `_R4` row-interleaved IQK quants + `-rtr` for CPU GEMV (safe here, no GPU split to break); cap `-t`/`-tb` to physical core count, disable SMT, consider CCD-aware thread limits on dual-CCD parts.
-5. Exact CPU model + real (not rated) DDR5 bandwidth are the single missing input to finalize B.3/B.4 — everything else funnels through RAM bandwidth.
+4. Prefer offline `_R4` IQK GGUF + mmap **without `-rtr`**; avoid runtime
+   `-muge`. Sweep thread counts, SMT and CCD placement instead of assuming one
+   universal optimum.
+5. CPU is Ryzen 9 7950X; the missing inputs are DIMM topology and real (not
+   rated) DDR5 bandwidth.

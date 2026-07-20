@@ -2,6 +2,7 @@
 #include "chat.h"
 #include "console.h"
 #include "llama.h"
+#include "moe-trace.h"
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -128,6 +130,7 @@ static std::string chat_add_and_format(struct llama_model * model, common_chat_t
 
 int main(int argc, char ** argv) {
     gpt_params params;
+    params.supports_moe_trace = true;
     g_params = &params;
 
     if (!gpt_params_parse(argc, argv, params)) {
@@ -136,6 +139,34 @@ int main(int argc, char ** argv) {
     }
 
     common_params_sampling & sparams = params.sparams;
+
+    std::unique_ptr<moe_trace_writer> moe_trace;
+    if (!params.moe_trace_file.empty()) {
+        if (params.logits_all || params.embedding) {
+            fprintf(stderr, "error: --moe-trace v1 is incompatible with --logits-all/--embedding\n");
+            return 1;
+        }
+        if (params.n_parallel != 1 || params.n_sequences != 1 || sparams.cfg_scale > 1.0f) {
+            fprintf(stderr, "error: --moe-trace v1 supports one sequence and no CFG guidance\n");
+            return 1;
+        }
+        if (params.interactive || params.interactive_first || params.conversation) {
+            fprintf(stderr, "error: --moe-trace v1 does not support interactive/conversation mode\n");
+            return 1;
+        }
+        if (params.has_mtp || params.speculative.type != COMMON_SPECULATIVE_TYPE_NONE ||
+            params.speculative.has_dft() || !params.speculative.replacements.empty() ||
+            params.speculative.autotune || !params.lookup_cache_static.empty() ||
+            !params.lookup_cache_dynamic.empty()) {
+            fprintf(stderr, "error: --moe-trace v1 does not support MTP or speculative decoding\n");
+            return 1;
+        }
+        moe_trace.reset(new moe_trace_writer());
+        params.cb_eval = moe_trace_writer::callback;
+        params.cb_eval_user_data = moe_trace.get();
+        params.warmup = false;
+        fprintf(stderr, "warning: --moe-trace is measurement-only and adds backend synchronization overhead\n");
+    }
 
 #ifndef LOG_DISABLE_LOGS
     log_set_target(log_filename_generator("main", "log"));
@@ -217,6 +248,37 @@ int main(int argc, char ** argv) {
     if (model == NULL) {
         LOG_TEE("%s: error: unable to load model\n", __func__);
         return 1;
+    }
+    if (moe_trace) {
+        std::vector<std::string> protected_paths = {
+            params.prompt_file,
+            params.path_prompt_cache,
+            params.logits_file,
+        };
+        protected_paths.insert(protected_paths.end(), params.in_files.begin(), params.in_files.end());
+        protected_paths.insert(protected_paths.end(), params.image.begin(), params.image.end());
+        for (const auto & adapter : params.lora_adapters) {
+            protected_paths.push_back(adapter.path);
+        }
+        for (const auto & control : params.control_vectors) {
+            protected_paths.push_back(control.fname);
+        }
+        protected_paths.insert(
+            protected_paths.end(), params.protected_input_paths.begin(), params.protected_input_paths.end());
+        if (!moe_trace->start(model, params.moe_trace_file, params.model, protected_paths)) {
+            LOG_TEE("%s: cannot initialize MoE trace: %s\n", __func__, moe_trace->error().c_str());
+            llama_free(ctx);
+            llama_free_model(model);
+            llama_backend_free();
+            return 1;
+        }
+        if (!moe_trace->good()) {
+            LOG_TEE("%s: unsupported model for MoE trace v1: %s\n", __func__, moe_trace->error().c_str());
+            llama_free(ctx);
+            llama_free_model(model);
+            llama_backend_free();
+            return 1;
+        }
     }
     auto chat_templates = common_chat_templates_init(model, params.chat_template);
 
@@ -539,6 +601,9 @@ int main(int argc, char ** argv) {
 
     std::vector<llama_token> embd;
     std::vector<llama_token> embd_guidance;
+    // True only when embd contains a token sampled by the target model. Prompt
+    // and interactive-input batches, including one-token batches, are excluded.
+    bool embd_is_generated = false;
 
     // tokenized antiprompts
     std::vector<std::vector<llama_token>> antiprompt_ids;
@@ -717,9 +782,22 @@ int main(int argc, char ** argv) {
 
                 LOG("eval: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, embd).c_str());
 
+                if (moe_trace && embd_is_generated) {
+                    moe_trace->begin_batch(&embd[i], n_eval, n_past, 0);
+                }
                 if (llama_decode(ctx, llama_batch_get_one(&embd[i], n_eval, n_past, 0))) {
+                    if (moe_trace && embd_is_generated) {
+                        moe_trace->end_batch();
+                    }
                     LOG_TEE("%s : failed to eval\n", __func__);
                     return 1;
+                }
+                if (moe_trace && embd_is_generated) {
+                    moe_trace->end_batch();
+                    if (!moe_trace->good()) {
+                        LOG_TEE("%s : MoE trace failed: %s\n", __func__, moe_trace->error().c_str());
+                        return 1;
+                    }
                 }
 
                 n_past += n_eval;
@@ -739,6 +817,7 @@ int main(int argc, char ** argv) {
 
         embd.clear();
         embd_guidance.clear();
+        embd_is_generated = false;
 
         if ((int) embd_inp.size() <= n_consumed && !is_interacting) {
             // optionally save the session on first sample (for faster prompt loading next time)
@@ -756,6 +835,7 @@ int main(int argc, char ** argv) {
             LOG("last: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, ctx_sampling->prev).c_str());
 
             embd.push_back(id);
+            embd_is_generated = true;
 
             // echo this to console
             input_echo = true;
@@ -998,6 +1078,12 @@ int main(int argc, char ** argv) {
         llama_state_save_file(ctx, path_session.c_str(), session_tokens.data(), session_tokens.size());
     }
 
+    int exit_code = 0;
+    if (moe_trace && !moe_trace->finish()) {
+        LOG_TEE("%s : MoE trace finalization failed: %s\n", __func__, moe_trace->error().c_str());
+        exit_code = 1;
+    }
+
     llama_print_timings(ctx);
     write_logfile(ctx, params, model, input_tokens, output_ss.str(), output_tokens);
 
@@ -1012,5 +1098,5 @@ int main(int argc, char ** argv) {
     LOG_TEE("Log end\n");
 #endif // LOG_DISABLE_LOGS
 
-    return 0;
+    return exit_code;
 }

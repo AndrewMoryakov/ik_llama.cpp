@@ -51,6 +51,7 @@ build*
 !docs/build.md
 !scripts/build-*.sh
 !scripts/build-*.bat
+!tools/moe_cache_sim/build_layout.py
 /libllama.so
 /llama-*
 /vulkan-shaders-gen
@@ -111,6 +112,9 @@ examples/server/*.mjs.hpp
 __pycache__/
 */poetry.lock
 poetry.toml
+
+# Local analysis dashboard dependencies
+/dashboard/node_modules/
 
 # Nix
 /result

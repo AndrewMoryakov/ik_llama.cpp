@@ -204,6 +204,23 @@ llama_build_and_test(test-regex-partial.cpp)
 llama_build_and_test(test-rtr-params.cpp)
 llama_build_and_test(test-cgroup-resolver.cpp)
 
+add_executable(test-moe-trace-writer
+    test-moe-trace-writer.cpp
+    ../examples/main/moe-trace.cpp)
+target_include_directories(test-moe-trace-writer PRIVATE ../examples/main)
+target_link_libraries(test-moe-trace-writer PRIVATE common)
+add_test(NAME test-moe-trace-writer COMMAND $<TARGET_FILE:test-moe-trace-writer>)
+set_property(TEST test-moe-trace-writer PROPERTY LABELS main)
+
+find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
+if (Python3_Interpreter_FOUND)
+    add_test(
+        NAME test-moe-cache-sim
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-moe-cache-sim.py)
+    set_property(TEST test-moe-cache-sim PROPERTY LABELS python)
+endif()
+
 # llama_target_and_test(test-opt.cpp) # SLOW
 
 llama_target_and_test(test-model-load-cancel.cpp  LABEL "model")

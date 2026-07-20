@@ -1,0 +1,37 @@
+pg-trace phase=(?P<phase>\S+)(?: index=(?P<index>\d+)/(?P<window>\d+))? tokens=(?P<tokens>\d+) ubatches=(?P<ubatches>\d+) reuse_hits=(?P<reuse_hits>\d+) rebuilds=(?P<rebuilds>\d+) reset_pre=(?P<reset_pre>[0-9.]+)ms build=(?P<build>[0-9.]+)ms alloc=(?P<alloc>[0-9.]+)ms inputs=(?P<inputs>[0-9.]+)ms compute=(?P<compute>[0-9.]+)ms reset_post=(?P<reset_post>[0-9.]+)ms total=(?P<total>[0-9.]+)ms kv_n=(?P<kv_n>\d+) kv_head=(?P<kv_head>\d+)
+
+===== STRING BOUNDARY =====
+
+hot experts trace \((?P<stage>[^)]+)\): locked_rows=(?P<locked_rows>\d+) unlocked_rows=(?P<unlocked_rows>\d+) locked_share=(?P<locked_share>[0-9.]+)% locked_dispatches=(?P<locked_dispatches>\d+) unlocked_dispatches=(?P<unlocked_dispatches>\d+) total_dispatches=(?P<total_dispatches>\d+) budget=(?P<budget>\d+)
+
+===== STRING BOUNDARY =====
+
+hot experts: locked (?P<locked>\d+)/(?P<total>\d+) \(budget (?P<budget>\d+), fails (?P<fails>\d+), dispatches (?P<dispatches>\d+)\) \| top-8:(?P<top>.*)$
+
+===== STRING BOUNDARY =====
+
+hot experts layer \((?P<stage>[^)]+)\): layer=(?P<layer>\d+)(?P<top>.*)$
+
+===== STRING BOUNDARY =====
+
+general\.architecture\s+str\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)
+
+===== STRING BOUNDARY =====
+
+llm_load_print_meta:\s+arch\s+=\s+(?P<arch>[a-zA-Z0-9._-]+)
+
+===== STRING BOUNDARY =====
+
+^\s*(?:llama_print_timings:)?\s*eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<runs>\d+)\s+(?:runs|tokens)\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)
+
+===== STRING BOUNDARY =====
+
+^\s*(?:llama_print_timings:)?\s*prompt eval time\s+=\s+(?P<total_ms>[0-9.]+)\s+ms\s+/\s+(?P<tokens>\d+)\s+tokens\s+\(\s*(?P<per_token_ms>[0-9.]+)\s+ms per token,\s+(?P<tps>[0-9.]+)\s+tokens per second\)
+
+===== STRING BOUNDARY =====
+
+Called by ProcessManager on every output line to track generation rate.
+
+===== STRING BOUNDARY =====
+
+Estimate current tok/s from recent output line rate (last 5 seconds).
