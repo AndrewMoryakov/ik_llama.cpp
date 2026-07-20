@@ -52,9 +52,11 @@ branch at checkpoint: feature/rtr-auto-review-fixes
 known unrelated commit visible in this tree: c472ed52
 ```
 
-This tree contains many uncommitted MiniMax/superpowers changes. **Do not run
-`reset --hard`, `clean`, mass checkout, or rebase here.** It is not the clean RTR
-PR worktree. Run `git status` before any operation and preserve all user work.
+The previously uncommitted MiniMax/superpowers work was captured and pushed on
+`feature/rtr-auto-review-fixes`. A fresh clone of that branch should be clean,
+but it is still not the RTR PR worktree. Run `git status` before every operation
+and never use `reset --hard`, `clean`, mass checkout or rebase to discard unknown
+work.
 
 ## 3. Original confirmed problems
 
