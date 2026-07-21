@@ -8,8 +8,9 @@ Continue MiniMax-M2.7 live-test preparation in AndrewMoryakov/ik_llama.cpp.
    git show origin/main:FORK_WORKFLOW.md
 2. Switch to:
    feature/minimax-step0-readiness
-3. Verify the checked-out commit is at least:
-   c4c89c2f
+3. Verify that the checked-out commit contains the finalized readiness fixes:
+   git merge-base --is-ancestor 15089c54593995ca440eba451b0a7cd90bc40569 HEAD
+   Stop if this command returns non-zero.
 4. Read, in this order:
    - docs/superpowers/specs/00-INDEX.md
    - docs/superpowers/specs/analysis-3-step0-measurements.md
