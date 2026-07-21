@@ -85,10 +85,13 @@ offline cache simulation. Only after that evidence should a focused
 prefetch/cache/CPU optimization branch be created. Do not merge this stream
 into the RTR PR merely because both involve model loading or expert tensors.
 
-Current recorded state: the readiness package is pushed at least through
-`c4c89c2f`; no authoritative Ryzen/MiniMax baseline or MiniMax trace has been
-captured yet. The next agent must execute the runbook rather than infer a
-bottleneck from projections or from Qwen smoke data.
+Current recorded state: the readiness package passed its final review and is
+pushed at `6e3d48d9` (**GO for controlled target-machine testing**). Its
+handoff prompt requires the immutable safety baseline
+`15089c54593995ca440eba451b0a7cd90bc40569`. No authoritative Ryzen/MiniMax
+baseline or MiniMax trace has been captured yet. The next agent must execute
+the runbook rather than infer a bottleneck from projections or from Qwen smoke
+data.
 
 ## Safe operating rules
 
