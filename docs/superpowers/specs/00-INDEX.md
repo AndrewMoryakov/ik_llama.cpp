@@ -33,6 +33,7 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 | 6 | `analysis-6-fork-branch-opportunities.md` | Аудит других веток форка | Hot Experts/paging, SER, CPU-кандидаты |
 | 7 | `analysis-7-branch-solution-projection.md` | Карта решений из сторонних веток | что переносить, что отложить, какие гейты |
 | 8 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
+| 9 | `step0/NEXT_AGENT_PROMPT.md` | Copy/paste handoff для другой машины | безопасный старт без истории чата |
 
 ## Подтверждённые факты (grounded в дереве форка)
 1. **`-ser` неактивен в HEAD** — `ggml_top_k_thresh` только объявление + определение + один закомментированный вызов; безопасное возвращение требует отдельной ветки, correctness-тестов и benchmark, а не простого uncomment.
