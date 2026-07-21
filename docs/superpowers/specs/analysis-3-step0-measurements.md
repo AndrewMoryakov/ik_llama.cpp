@@ -246,12 +246,15 @@ latency-bound.
 ### Новый набор колонок CSV (Фаза 1)
 
 ```
-timestamp,label,model,n_gen,threads,ctx,prompt_tps,gen_tps,gen_tokens,wall_s,
+timestamp,label,model,n_gen,threads,ctx,prompt_tps,gen_tps,eval_runs,wall_s,
 disk_instance,phys_total_MB,phys_pregen_MB,phys_gen_steady_MB,
-phys_gen_bytes_per_tok,peak_ws_MB,extra_args
+phys_gen_bytes_per_tok,peak_ws_MB,extra_args,...,cache_policy,manifest_path
 ```
 
 - `phys_total_MB` — всё device reading за процессное окно.
+- `eval_runs` — reported `n_eval`, not sampled-token count. A normal completed
+  `-n N` generation reports `N-1` eval runs because the first generated token
+  is not included in `n_eval`.
 - `phys_pregen_MB` — estimator накопленного чтения до реконструированного gen start.
 - `phys_gen_steady_MB` — чтение после отброса transient части gen-окна.
 - `phys_gen_bytes_per_tok` — ключевой текущий estimator; сохранять рядом метод,

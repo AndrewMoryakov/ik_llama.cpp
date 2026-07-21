@@ -25,17 +25,27 @@ git switch feature/minimax-step0-readiness
 git pull --ff-only
 git status --short --branch
 
-# Build the actual Release path used below (adapt the CMake generator as needed).
+# Configure a clean CPU build with tests. This uses the default installed
+# Windows generator; adapt -G/-A explicitly if the machine has several toolchains.
+cmake -S . -B build -DLLAMA_BUILD_TESTS=ON -DGGML_CUDA=OFF `
+  -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release
+
+# Build the actual Release path used below.
 cmake --build build --config Release --target llama-cli test-moe-trace-writer
-build\bin\Release\test-moe-trace-writer.exe
+
+# Adapt these two paths once if the selected generator writes build\bin\ directly.
+$llamaCli = (Resolve-Path '.\build\bin\Release\llama-cli.exe').Path
+$traceWriterTest = (Resolve-Path '.\build\bin\Release\test-moe-trace-writer.exe').Path
+& $traceWriterTest
 
 python -m pip install -r tools/moe_cache_sim/requirements.txt
+python -m pip install pytest
 python -m pytest -q tests/test-moe-cache-sim.py
 ```
 
-If the build layout has no `Release` subdirectory, pass the real executable path
-to `-LlamaCli`. Record `git rev-parse HEAD`, the executable path and the exact
-GGUF path in the run directory.
+If the build layout has no `Release` subdirectory, set `$llamaCli` and
+`$traceWriterTest` to the real Release paths. Record `git rev-parse HEAD`, the
+executable path and the exact GGUF path in the run directory.
 
 Create a quiet output directory on a drive other than the model SSD if possible:
 
@@ -53,16 +63,36 @@ smoke-only opt-in.
 ## 1. Authoritative Step0 baseline
 
 Ensure other disk-heavy work is stopped and the pagefile is not competing on
-the model SSD. Use a fixed prompt/seed/context, CPU-only execution, and at
-least three repetitions. `step0-bench.ps1` forces `-ngl 0` and rejects a
-non-zero GPU override.
+the model SSD. Use a fixed prompt/seed/context and CPU-only execution.
+`step0-bench.ps1` forces `-ngl 0` and rejects GPU offload, `--no-mmap`, runtime
+RTR (including `-rtra`/`--run-time-repack-auto`) and runtime up/gate merging
+overrides.
+
+Do not mix the first cache-populating run into the repeat summary. Run one
+separate warm-up/mechanics pass, then collect three consecutive steady-regime
+runs without clearing the standby cache between them. Record this as
+`cache_policy=warmup_then_three_uncleared_repeats`; the >RAM model will still
+page, but the three summarized runs start from an explicitly defined policy.
 
 ```powershell
 .\docs\superpowers\specs\step0\step0-bench.ps1 `
-  -LlamaCli .\build\bin\Release\llama-cli.exe `
+  -LlamaCli $llamaCli `
   -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
   -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
-  -Label baseline_cpu_mmap -NGen 512 -CtxSize 4096 -Repeat 3 `
+  -Label warmup_cpu_mmap -CachePolicy warmup_before_uncleared_repeats `
+  -NGen 512 -CtxSize 4096 -Repeat 1 `
+  -Csv "$run\step0-warmup.csv"
+```
+
+Then run the authoritative repeat set:
+
+```powershell
+.\docs\superpowers\specs\step0\step0-bench.ps1 `
+  -LlamaCli $llamaCli `
+  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
+  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -Label baseline_cpu_mmap -CachePolicy warmup_then_three_uncleared_repeats `
+  -NGen 512 -CtxSize 4096 -Repeat 3 `
   -Csv "$run\step0-results.csv"
 ```
 
@@ -93,7 +123,7 @@ $trace = "$run\minimax-smoke.ndjson"
 python -m tools.moe_cache_sim.build_layout --model $model --output $layout
 
 # Trace only. Do not use this run's timings or disk counters.
-.\build\bin\Release\llama-cli.exe -m $model -p 'Explain the proof strategy in a short mathematical argument.' `
+& $llamaCli -m $model -p 'Write a detailed 1500-word technical tutorial on CPU memory hierarchies, SSD paging, and mixture-of-experts inference.' `
   -n 32 --seed 1234 -ngl 0 --moe-trace $trace
 
 python -m tools.moe_cache_sim.simulate validate --layout $layout --trace $trace
@@ -109,10 +139,15 @@ same simple CPU-only/mmap decode settings, then validate it before simulation:
 
 ```powershell
 $trace512 = "$run\minimax-512.ndjson"
-.\build\bin\Release\llama-cli.exe -m $model -p 'Explain the proof strategy in a short mathematical argument.' `
+& $llamaCli -m $model -p 'Write a detailed 1500-word technical tutorial on CPU memory hierarchies, SSD paging, and mixture-of-experts inference.' `
   -n 512 --seed 1234 -ngl 0 --moe-trace $trace512
 
 python -m tools.moe_cache_sim.simulate validate --layout $layout --trace $trace512
+
+$footer = Get-Content -LiteralPath $trace512 -Tail 1 | ConvertFrom-Json
+if (-not $footer.complete -or $footer.batches -lt 480) {
+  throw "Trace is complete structurally but too short for the final locality run: batches=$($footer.batches), require >=480. Use a longer-output prompt and rerun; do not force --ignore-eos by default."
+}
 ```
 
 Do not move, rename, repack or modify the GGUF between layout extraction and
