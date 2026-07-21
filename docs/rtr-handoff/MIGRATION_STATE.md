@@ -97,7 +97,8 @@ change is justified to hide them.
 No unresolved RTR-specific regression is known. The next agent should:
 
 1. verify live GitHub PR state and new maintainer comments;
-2. post the concise differential-test result if it is not already documented;
+2. note that the concise differential-test result was posted on 2026-07-21:
+   <https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-5032484304>;
 3. respond to `@ikawrakow` review;
 4. rebase/retest only if `upstream/main` has advanced or review requests code
    changes;

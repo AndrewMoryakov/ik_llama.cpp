@@ -245,9 +245,9 @@ expected head ref: pr/rtr-auto-mode
 ### B. Continue the PR
 
 1. Verify the live GitHub PR state and read any new maintainer comments.
-2. If the differential result is not already recorded on PR #1738, post a
-   concise evidence-based comment stating that all four failures reproduce on
-   the exact upstream base.
+2. The differential result was posted on 2026-07-21:
+   <https://github.com/ikawrakow/ik_llama.cpp/pull/1738#issuecomment-5032484304>.
+   Do not repost it unless new evidence changes the classification.
 3. Wait for and respond to `@ikawrakow` review.
 4. Rebase and retest only if `upstream/main` advances or review requests code
    changes.
