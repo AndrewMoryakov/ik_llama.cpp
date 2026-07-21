@@ -54,7 +54,8 @@ param(
     [string]$Prompt = "Write a detailed 500-word essay about the history of computing, covering the mechanical era, the transistor, the microprocessor, and the modern age of AI.",
     [string]$PromptFile,
 
-    [int]$NGen = 200,
+    [ValidateRange(1, 1000000)]
+    [int]$NGen = 512,
     [int]$Threads = 0,
     [int]$CtxSize = 4096,
 
@@ -63,17 +64,40 @@ param(
 
     [string]$Label = "baseline",
     [string]$Csv = "$PSScriptRoot\step0-results.csv",
+    [ValidateRange(1, 1000)]
     [int]$Repeat = 1,
 
     # Fraction of the generation window treated as fault-in transient and dropped
     # before measuring the steady slope. 0.3 = drop first 30% of generated tokens.
+    [ValidateRange(0.0, 0.99)]
     [double]$TransientFraction = 0.3,
+
+    # Recalculate the same raw sample series at these fractions. This is a
+    # sensitivity analysis, not additional expensive model runs.
+    [double[]]$SensitivityTransientFractions = @(0.2, 0.3, 0.4),
+
+    # Name from \PhysicalDisk(*)\Disk Read Bytes/sec. Supply this on the target
+    # machine after checking the counter instances; automatic mapping is only a
+    # convenience heuristic.
+    [string]$DiskInstance,
+    [switch]$AllowTotalDiskFallback,
+
+    # Full hashing of a >100 GB GGUF is deliberately opt-in: it pollutes the
+    # page cache and changes the workload being measured.
+    [switch]$HashModel,
 
     [switch]$ColdCache,
     [switch]$KeepLog
 )
 
 $ErrorActionPreference = 'Stop'
+$InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
+
+foreach ($fraction in $SensitivityTransientFractions) {
+    if ($fraction -lt 0.0 -or $fraction -ge 1.0) {
+        throw "SensitivityTransientFractions values must be in [0, 1): $fraction"
+    }
+}
 
 # --- Resolve llama-cli ---------------------------------------------------------
 if (-not $LlamaCli) {
@@ -107,35 +131,89 @@ function Resolve-DiskInstance([string]$path) {
         $match = $names | Where-Object { $_ -ne '_total' -and $_.ToLower().Contains($drive) } | Select-Object -First 1
         if ($match) { return $match }
     } catch { }
-    Write-Warning "Could not map '$drive' to a PhysicalDisk instance; using _Total (machine-wide, noisier)."
-    return '_Total'
+    if ($AllowTotalDiskFallback) {
+        Write-Warning "Could not map '$drive' to a PhysicalDisk instance; using _Total (machine-wide, noisy)."
+        return '_Total'
+    }
+    throw "Could not map '$drive' to a PhysicalDisk instance. Inspect Get-Counter '\PhysicalDisk(*)\Disk Read Bytes/sec' and pass -DiskInstance explicitly, or use -AllowTotalDiskFallback only for a non-production smoke run."
 }
-$diskInstance = Resolve-DiskInstance $ModelPath
+$diskInstance = if ($DiskInstance) { $DiskInstance } else { Resolve-DiskInstance $ModelPath }
 $diskCounterPath = "\PhysicalDisk($diskInstance)\Disk Read Bytes/sec"
+try { Get-Counter -Counter $diskCounterPath -MaxSamples 1 -ErrorAction Stop | Out-Null }
+catch { throw "Disk counter '$diskCounterPath' is not available. Pass a valid -DiskInstance from Get-Counter '\PhysicalDisk(*)\Disk Read Bytes/sec'." }
 
 Write-Host "llama-cli : $LlamaCli"
 Write-Host "model     : $ModelPath"
 Write-Host "disk inst : $diskInstance"
 Write-Host "label     : $Label   (x$Repeat)"
 Write-Host "extra args: $($ExtraArgs -join ' ')"
+Write-Host "transient : primary=$TransientFraction sensitivity=$($SensitivityTransientFractions -join ',')"
 Write-Host ""
 
 # --- Optional cold-cache drop --------------------------------------------------
 function Invoke-ColdCache {
     $tool = Get-Command EmptyStandbyList.exe -ErrorAction SilentlyContinue
-    if ($tool) { Write-Host "[cold] EmptyStandbyList standbylist"; & $tool.Source standbylist | Out-Null; return }
+    if ($tool) {
+        Write-Host "[cold] EmptyStandbyList standbylist"
+        & $tool.Source standbylist | Out-Null
+        if ($LASTEXITCODE -ne 0) { return "EmptyStandbyList failed exit=$LASTEXITCODE" }
+        return 'EmptyStandbyList standbylist'
+    }
     $ram = Get-Command RAMMap64.exe -ErrorAction SilentlyContinue
-    if ($ram) { Write-Host "[cold] RAMMap -Et"; & $ram.Source -Et | Out-Null; return }
+    if ($ram) {
+        Write-Host "[cold] RAMMap -Et"
+        & $ram.Source -Et | Out-Null
+        if ($LASTEXITCODE -ne 0) { return "RAMMap failed exit=$LASTEXITCODE" }
+        return 'RAMMap -Et'
+    }
     Write-Warning "[cold] No EmptyStandbyList.exe / RAMMap64.exe on PATH - cache NOT dropped."
+    return 'requested_but_tool_unavailable'
 }
 
 # --- Argument list -------------------------------------------------------------
 function Build-Args {
+    for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
+        if ($ExtraArgs[$i] -match '^(?:-ngl|--gpu-layers)=(.+)$') {
+            if ($Matches[1] -ne '0') { throw "Step0 baseline is CPU-only. Do not override $($ExtraArgs[$i]) with a non-zero value." }
+        } elseif ($ExtraArgs[$i] -in @('-ngl', '--gpu-layers')) {
+            if (($i + 1) -ge $ExtraArgs.Count -or $ExtraArgs[$i + 1] -ne '0') {
+                throw "Step0 baseline is CPU-only. Do not override $($ExtraArgs[$i]) with a non-zero value."
+            }
+        }
+    }
     $a = @('-m', $ModelPath, '-c', "$CtxSize", '-n', "$NGen", '-p', $Prompt,
-           '--no-display-prompt', '--seed', '42')
+           '--no-display-prompt', '--seed', '42', '-ngl', '0')
     if ($Threads -gt 0) { $a += @('-t', "$Threads") }
     $a += $ExtraArgs
     return $a
+}
+
+# ProcessStartInfo.ArgumentList requires PowerShell 7/.NET Core. This quoting
+# implementation keeps the harness runnable on the Windows PowerShell 5.1 that
+# commonly ships with target Windows machines.
+function Quote-WindowsArgument([string]$Argument) {
+    if ($Argument.Length -eq 0) { return '""' }
+    if ($Argument -notmatch '[\s"]') { return $Argument }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('"')
+    $slashes = 0
+    foreach ($ch in $Argument.ToCharArray()) {
+        if ($ch -eq '\') { $slashes++; continue }
+        if ($ch -eq '"') {
+            [void]$sb.Append((('\' * (2 * $slashes + 1)) -join ''))
+            [void]$sb.Append('"')
+            $slashes = 0
+            continue
+        }
+        if ($slashes -gt 0) { [void]$sb.Append((('\' * $slashes) -join '')); $slashes = 0 }
+        [void]$sb.Append($ch)
+    }
+    if ($slashes -gt 0) { [void]$sb.Append((('\' * (2 * $slashes)) -join '')) }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+function ConvertTo-WindowsCommandLine([string[]]$Arguments) {
+    return (($Arguments | ForEach-Object { Quote-WindowsArgument ([string]$_) }) -join ' ')
 }
 
 # --- Timing parser (ik_llama "llama_print_timings" / newer "llama_perf") --------
@@ -170,6 +248,25 @@ function Cum-At($samples, [double]$tt) {
     return [double]$samples[$n-1].cum
 }
 
+function Get-SteadyMetric($samples, [double]$genStart, [double]$genEnd, [int]$genTok, [double]$fraction) {
+    if ($samples.Count -lt 3) { return [pscustomobject]@{ status='insufficient_samples'; bytes=0.0; bpt=$null } }
+    # This is B2 integration of a device-level rate counter. It is not proof of
+    # exact phase coverage; only future live phase markers/ETW can establish B3.
+    $steadyStart = $genStart + $fraction * ($genEnd - $genStart)
+    $steadyDur = $genEnd - $steadyStart
+    $steadyTok = $genTok * ($steadyDur / ($genEnd - $genStart))
+    if ($steadyTok -le 0) { return [pscustomobject]@{ status='invalid_window'; bytes=0.0; bpt=$null } }
+    $bytes = (Cum-At $samples $genEnd) - (Cum-At $samples $steadyStart)
+    return [pscustomobject]@{ status='ok'; bytes=$bytes; bpt=[math]::Round($bytes / $steadyTok, 0) }
+}
+function Get-Median([double[]]$values) {
+    if ($values.Count -eq 0) { return $null }
+    $sorted = @($values | Sort-Object)
+    $middle = [int]($sorted.Count / 2)
+    if (($sorted.Count % 2) -eq 1) { return $sorted[$middle] }
+    return ($sorted[$middle - 1] + $sorted[$middle]) / 2.0
+}
+
 # --- Robust CSV field quoting --------------------------------------------------
 function CsvField($v) {
     $s = [string]$v
@@ -177,24 +274,62 @@ function CsvField($v) {
     return $s
 }
 function CsvRow([object[]]$fields) { ($fields | ForEach-Object { CsvField $_ }) -join ',' }
+function Inv([object]$value, [string]$format = '0.########') {
+    if ($null -eq $value -or ($value -is [string] -and $value.Length -eq 0)) { return '' }
+    if ($value -is [System.IFormattable]) { return $value.ToString($format, $InvariantCulture) }
+    return [string]$value
+}
+function Get-FileIdentity([string]$Path, [switch]$WithHash) {
+    $item = Get-Item -LiteralPath $Path
+    $result = [ordered]@{
+        path = $item.FullName
+        size_bytes = $item.Length
+        last_write_utc = $item.LastWriteTimeUtc.ToString('o', $InvariantCulture)
+    }
+    if ($WithHash) { $result.sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+    return [pscustomobject]$result
+}
+function Get-GitHead([string]$Root) {
+    try { return (& git -C $Root rev-parse HEAD 2>$null).Trim() } catch { return $null }
+}
+function Get-HostIdentity {
+    $os = Get-CimInstance Win32_OperatingSystem
+    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    return [ordered]@{
+        os_caption = $os.Caption
+        os_version = $os.Version
+        cpu_name = $cpu.Name
+        logical_processors = $cpu.NumberOfLogicalProcessors
+        memory_bytes = [int64]$os.TotalVisibleMemorySize * 1KB
+    }
+}
 
 # --- CSV header ----------------------------------------------------------------
 $header = @('timestamp','label','model','n_gen','threads','ctx','prompt_tps','gen_tps',
             'gen_tokens','wall_s','disk_instance','phys_total_MB','phys_pregen_MB',
-            'phys_gen_steady_MB','phys_gen_bytes_per_tok','peak_ws_MB','extra_args')
-if (-not (Test-Path $Csv)) { (CsvRow $header) | Out-File -FilePath $Csv -Encoding utf8 }
+            'phys_gen_steady_MB','phys_gen_bytes_per_tok','peak_ws_MB','extra_args',
+            'status','exit_code','phase_method','first_counter_sample_s','final_counter_sample_s',
+            'transient_fraction','sensitivity_bpt','manifest_path')
+$expectedHeader = CsvRow $header
+if (-not (Test-Path $Csv)) {
+    $expectedHeader | Out-File -FilePath $Csv -Encoding utf8
+} elseif ((Get-Content -LiteralPath $Csv -TotalCount 1) -ne $expectedHeader) {
+    throw "Existing CSV '$Csv' has a different schema. Preserve it and pass a new -Csv path for step0-manifest-v1 results."
+}
 
 # --- Single run ----------------------------------------------------------------
 function Invoke-OneRun([int]$idx) {
-    if ($ColdCache) { Invoke-ColdCache }
+    $coldCacheResult = if ($ColdCache) { Invoke-ColdCache } else { 'not_requested' }
 
     $stamp   = Get-Date -Format 'yyyyMMdd_HHmmss'
     $logPath = Join-Path ([IO.Path]::GetDirectoryName($Csv)) ("step0_{0}_{1}_{2}.log" -f $Label, $idx, $stamp)
     $samPath = Join-Path ([IO.Path]::GetDirectoryName($Csv)) ("step0_{0}_{1}_{2}.samples.csv" -f $Label, $idx, $stamp)
+    $manPath = Join-Path ([IO.Path]::GetDirectoryName($Csv)) ("step0_{0}_{1}_{2}.manifest.json" -f $Label, $idx, $stamp)
+    $argsForRun = Build-Args
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $LlamaCli
-    foreach ($ar in (Build-Args)) { $psi.ArgumentList.Add([string]$ar) }
+    $psi.Arguments = ConvertTo-WindowsCommandLine $argsForRun
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
@@ -209,6 +344,8 @@ function Invoke-OneRun([int]$idx) {
     $cum = 0.0
     $peakWs = 0L
     $prev = Get-Date
+    $firstCounterSampleS = $null
+    $samples.Add([pscustomobject]@{ t = 0.0; cum = 0.0 })
     while (-not $proc.HasExited) {
         try {
             $c   = Get-Counter -Counter $diskCounterPath -SampleInterval 1 -MaxSamples 1 -ErrorAction Stop
@@ -216,68 +353,161 @@ function Invoke-OneRun([int]$idx) {
             $dt  = ($now - $prev).TotalSeconds
             $cum += [double]$c.CounterSamples[0].CookedValue * $dt
             $prev = $now
-            $samples.Add([pscustomobject]@{ t = ($now - $t0).TotalSeconds; cum = $cum })
+            $sampleT = ($now - $t0).TotalSeconds
+            $samples.Add([pscustomobject]@{ t = $sampleT; cum = $cum })
+            if ($null -eq $firstCounterSampleS) { $firstCounterSampleS = $sampleT }
         } catch { }
         try { $proc.Refresh(); if ($proc.PeakWorkingSet64 -gt $peakWs) { $peakWs = $proc.PeakWorkingSet64 } } catch { }
     }
     $proc.WaitForExit()
     $tEnd = ((Get-Date) - $t0).TotalSeconds
+    $exitCode = $proc.ExitCode
+
+    # Take an immediate final sample. Without this the previous 1 s sample can
+    # end before process teardown and silently flatten the reconstructed window.
+    try {
+        $c = Get-Counter -Counter $diskCounterPath -MaxSamples 1 -ErrorAction Stop
+        $now = Get-Date
+        $dt = ($now - $prev).TotalSeconds
+        if ($dt -gt 0) {
+            $cum += [double]$c.CounterSamples[0].CookedValue * $dt
+            $sampleT = ($now - $t0).TotalSeconds
+            $samples.Add([pscustomobject]@{ t = $sampleT; cum = $cum })
+            if ($null -eq $firstCounterSampleS) { $firstCounterSampleS = $sampleT }
+        }
+    } catch { Write-Warning "Final disk-counter sample failed: $($_.Exception.Message)" }
 
     $stdout = $sbOut.Result; $stderr = $sbErr.Result
     $allLines = ($stdout + "`n" + $stderr) -split "`r?`n"
-    if ($KeepLog) { ($stdout + "`n" + $stderr) | Out-File -FilePath $logPath -Encoding utf8 }
+    # Raw output is evidence for timing parsing and termination behavior; keep it
+    # for every run. -KeepLog remains accepted for backward-compatible callers.
+    ($stdout + "`n" + $stderr) | Out-File -FilePath $logPath -Encoding utf8
 
     # Persist per-sample series (audit / post-hoc subtraction).
     ("t_s,cum_bytes") | Out-File -FilePath $samPath -Encoding utf8
-    $samples | ForEach-Object { "{0:N3},{1:F0}" -f $_.t, $_.cum } | Add-Content -Path $samPath
+    $samples | ForEach-Object { "$(Inv $_.t '0.000'),$(Inv $_.cum '0')" } | Add-Content -Path $samPath
 
     $t = Parse-Timings $allLines
+    if ($exitCode -ne 0) { Write-Warning "llama-cli exited with $exitCode. Failure log: $logPath" }
     if (-not $t.GenTps) { Write-Warning "Could not parse generation tok/s. Check log: $logPath" }
 
-    $genTok = if ($t.GenTok) { [int]$t.GenTok } else { $NGen }
-
-    # B2: derive the generation window and measure the STEADY slope.
+    $genTok = if ($t.GenTok) { [int]$t.GenTok } else { 0 }
     $physTotalB = if ($samples.Count) { [double]$samples[$samples.Count-1].cum } else { 0.0 }
-    $genDur = if ($t.GenTps -and $t.GenTps -gt 0) { $genTok / [double]$t.GenTps } else { 0.0 }
-    if ($genDur -gt 0 -and $genDur -lt $tEnd -and $samples.Count -ge 3) {
-        $genStart    = [math]::Max(0.0, $tEnd - $genDur)
-        $steadyStart = $genStart + $TransientFraction * $genDur
-        $physPregenB = Cum-At $samples $genStart
-        $physSteadyB = (Cum-At $samples $tEnd) - (Cum-At $samples $steadyStart)
-        $steadyDur   = $tEnd - $steadyStart
-        $steadyTok   = if ($genDur -gt 0) { $genTok * ($steadyDur / $genDur) } else { 0 }
-        $physGenBpt  = if ($steadyTok -gt 0) { [math]::Round($physSteadyB / $steadyTok, 0) } else { '' }
+    $physPregenB = $physTotalB
+    $physSteadyB = 0.0
+    $physGenBpt = $null
+    $runStatus = 'provisional_reconstructed'
+    $phaseMethod = 'reconstructed_estimate_from_end_and_reported_tps'
+    $genDur = if ($t.GenTps -and $t.GenTps -gt 0 -and $genTok -gt 0) { $genTok / [double]$t.GenTps } else { 0.0 }
+    $sensitivity = New-Object System.Collections.Generic.List[string]
+
+    if ($ColdCache -and $coldCacheResult -notin @('EmptyStandbyList standbylist', 'RAMMap -Et')) {
+        $runStatus = 'cold_cache_failed'
+    } elseif ($exitCode -ne 0) {
+        $runStatus = 'process_failed'
+    } elseif ($genTok -le 0 -or $genDur -le 0 -or $genDur -ge $tEnd) {
+        $runStatus = 'timings_unparsed_or_invalid'
     } else {
-        # Not enough signal to separate phases (e.g. model fits in RAM / too few samples).
-        $physPregenB = $physTotalB; $physSteadyB = 0.0; $physGenBpt = ''
-        Write-Warning "Steady-state window not resolvable (genDur=$([math]::Round($genDur,1))s, samples=$($samples.Count)). Reporting totals only."
+        $genStart = [math]::Max(0.0, $tEnd - $genDur)
+        $physPregenB = Cum-At $samples $genStart
+        $primary = Get-SteadyMetric $samples $genStart $tEnd $genTok $TransientFraction
+        if ($primary.status -eq 'ok') {
+            $physSteadyB = $primary.bytes
+            $physGenBpt = $primary.bpt
+        } else {
+            $runStatus = $primary.status
+            Write-Warning "Steady-state metric withheld: $runStatus."
+        }
+        foreach ($fraction in $SensitivityTransientFractions) {
+            $metric = Get-SteadyMetric $samples $genStart $tEnd $genTok $fraction
+            $value = if ($metric.status -eq 'ok') { Inv $metric.bpt '0' } else { $metric.status }
+            $sensitivity.Add("$(Inv $fraction '0.00'):$value")
+        }
+        if ($genTok -lt $NGen -and $runStatus -eq 'provisional_reconstructed') {
+            $runStatus = 'short_generation'
+            Write-Warning "Generation stopped at $genTok of requested $NGen tokens; do not treat this as an equivalent baseline run."
+        }
     }
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $promptHash = ([BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($Prompt)))).Replace('-', '') }
+    finally { $sha256.Dispose() }
+    $manifest = [ordered]@{
+        schema = 'step0-manifest-v1'
+        started_at_local = $t0.ToString('o', $InvariantCulture)
+        status = $runStatus
+        exit_code = $exitCode
+        phase_method = $phaseMethod
+        git_head = Get-GitHead $repoRoot
+        executable = Get-FileIdentity $LlamaCli -WithHash
+        model = Get-FileIdentity $ModelPath -WithHash:$HashModel
+        prompt_sha256 = $promptHash
+        command = @($LlamaCli) + $argsForRun
+        disk_instance = $diskInstance
+        counter_path = $diskCounterPath
+        counter_validation = 'validated_before_launch'
+        sample_interval_seconds = 1
+        cold_cache_requested = [bool]$ColdCache
+        cold_cache_result = $coldCacheResult
+        transient_fraction = $TransientFraction
+        sensitivity_transient_fractions = $SensitivityTransientFractions
+        integration_origin_s = 0.0
+        first_counter_sample_s = $firstCounterSampleS
+        final_counter_sample_s = $samples[$samples.Count - 1].t
+        host = Get-HostIdentity
+    }
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manPath -Encoding utf8
 
     $row = CsvRow @(
         (Get-Date -Format 's'), $Label, [IO.Path]::GetFileName($ModelPath),
-        $NGen, $Threads, $CtxSize,
-        $t.PromptTps, $t.GenTps, $genTok,
-        [math]::Round($tEnd, 1), $diskInstance,
-        [math]::Round($physTotalB / 1MB, 1),
-        [math]::Round($physPregenB / 1MB, 1),
-        [math]::Round($physSteadyB / 1MB, 1),
-        $physGenBpt,
-        [math]::Round($peakWs / 1MB, 0),
-        ($ExtraArgs -join ' ')
+        (Inv $NGen '0'), (Inv $Threads '0'), (Inv $CtxSize '0'),
+        (Inv $t.PromptTps), (Inv $t.GenTps), (Inv $genTok '0'),
+        (Inv $tEnd '0.0'), $diskInstance,
+        (Inv ($physTotalB / 1MB) '0.0'),
+        (Inv ($physPregenB / 1MB) '0.0'),
+        (Inv ($physSteadyB / 1MB) '0.0'),
+        (Inv $physGenBpt '0'),
+        (Inv ($peakWs / 1MB) '0'),
+        ($ExtraArgs -join ' '),
+        $runStatus, (Inv $exitCode '0'), $phaseMethod,
+        (Inv $firstCounterSampleS '0.000'), (Inv $samples[$samples.Count - 1].t '0.000'),
+        (Inv $TransientFraction '0.00'), ($sensitivity -join ';'), $manPath
     )
     Add-Content -Path $Csv -Value $row
 
-    Write-Host ("[{0}] gen {1} t/s | steady {2} B/tok | disk total {3} MB (pregen {4}) | peak {5} MB | {6}s" -f `
-        $Label, $t.GenTps, $physGenBpt,
+    Write-Host ("[{0}] status {1} | gen {2} t/s | steady {3} B/tok | disk total {4} MB (pregen {5}) | peak {6} MB | {7}s" -f `
+        $Label, $runStatus, $t.GenTps, $physGenBpt,
         [math]::Round($physTotalB/1MB,1), [math]::Round($physPregenB/1MB,1),
         [math]::Round($peakWs/1MB,0), [math]::Round($tEnd,1))
+    return [pscustomobject]@{ status=$runStatus; gen_tps=$t.GenTps; phys_gen_bytes_per_tok=$physGenBpt; manifest_path=$manPath }
 }
 
+$runResults = @()
+$sessionStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 for ($i = 1; $i -le $Repeat; $i++) {
     Write-Host "--- run $i/$Repeat ---"
-    Invoke-OneRun $i
+    $runResults += Invoke-OneRun $i
 }
+
+$valid = @($runResults | Where-Object { $_.status -eq 'provisional_reconstructed' -and $null -ne $_.phys_gen_bytes_per_tok })
+$summaryPath = Join-Path ([IO.Path]::GetDirectoryName($Csv)) ("{0}_{1}_{2}.summary.csv" -f [IO.Path]::GetFileNameWithoutExtension($Csv), $Label, $sessionStamp)
+$summaryHeader = 'label,n_runs,n_valid,median_gen_tps,min_gen_tps,max_gen_tps,median_phys_gen_bytes_per_tok,min_phys_gen_bytes_per_tok,max_phys_gen_bytes_per_tok,phase_method'
+$tps = @($valid | ForEach-Object { [double]$_.gen_tps })
+$bpt = @($valid | ForEach-Object { [double]$_.phys_gen_bytes_per_tok })
+$summary = CsvRow @(
+    $Label, (Inv $runResults.Count '0'), (Inv $valid.Count '0'),
+    (Inv (Get-Median $tps)), (Inv (($tps | Measure-Object -Minimum).Minimum)), (Inv (($tps | Measure-Object -Maximum).Maximum)),
+    (Inv (Get-Median $bpt) '0'), (Inv (($bpt | Measure-Object -Minimum).Minimum) '0'), (Inv (($bpt | Measure-Object -Maximum).Maximum) '0'),
+    'reconstructed_estimate_from_end_and_reported_tps'
+)
+$summaryHeader | Out-File -FilePath $summaryPath -Encoding utf8
+$summary | Add-Content -Path $summaryPath
 
 Write-Host ""
 Write-Host "Done. Results: $Csv"
 Write-Host "Per-sample series: step0_<label>_<run>_<ts>.samples.csv (for slope audit / subtraction)."
+Write-Host "Repeat summary (valid provisional runs only): $summaryPath"
+if ($valid.Count -ne $runResults.Count) {
+    $statuses = ($runResults | ForEach-Object { $_.status }) -join ', '
+    throw "One or more Step0 runs are not valid provisional measurements: $statuses. Evidence was preserved in the CSV, manifests, and logs."
+}

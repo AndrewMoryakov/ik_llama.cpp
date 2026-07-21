@@ -259,12 +259,30 @@ phys_gen_bytes_per_tok,peak_ws_MB,extra_args
 - Плюс отдельный per-sample лог `<label>_<run>_<ts>.csv` (таймстамп + кумулятивные
   байты) для расчёта наклона и пост-фактум subtraction.
 - `extra_args` квотируется корректно (баг `",,"` устранён).
-- Текущая строка ещё не хранит transient fraction/sample interval/error bars;
-  это B3 TODO вместе с live phase events.
+- CSV теперь хранит primary transient fraction, status/exit code, phase method,
+  first/final counter sample timestamps и manifest path. Sensitivity 20/30/40%
+  считается по одному raw series; repeat summary хранит median/min/max.
+
+### Hardening before target-machine baseline (2026-07-21)
+
+- CSV/sidecar serialization uses invariant culture, so a `ru-RU` Windows locale
+  cannot turn decimal points into CSV separators.
+- The harness validates the chosen `PhysicalDisk` counter before launching,
+  requires an explicit instance when automatic mapping is ambiguous (except for
+  an opt-in smoke-only `_Total` fallback), and forces CPU-only `-ngl 0`.
+- Every run writes a raw log and JSON manifest: git head, executable identity,
+  model size/timestamp (full model hash remains opt-in because reading 110 GB
+  perturbs the cache), prompt hash, command, host identity, counters and
+  cold-cache result.
+- Failed/short/unparsed runs remain recorded with evidence but make the script
+  fail; they are excluded from the repeat summary.
+- Windows PowerShell 5.1 launch compatibility is retained through explicit
+  Windows command-line quoting rather than `ProcessStartInfo.ArgumentList`.
 
 ### Статус харнесса
 
 - ✅ A2/B2/C-фаза1 реализованы; это estimator с перечисленными ограничениями.
-- ⏳ B3: live phase/token timestamps, invariant-culture sidecar CSV, 20/30/40%
-  sensitivity, disk latency/queue counters и ETW attribution cross-check.
+- ⏳ B3: **real** live phase/token timestamps, disk latency/queue counters и ETW
+  attribution cross-check. `phase_method=reconstructed_estimate...` прямо
+  маркирует, что текущий B2 не доказывает точные границы decode.
 - ⛔ Реальный baseline — ждёт целевой машины (Ryzen9/96 ГБ) + MiniMax-M2 (>RAM).
