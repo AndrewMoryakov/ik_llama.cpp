@@ -9,7 +9,7 @@ Continue MiniMax-M2.7 live-test preparation in AndrewMoryakov/ik_llama.cpp.
 2. Switch to:
    feature/minimax-step0-readiness
 3. Verify that the checked-out commit contains the finalized readiness fixes:
-   git merge-base --is-ancestor 15089c54593995ca440eba451b0a7cd90bc40569 HEAD
+   git merge-base --is-ancestor 88235a0a6143a8f9fb37af191acbeca0f5fb680f HEAD
    Stop if this command returns non-zero.
 4. Read, in this order:
    - docs/superpowers/specs/00-INDEX.md
