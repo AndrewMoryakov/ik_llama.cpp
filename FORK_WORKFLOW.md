@@ -80,18 +80,20 @@ tests/test-moe-cache-sim.py
 ```
 
 The immediate destination is an evidence report from the target machine:
-three CPU-only mmap baseline runs, then a separate validated routing trace and
-offline cache simulation. Only after that evidence should a focused
-prefetch/cache/CPU optimization branch be created. Do not merge this stream
-into the RTR PR merely because both involve model loading or expert tensors.
+three CPU-only mmap baseline runs, plus separate token-timing, ETW attribution,
+routing-trace/locality and offline cache-simulation diagnostic lanes. The
+metrics package adds observability only, not an inference optimization. Only
+after live evidence should a focused prefetch/cache/CPU optimization branch be
+created. Do not merge this stream into the RTR PR merely because both involve
+model loading or expert tensors.
 
-Current recorded state: the readiness package passed its final review and is
-pushed at `6e3d48d9` (**GO for controlled target-machine testing**). Its
-handoff prompt requires the immutable safety baseline
-`15089c54593995ca440eba451b0a7cd90bc40569`. No authoritative Ryzen/MiniMax
-baseline or MiniMax trace has been captured yet. The next agent must execute
-the runbook rather than infer a bottleneck from projections or from Qwen smoke
-data.
+Current recorded state: the reviewed metrics/readiness package is pushed at
+`c99a323d` (**GO for controlled target-machine testing**). Its handoff prompt
+requires package commit `88235a0a6143a8f9fb37af191acbeca0f5fb680f`; a fresh
+remote clone passed that ancestor guard and contained the required scripts.
+No authoritative Ryzen/MiniMax baseline or MiniMax trace has been captured
+yet. The next agent must execute the runbook rather than infer a bottleneck
+from projections or from Qwen smoke data.
 
 ## Safe operating rules
 
