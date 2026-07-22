@@ -21,9 +21,13 @@ Do not merge this work into RTR PR #1738.
 ## 0. Preflight
 
 ```powershell
+git fetch origin --prune
 git switch feature/minimax-step0-readiness
-git pull --ff-only
+git merge --ff-only origin/feature/minimax-step0-readiness
 git status --short --branch
+if (git status --porcelain) { throw 'Unexpected worktree modifications; stop before target measurement.' }
+git merge-base --is-ancestor 88235a0a6143a8f9fb37af191acbeca0f5fb680f HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Required MiniMax metrics package is not in HEAD.' }
 
 # Configure a clean CPU build with tests. This uses the default installed
 # Windows generator; adapt -G/-A explicitly if the machine has several toolchains.
@@ -40,6 +44,8 @@ $tokenTimingTest = (Resolve-Path '.\build\bin\Release\test-token-timing-writer.e
 & $traceWriterTest
 & $tokenTimingTest
 
+ctest --test-dir build -C Release -R "token-timing|moe-trace" --output-on-failure
+
 python -m pip install -r tools/moe_cache_sim/requirements.txt
 python -m pip install pytest
 python -m pytest -q tests/test-moe-cache-sim.py
@@ -49,18 +55,43 @@ If the build layout has no `Release` subdirectory, set all three executable
 variables to the real Release paths. Record `git rev-parse HEAD`, the executable
 path and the exact GGUF path in the run directory.
 
-Create a quiet output directory on a drive other than the model SSD if possible:
+Ask the operator for the exact entry GGUF and output directory. Resolve them
+once and reuse the variables in every command; for a split GGUF, `$model` must
+be the canonical `-00001-of-000NN.gguf` entry shard. Create the output on a
+drive other than the model SSD if possible:
 
 ```powershell
-$run = 'E:\minimax-runs\2026-07-21-baseline'
+$model = (Resolve-Path -LiteralPath '<FULL_PATH_TO_MINIMAX_ENTRY_GGUF>').Path
+$run = '<FULL_PATH_TO_OUTPUT_DIRECTORY>'
 New-Item -ItemType Directory -Force $run
+
+# Best-effort ordinary drive-letter mapping. Storage Spaces, mounted folders,
+# VHDs and network paths require an operator-confirmed mapping instead.
+$modelDrive = (Get-Item -LiteralPath $model).PSDrive.Name
+Get-Partition -DriveLetter $modelDrive | Get-Disk |
+  Select-Object Number,FriendlyName,SerialNumber,BusType,Size
+
 Get-Counter '\PhysicalDisk(*)\Disk Read Bytes/sec' |
   Select-Object -Expand CounterSamples | Select-Object InstanceName,Path
+
+$diskInstance = '<EXACT_MODEL_SSD_PHYSICALDISK_INSTANCE>'
+if ($diskInstance -like '<*') { throw 'Set $diskInstance before running Step0.' }
 ```
 
-Choose and record the `PhysicalDisk` instance for the model SSD. Do not use
+Cross-check the disk number/name from `Get-Disk` against the counter instance,
+then record the exact `PhysicalDisk` instance for the model SSD. Do not use
 `_Total` for an authoritative run; the harness only allows it with explicit
-smoke-only opt-in.
+smoke-only opt-in. If the mapping is ambiguous, stop and ask the operator rather
+than guessing.
+
+The metrics implementation was validated with English Windows performance
+counter names. Before the expensive model run, the `Get-Counter` command above
+must succeed and return finite samples for the chosen instance. On a localized
+Windows installation where `\PhysicalDisk` is unavailable, do not translate a
+counter name by guesswork and do not use `_Total` as a workaround. Preserve
+the output of `Get-Counter -ListSet *`, report a localization blocker, and stop
+before claiming an authoritative baseline; localized counter-name resolution
+is not implemented by this package.
 
 ## 1. Authoritative Step0 baseline
 
@@ -79,8 +110,8 @@ page, but the three summarized runs start from an explicitly defined policy.
 ```powershell
 .\docs\superpowers\specs\step0\step0-bench.ps1 `
   -LlamaCli $llamaCli `
-  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
-  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -ModelPath $model `
+  -DiskInstance $diskInstance `
   -Label warmup_cpu_mmap -CachePolicy warmup_before_uncleared_repeats `
   -NonAuthoritative -NonAuthoritativeReason warmup_before_baseline `
   -NGen 512 -CtxSize 4096 -Repeat 1 `
@@ -92,8 +123,8 @@ Then run the authoritative repeat set:
 ```powershell
 .\docs\superpowers\specs\step0\step0-bench.ps1 `
   -LlamaCli $llamaCli `
-  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
-  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -ModelPath $model `
+  -DiskInstance $diskInstance `
   -Label baseline_cpu_mmap -CachePolicy warmup_then_three_uncleared_repeats `
   -NGen 512 -CtxSize 4096 -Repeat 3 `
   -Csv "$run\step0-results.csv"
@@ -114,8 +145,8 @@ multi-repeat OFF/ON overhead A/B is below one percent and within baseline noise.
 ```powershell
 .\docs\superpowers\specs\step0\step0-bench.ps1 `
   -LlamaCli $llamaCli `
-  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
-  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -ModelPath $model `
+  -DiskInstance $diskInstance `
   -Label diagnostic_token_timing `
   -CachePolicy warmup_then_diagnostic_uncleared `
   -TokenTiming -NGen 512 -CtxSize 4096 -Repeat 1 `
@@ -135,10 +166,16 @@ Run elevated, with the output directory on a drive other than the model SSD:
 ```powershell
 .\docs\superpowers\specs\step0\step0-etw.ps1 `
   -LlamaCli $llamaCli `
-  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
-  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -ModelPath $model `
+  -DiskInstance $diskInstance `
   -OutputDirectory $run -NGen 512
 ```
+
+`step0-etw.ps1` intentionally recognizes only the tested English idle response
+from `wpr -status` and fails closed for localized or unknown output so it cannot
+cancel another recording. If that happens, preserve the raw `wpr -status`
+output and report ETW as `blocked_by_localized_status`; do not edit the wrapper,
+cancel a session, or substitute ETW numbers manually during the target run.
 
 The wrapper refuses an already active or unrecognized WPR session, always
 attempts `wpr -stop <etl>` after a successful start, and uses cancel only if
@@ -169,7 +206,6 @@ discovered automatically; otherwise pass every shard explicitly to
 `build_layout`.
 
 ```powershell
-$model = 'D:\models\MiniMax-M2.7.gguf'
 $layout = "$run\minimax-layout.json"
 $trace = "$run\minimax-smoke.ndjson"
 

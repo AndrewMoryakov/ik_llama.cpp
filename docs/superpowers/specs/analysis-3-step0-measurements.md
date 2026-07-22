@@ -1,5 +1,15 @@
 # ШАГ 0 — измерительный плейбук (Windows/PowerShell)
 
+> **STATUS: HISTORICAL ANALYSIS, NOT AN EXECUTION RUNBOOK.** Do not execute the
+> commands or cache policy in this file on the Ryzen target. They preserve the
+> reasoning that led to the current harness. The only authoritative execution
+> procedure is `step0/MINIMAX_TARGET_RUNBOOK.md`: one explicitly
+> non-authoritative warm-up followed by three uncleared-cache baseline repeats,
+> with separate token-timing, ETW and routing-trace diagnostics. Step0 can
+> identify disk pressure but cannot distinguish achieved DRAM-bandwidth limits
+> from compute without synchronized memory-controller evidence; report that
+> resident-path split as `unresolved`.
+
 Цель: подтвердить, диск-bound или RAM-bandwidth-bound текущий CPU-only инференс MiniMax M2.7 на ik_llama.cpp, до любых правок кода.
 
 Проверено против репо: `llama-cli.exe`/`llama-bench.exe`/`llama-sweep-bench.exe` в `build\bin\`; `--mlock`/`--no-mmap` в `common/common.cpp:1461-1462,2718-2722`; `n_expert`/`n_expert_used`/`n_expert_shared` лог-строки в `src/llama.cpp:1958,2025,2051`; GGUF-ключи в `gguf-py/gguf/constants.py:88-90`; routed-эксперты `_exps` в `constants.py:446-448`, shared `_shexp` в `constants.py:441-443`; per-tensor `n_bytes` в `gguf-py/gguf/gguf_reader.py:104-105,328-362`.
@@ -24,16 +34,18 @@ cd "O:\user files\Projects\ik_llama.cpp"
 
 ## Шаг 2 — Disk read MB/s во время decode → GB/токен
 
-> **Канонический метод — скрипт `step0/step0-bench.ps1`.** Его
+> **Канонический метод задаёт только `step0/MINIMAX_TARGET_RUNBOOK.md`.** Скрипт
+> `step0/step0-bench.ps1` должен запускаться с точными аргументами и cache policy
+> из runbook. Его
 > `phys_gen_bytes_per_tok` — device-level **estimator**, не PID/file ground truth:
 > `PhysicalDisk` включает другие reads/read-ahead, sampling идёт примерно раз в
 > секунду, а fallback `_Total` ещё шумнее. Нужны тихий диск, pagefile на другом
 > физическом устройстве,
 > raw samples, ≥3 повтора/error bars и sensitivity `TransientFraction` 20/30/40%.
-> ```powershell
-> .\docs\superpowers\specs\step0\step0-bench.ps1 -ModelPath "<MODEL>" -Label baseline -Repeat 3 -ColdCache -KeepLog
-> ```
-> Ручной сниппет ниже — **упрощённый fallback**. Он усредняет чтение по всему прогону и потому **смешивает load и generation** (`Start-Sleep 8` — грубый пропуск загрузки, не работает при model>RAM, где load размазан по всему прогону). Для steady-state bytes/token пользуйся скриптом.
+> Ручной сниппет ниже — **архивная иллюстрация, не fallback**. Он усредняет
+> чтение по всему прогону и потому **смешивает load и generation** (`Start-Sleep
+> 8` — грубый пропуск загрузки, не работает при model>RAM, где load размазан по
+> всему прогону). Для target evidence следуйте runbook.
 
 ```powershell
 cd "O:\user files\Projects\ik_llama.cpp"
@@ -65,6 +77,12 @@ $gbPerToken = ($avgMBps / 1024) / $tokensPerSec
 ```
 
 ## Шаг 3 — Реальная полоса RAM (STREAM/MLC/AIDA64), EXPO on/off
+
+This measures a separate peak-bandwidth calibration, not achieved DRAM
+bandwidth during inference. It cannot by itself classify the live resident path
+as RAM-bound rather than compute-bound. Do not reboot or change EXPO during the
+Step0 evidence sequence; perform such A/B work only as a separately approved
+follow-up with a new baseline.
 
 Не входит в репо — скачать. Intel MLC работает и на AMD:
 ```powershell

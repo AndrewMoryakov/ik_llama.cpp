@@ -3,19 +3,31 @@
 ```text
 Continue MiniMax-M2.7 live-test preparation in AndrewMoryakov/ik_llama.cpp.
 
-1. Clone/fetch the fork. Read the fork-wide branch map before switching:
-   git fetch --all --prune
+1. Clone/fetch the fork and read the fork-wide branch map:
+   git fetch origin --prune
    git show origin/main:FORK_WORKFLOW.md
-2. Switch to:
-   feature/minimax-step0-readiness
+2. Switch to the execution branch and fast-forward it before doing any work:
+   git switch feature/minimax-step0-readiness
+   In a fresh clone, Git normally creates the local branch from the unique
+   origin branch. If the switch command fails because no local branch exists,
+   run this instead:
+   git switch --track origin/feature/minimax-step0-readiness
+   Then continue:
+   git merge --ff-only origin/feature/minimax-step0-readiness
+   git status --short --branch
+   Stop and ask the operator if the worktree has unexpected modifications.
 3. Verify that the checked-out commit contains the finalized readiness fixes:
    git merge-base --is-ancestor 88235a0a6143a8f9fb37af191acbeca0f5fb680f HEAD
    Stop if this command returns non-zero.
+   This SHA is the minimum implementation ancestor, not an expected exact HEAD;
+   the branch-tip SHA recorded in main is only a moving documentation checkpoint.
 4. Read, in this order:
    - docs/superpowers/specs/00-INDEX.md
-   - docs/superpowers/specs/analysis-3-step0-measurements.md
    - docs/superpowers/specs/step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md
+   - docs/superpowers/specs/step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md
    - docs/superpowers/specs/step0/MINIMAX_TARGET_RUNBOOK.md
+   - docs/superpowers/specs/analysis-3-step0-measurements.md (historical
+     rationale only; never override the runbook with its archived commands)
 5. Do not use RTR PR #1738 worktrees for this task.
 6. Follow runbook sections 0 and 1 first: build/validate tools, identify the
    model SSD PhysicalDisk instance, then capture three CPU-only mmap baseline
