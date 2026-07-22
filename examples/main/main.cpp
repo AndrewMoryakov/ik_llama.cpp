@@ -3,6 +3,8 @@
 #include "console.h"
 #include "llama.h"
 #include "moe-trace.h"
+#include "token-timing.h"
+#include "ggml.h"
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -131,6 +133,7 @@ static std::string chat_add_and_format(struct llama_model * model, common_chat_t
 int main(int argc, char ** argv) {
     gpt_params params;
     params.supports_moe_trace = true;
+    params.supports_token_timing = true;
     g_params = &params;
 
     if (!gpt_params_parse(argc, argv, params)) {
@@ -140,7 +143,35 @@ int main(int argc, char ** argv) {
 
     common_params_sampling & sparams = params.sparams;
 
+    if (!params.token_timing_file.empty()) {
+        if (!params.moe_trace_file.empty()) {
+            fprintf(stderr, "error: --token-timing and --moe-trace are mutually exclusive\n");
+            return 1;
+        }
+        if (params.cb_eval != nullptr || params.logits_all || params.embedding) {
+            fprintf(stderr, "error: --token-timing requires ordinary target decode without eval callbacks/logits-all/embedding\n");
+            return 1;
+        }
+        if (params.n_parallel != 1 || params.n_sequences != 1 || sparams.cfg_scale > 1.0f ||
+            params.interactive || params.interactive_first || params.conversation) {
+            fprintf(stderr, "error: --token-timing v1 requires one non-interactive sequence without CFG\n");
+            return 1;
+        }
+        if (params.has_mtp || params.speculative.type != COMMON_SPECULATIVE_TYPE_NONE ||
+            params.speculative.has_dft() || !params.speculative.replacements.empty() ||
+            params.speculative.autotune || !params.lookup_cache_static.empty() ||
+            !params.lookup_cache_dynamic.empty()) {
+            fprintf(stderr, "error: --token-timing v1 does not support MTP, speculative or lookup decoding\n");
+            return 1;
+        }
+        if (params.n_predict == 0) {
+            fprintf(stderr, "error: --token-timing requires at least one generated token\n");
+            return 1;
+        }
+    }
+
     std::unique_ptr<moe_trace_writer> moe_trace;
+    std::unique_ptr<token_timing_writer> token_timing;
     if (!params.moe_trace_file.empty()) {
         if (params.logits_all || params.embedding) {
             fprintf(stderr, "error: --moe-trace v1 is incompatible with --logits-all/--embedding\n");
@@ -166,6 +197,10 @@ int main(int argc, char ** argv) {
         params.cb_eval_user_data = moe_trace.get();
         params.warmup = false;
         fprintf(stderr, "warning: --moe-trace is measurement-only and adds backend synchronization overhead\n");
+    }
+    if (!params.token_timing_file.empty()) {
+        token_timing.reset(new token_timing_writer());
+        fprintf(stderr, "warning: --token-timing is diagnostic until its overhead is validated on the target\n");
     }
 
 #ifndef LOG_DISABLE_LOGS
@@ -249,7 +284,7 @@ int main(int argc, char ** argv) {
         LOG_TEE("%s: error: unable to load model\n", __func__);
         return 1;
     }
-    if (moe_trace) {
+    if (moe_trace || token_timing) {
         std::vector<std::string> protected_paths = {
             params.prompt_file,
             params.path_prompt_cache,
@@ -265,15 +300,25 @@ int main(int argc, char ** argv) {
         }
         protected_paths.insert(
             protected_paths.end(), params.protected_input_paths.begin(), params.protected_input_paths.end());
-        if (!moe_trace->start(model, params.moe_trace_file, params.model, protected_paths)) {
-            LOG_TEE("%s: cannot initialize MoE trace: %s\n", __func__, moe_trace->error().c_str());
-            llama_free(ctx);
-            llama_free_model(model);
-            llama_backend_free();
-            return 1;
+        if (moe_trace) {
+            if (!moe_trace->start(model, params.moe_trace_file, params.model, protected_paths)) {
+                LOG_TEE("%s: cannot initialize MoE trace: %s\n", __func__, moe_trace->error().c_str());
+                llama_free(ctx);
+                llama_free_model(model);
+                llama_backend_free();
+                return 1;
+            }
+            if (!moe_trace->good()) {
+                LOG_TEE("%s: unsupported model for MoE trace v1: %s\n", __func__, moe_trace->error().c_str());
+                llama_free(ctx);
+                llama_free_model(model);
+                llama_backend_free();
+                return 1;
+            }
         }
-        if (!moe_trace->good()) {
-            LOG_TEE("%s: unsupported model for MoE trace v1: %s\n", __func__, moe_trace->error().c_str());
+        if (token_timing && !token_timing->start(
+                params.token_timing_file, params.model, protected_paths)) {
+            LOG_TEE("%s: cannot initialize token timing: %s\n", __func__, token_timing->error().c_str());
             llama_free(ctx);
             llama_free_model(model);
             llama_backend_free();
@@ -830,6 +875,16 @@ int main(int argc, char ** argv) {
 
             const llama_token id = common_sampler_sample_legacy(ctx_sampling, ctx, ctx_guidance);
 
+            if (token_timing) {
+                const llama_timings timing_snapshot = llama_get_timings(ctx);
+                const int64_t ready_us = ggml_time_us();
+                if (!token_timing->after_sample(
+                        id, llama_token_is_eog(model, id), ready_us, timing_snapshot)) {
+                    LOG_TEE("%s : token timing failed: %s\n", __func__, token_timing->error().c_str());
+                    return 1;
+                }
+            }
+
             common_sampler_accept(ctx_sampling, ctx, id, /* apply_grammar= */ true);
 
             LOG("last: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, ctx_sampling->prev).c_str());
@@ -1081,6 +1136,10 @@ int main(int argc, char ** argv) {
     int exit_code = 0;
     if (moe_trace && !moe_trace->finish()) {
         LOG_TEE("%s : MoE trace finalization failed: %s\n", __func__, moe_trace->error().c_str());
+        exit_code = 1;
+    }
+    if (token_timing && !token_timing->finish(llama_get_timings(ctx))) {
+        LOG_TEE("%s : token timing finalization failed: %s\n", __func__, token_timing->error().c_str());
         exit_code = 1;
     }
 

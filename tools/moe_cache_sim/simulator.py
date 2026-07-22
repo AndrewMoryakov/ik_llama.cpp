@@ -4,7 +4,7 @@ import heapq
 import hashlib
 import json
 import math
-from collections import Counter, OrderedDict
+from collections import Counter, defaultdict, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -502,12 +502,219 @@ def _static_chunks(
     return [key for key, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:capacity]]
 
 
-def _percentile(values: Sequence[int], percentile: float) -> int | None:
+def _percentile(values: Sequence[int | float], percentile: float) -> int | float | None:
     if not values:
         return None
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, math.ceil(percentile * len(ordered)) - 1))
     return ordered[index]
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _hotset_sizes(counts: Counter[Any], shares: Sequence[float]) -> dict[str, int | None]:
+    ordered = sorted(counts.values(), reverse=True)
+    total = sum(ordered)
+    result: dict[str, int | None] = {}
+    for share in shares:
+        key = f"{share:.2f}"
+        if total == 0:
+            result[key] = None
+            continue
+        threshold = share * total
+        cumulative = 0
+        size = 0
+        for value in ordered:
+            cumulative += value
+            size += 1
+            if cumulative >= threshold:
+                break
+        result[key] = size
+    return result
+
+
+def _normalized_entropy(counts: Counter[Any], universe: int) -> float | None:
+    total = sum(counts.values())
+    if total <= 0 or universe <= 0:
+        return None
+    if universe == 1:
+        return 0.0
+    entropy = -sum((value / total) * math.log(value / total) for value in counts.values() if value)
+    return entropy / math.log(universe)
+
+
+def _sliding_working_sets(
+    token_experts: dict[tuple[int, int], set[Any]], windows: Sequence[int],
+) -> dict[str, dict[str, float | int | None]]:
+    by_sequence: dict[int, list[tuple[int, set[Any]]]] = defaultdict(list)
+    for (sequence, batch_index), experts in token_experts.items():
+        by_sequence[sequence].append((batch_index, experts))
+    result: dict[str, dict[str, float | int | None]] = {}
+    for window in windows:
+        sizes: list[int] = []
+        for items in by_sequence.values():
+            ordered = sorted(items)
+            for start in range(0, len(ordered) - window + 1):
+                segment = ordered[start:start + window]
+                if segment[-1][0] - segment[0][0] != window - 1:
+                    continue
+                union: set[Any] = set()
+                for _, experts in segment:
+                    union.update(experts)
+                sizes.append(len(union))
+        result[str(window)] = {
+            "full_contiguous_windows": len(sizes),
+            "mean_unique_experts": _mean(sizes),
+            "p95_unique_experts": _percentile(sizes, 0.95),
+            "max_unique_experts": max(sizes) if sizes else None,
+        }
+    return result
+
+
+def _routing_scope_report(
+    routes: Sequence[Route], *, global_scope: bool, expert_universe: int,
+) -> dict[str, Any]:
+    popularity: Counter[Any] = Counter()
+    last_seen: dict[tuple[int, Any], int] = {}
+    reuse_distances: list[int] = []
+    cold_selections = 0
+    previous: dict[tuple[int, int], Route] = {}
+    jaccards: list[float] = []
+    recalls: list[float] = []
+    precisions: list[float] = []
+    exact_matches = 0
+    top_rank_weights: list[float] = []
+    max_weights: list[float] = []
+    tail_rank_weights: list[float] = []
+    effective_experts: list[float] = []
+    token_experts: dict[tuple[int, int], set[Any]] = defaultdict(set)
+
+    for route in routes:
+        keys = [
+            (route.layer, entry.expert) if global_scope else entry.expert
+            for entry in route.selected
+        ]
+        current = set(keys)
+        popularity.update(keys)
+        token_experts[(route.sequence, route.batch_index)].update(current)
+        for key in current:
+            seen_key = (route.sequence, key)
+            if seen_key in last_seen:
+                reuse_distances.append(route.batch_index - last_seen[seen_key])
+            else:
+                cold_selections += 1
+            last_seen[seen_key] = route.batch_index
+
+        previous_route = previous.get((route.sequence, route.layer))
+        if previous_route is not None and previous_route.batch_index + 1 == route.batch_index:
+            predicted = {
+                (route.layer, entry.expert) if global_scope else entry.expert
+                for entry in previous_route.selected
+            }
+            intersection = len(current & predicted)
+            union = len(current | predicted)
+            jaccards.append(intersection / union if union else 1.0)
+            recalls.append(intersection / len(current) if current else 1.0)
+            precisions.append(intersection / len(predicted) if predicted else 1.0)
+            exact_matches += int(current == predicted)
+        previous[(route.sequence, route.layer)] = route
+
+        weights = [entry.weight for entry in route.selected]
+        if weights:
+            top_rank_weights.append(weights[0])
+            max_weights.append(max(weights))
+            tail_rank_weights.append(weights[-1])
+            squared = sum(weight * weight for weight in weights)
+            effective_experts.append(1.0 / squared if squared else 0.0)
+
+    repeated = len(reuse_distances)
+    selections = sum(popularity.values())
+    eligible = len(jaccards)
+    popularity_rows: list[dict[str, int | float]] = []
+    for key, count in sorted(popularity.items(), key=lambda item: (-item[1], item[0])):
+        row: dict[str, int | float]
+        if global_scope:
+            row = {"layer": key[0], "expert": key[1], "count": count}
+        else:
+            row = {"expert": key, "count": count}
+        row["selection_share"] = count / selections if selections else 0.0
+        popularity_rows.append(row)
+    return {
+        "routes": len(routes),
+        "tokens": len(token_experts),
+        "expert_universe": expert_universe,
+        "selected_occurrences": selections,
+        "unique_selected_experts": len(popularity),
+        "expert_popularity": popularity_rows,
+        "selection_frequency_normalized_entropy": _normalized_entropy(popularity, expert_universe),
+        "hotset_experts_for_selection_share": _hotset_sizes(popularity, (0.50, 0.80, 0.90, 0.95)),
+        "previous_token": {
+            "eligible_routes": eligible,
+            "route_coverage": eligible / len(routes) if routes else None,
+            "mean_jaccard": _mean(jaccards),
+            "p50_jaccard": _percentile(jaccards, 0.50),
+            "p95_jaccard": _percentile(jaccards, 0.95),
+            "exact_match_rate": exact_matches / eligible if eligible else None,
+            "mean_actual_recall": _mean(recalls),
+            "mean_prediction_precision": _mean(precisions),
+        },
+        "reuse_distance_tokens": {
+            "cold_selections": cold_selections,
+            "repeated_selections": repeated,
+            "cold_fraction": cold_selections / (cold_selections + repeated) if selections else None,
+            "p50": _percentile(reuse_distances, 0.50),
+            "p95": _percentile(reuse_distances, 0.95),
+            "max": max(reuse_distances) if reuse_distances else None,
+        },
+        "selected_weight_concentration": {
+            "mean_top_rank_weight": _mean(top_rank_weights),
+            "mean_max_weight": _mean(max_weights),
+            "mean_tail_rank_weight": _mean(tail_rank_weights),
+            "mean_effective_selected_experts": _mean(effective_experts),
+        },
+        "sliding_token_working_set": _sliding_working_sets(token_experts, (8, 32, 128)),
+    }
+
+
+def routing_report(
+    routes: Sequence[Route], *, trace_sha256: str | None = None,
+    layout_fingerprint: str | None = None,
+) -> dict[str, Any]:
+    """Describe baseline routing locality without simulating an intervention."""
+    layers: dict[str, Any] = {}
+    for layer in sorted({route.layer for route in routes}):
+        layer_routes = [route for route in routes if route.layer == layer]
+        n_expert = layer_routes[0].n_expert
+        layers[str(layer)] = _routing_scope_report(
+            layer_routes, global_scope=False, expert_universe=n_expert,
+        )
+    global_universe = sum(
+        next(route.n_expert for route in routes if route.layer == layer)
+        for layer in sorted({route.layer for route in routes})
+    )
+    return {
+        "schema": "ik_llama.moe_routing_locality_report",
+        "version": 1,
+        "warning": "baseline-route locality only; does not predict physical I/O, post-intervention routing, latency, or tokens/s",
+        "semantics": {
+            "global_expert_identity": "(layer, expert)",
+            "previous_token_aggregation": "macro over layer-route observations",
+            "percentile_method": "nearest_rank",
+            "reuse_distance": "generated-token batch_index gap, not cache stack distance",
+            "global_working_set_unit": "layer-qualified expert",
+            "weight": "normalized contribution among selected experts; trace v1 has no unselected probabilities, total captured gate mass, or k/k+1 candidate gap",
+        },
+        "provenance": {
+            "trace_sha256": trace_sha256,
+            "layout_fingerprint": layout_fingerprint,
+        },
+        "global": _routing_scope_report(
+            routes, global_scope=True, expert_universe=global_universe,
+        ),
+        "layers": layers,
+    }
 
 
 def simulate(

@@ -287,6 +287,7 @@ struct gpt_params {
     std::string lookup_cache_dynamic = ""; // path of dynamic ngram cache file for lookup decoding
     std::string logits_file          = ""; // file for saving *all* logits
     std::string moe_trace_file       = ""; // experimental per-token/layer MoE routing trace
+    std::string token_timing_file    = ""; // low-overhead per-token timing sidecar
     std::vector<std::string> protected_input_paths; // file-valued options consumed during parsing
     std::string rpc_servers          = ""; // comma separated list of RPC servers
 
@@ -339,6 +340,7 @@ struct gpt_params {
 
     bool usage             = false; // print usage
     bool supports_moe_trace = false; // executable implements --moe-trace
+    bool supports_token_timing = false; // executable implements --token-timing
     bool use_color         = false; // use color to distinguish generations and inputs
     bool special           = false; // enable special token output
     bool interactive       = false; // interactive mode

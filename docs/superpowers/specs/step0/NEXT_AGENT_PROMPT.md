@@ -14,6 +14,7 @@ Continue MiniMax-M2.7 live-test preparation in AndrewMoryakov/ik_llama.cpp.
 4. Read, in this order:
    - docs/superpowers/specs/00-INDEX.md
    - docs/superpowers/specs/analysis-3-step0-measurements.md
+   - docs/superpowers/specs/step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md
    - docs/superpowers/specs/step0/MINIMAX_TARGET_RUNBOOK.md
 5. Do not use RTR PR #1738 worktrees for this task.
 6. Follow runbook sections 0 and 1 first: build/validate tools, identify the
@@ -24,10 +25,13 @@ Continue MiniMax-M2.7 live-test preparation in AndrewMoryakov/ik_llama.cpp.
 8. Preserve raw logs, manifests, samples CSV, summaries and any ETW capture
    outside Git. Report their paths plus median/min/max t/s and
    phys_gen_bytes_per_tok.
-9. Only after the baseline is valid, execute runbook sections 2 and 3:
+9. After the authoritative baseline is valid, capture the separate token-timing
+   and ETW diagnostic runs. Never mix either with --moe-trace or treat their
+   t/s as authoritative.
+10. Then execute runbook sections 2 and 3:
    32-token trace smoke -> validate -> 512-token trace -> validate ->
-   demand-only and previous-token cache simulations.
-10. Stop after reporting the evidence and bottleneck classification. Do not
+   demand-only and previous-token cache simulations -> routing-locality report.
+11. Stop after reporting the evidence and bottleneck classification. Do not
    implement prefetch/SER/top-k/pinning/pruning without a separate decision.
 
 The agent must request the local values that Git cannot provide: the exact GGUF

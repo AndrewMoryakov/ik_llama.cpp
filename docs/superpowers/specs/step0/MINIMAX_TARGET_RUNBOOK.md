@@ -31,21 +31,23 @@ cmake -S . -B build -DLLAMA_BUILD_TESTS=ON -DGGML_CUDA=OFF `
   -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release
 
 # Build the actual Release path used below.
-cmake --build build --config Release --target llama-cli test-moe-trace-writer
+cmake --build build --config Release --target llama-cli test-moe-trace-writer test-token-timing-writer
 
-# Adapt these two paths once if the selected generator writes build\bin\ directly.
+# Adapt these paths once if the selected generator writes build\bin\ directly.
 $llamaCli = (Resolve-Path '.\build\bin\Release\llama-cli.exe').Path
 $traceWriterTest = (Resolve-Path '.\build\bin\Release\test-moe-trace-writer.exe').Path
+$tokenTimingTest = (Resolve-Path '.\build\bin\Release\test-token-timing-writer.exe').Path
 & $traceWriterTest
+& $tokenTimingTest
 
 python -m pip install -r tools/moe_cache_sim/requirements.txt
 python -m pip install pytest
 python -m pytest -q tests/test-moe-cache-sim.py
 ```
 
-If the build layout has no `Release` subdirectory, set `$llamaCli` and
-`$traceWriterTest` to the real Release paths. Record `git rev-parse HEAD`, the
-executable path and the exact GGUF path in the run directory.
+If the build layout has no `Release` subdirectory, set all three executable
+variables to the real Release paths. Record `git rev-parse HEAD`, the executable
+path and the exact GGUF path in the run directory.
 
 Create a quiet output directory on a drive other than the model SSD if possible:
 
@@ -80,6 +82,7 @@ page, but the three summarized runs start from an explicitly defined policy.
   -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
   -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
   -Label warmup_cpu_mmap -CachePolicy warmup_before_uncleared_repeats `
+  -NonAuthoritative -NonAuthoritativeReason warmup_before_baseline `
   -NGen 512 -CtxSize 4096 -Repeat 1 `
   -Csv "$run\step0-warmup.csv"
 ```
@@ -96,17 +99,67 @@ Then run the authoritative repeat set:
   -Csv "$run\step0-results.csv"
 ```
 
+The extended samples/manifest contain whole-device read latency, queue, IOPS
+and transfer size; host memory pressure; normalized llama-cli CPU share; sampled
+working/private memory; and OS frequency estimates. These are diagnostic
+one-second interval values, not per-I/O distributions, package temperature or
+proof of thermal throttling.
+
+## 1a. Token-timing diagnostic (not authoritative)
+
+Run one separate timing-instrumented pass. It uses no eval callback and records
+`G-1` generated-decode intervals, but remains diagnostic until an interleaved
+multi-repeat OFF/ON overhead A/B is below one percent and within baseline noise.
+
+```powershell
+.\docs\superpowers\specs\step0\step0-bench.ps1 `
+  -LlamaCli $llamaCli `
+  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
+  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -Label diagnostic_token_timing `
+  -CachePolicy warmup_then_diagnostic_uncleared `
+  -TokenTiming -NGen 512 -CtxSize 4096 -Repeat 1 `
+  -Csv "$run\step0-token-timing.csv"
+```
+
+Use the manifest/CSV p50/p95/p99 values for CLI-ready cadence and deltas of
+llama's cumulative eval/sampling counters. They are not an independent
+wall-time decomposition. `inter_ready` includes intervening CLI loop/output
+work and is not pure model evaluation. Do not pass `--token-timing` manually through
+`-ExtraArgs`; the harness owns its sidecar and validates it.
+
+## 1b. ETW attribution diagnostic (not authoritative)
+
+Run elevated, with the output directory on a drive other than the model SSD:
+
+```powershell
+.\docs\superpowers\specs\step0\step0-etw.ps1 `
+  -LlamaCli $llamaCli `
+  -ModelPath 'D:\models\MiniMax-M2.7.gguf' `
+  -DiskInstance '<MODEL_SSD_PHYSICALDISK_INSTANCE>' `
+  -OutputDirectory $run -NGen 512
+```
+
+The wrapper refuses an already active or unrecognized WPR session, always
+attempts `wpr -stop <etl>` after a successful start, and uses cancel only if
+stop fails. Open the ETL in WPA and correlate the manifest PID plus GGUF path
+with File/Disk I/O and hard faults. The ETW run never enters the authoritative
+t/s summary and must not be combined with `--moe-trace`. If package
+temperature/power/effective-clock data is needed, preserve a separate HWiNFO
+sensor CSV; ACPI thermal zones are not Ryzen package temperature.
+
 The harness records a raw log, JSON manifest, timestamped counter
-series and a timestamped repeat summary for every run. It fails if a run fails,
+series and a repeat summary for every run. It fails if a run fails,
 ends early, cannot parse timings, cannot validate the counter, or cannot make a
-provisional reconstructed estimate. Do not use an old `step0-results.csv` with a
+valid device-level estimate. Do not use an old `step0-results.csv` with a
 different schema; preserve it and choose a new path.
 
 Repeat the same raw-series analysis at transient fractions 0.20/0.30/0.40
 (the default harness sensitivity). Treat `phys_gen_bytes_per_tok` as a
-device-level **reconstructed estimator**, not per-process ground truth. Before
-attributing a bottleneck, cross-check a representative run with ETW if the
-model SSD has unrelated activity.
+device-level estimator, not per-process ground truth. The authoritative lane
+reconstructs decode boundaries; the token-timing diagnostic uses exact CLI-ready
+boundaries but still interpolates one-second whole-device samples. Before
+attributing a bottleneck, cross-check a representative run with ETW.
 
 ## 2. Separate MiniMax routing-trace smoke
 
@@ -171,7 +224,20 @@ python -m tools.moe_cache_sim.simulate simulate `
   --cache-gib 32 --policy lru --predictor previous-token `
   --access-model cpu-ggml-phase-v1 --up-gate-mode fused `
   --output "$run\sim-lru-previous-token.json"
+
+python -m tools.moe_cache_sim.simulate report `
+  --layout "$run\minimax-layout.json" --trace $trace512 `
+  --output "$run\routing-locality.json"
 ```
+
+The commands above show the `fused` hypothesis. If the layout contains separate
+`gate`, `up`, and `down` tensors and the exact runtime graph mode has not been
+independently established, **do not select only that result**: repeat both
+simulations with `--up-gate-mode unfused`, use distinct output names, and report
+the fused/unfused range as a sensitivity result. A layout whose per-layer
+`representation` is `fused` (`gate_up` plus `down`) needs no mode sensitivity;
+the simulator reports the mode as `not_applicable`. Never infer runtime mode
+from the filename or quant name.
 
 Use `--chunk-pages 1` for exact 4 KiB replacement units only when its runtime
 is acceptable. The default 256 pages (about 1 MiB) is deliberately approximate.
@@ -192,11 +258,19 @@ requires a new runtime trace.
 Capture in the run report:
 
 1. median/min/max decode t/s and `phys_gen_bytes_per_tok` from Step0;
-2. transient sensitivity, model-SSD identity, raw logs/manifests and ETW result;
-3. trace validation result, model/layout fingerprints and simulator assumptions;
-4. demand locality and previous-token predictor coverage/precision/recall;
-5. whether the evidence supports a disk, RAM-bandwidth, compute, or mixed
-   bottleneck classification.
+2. sampled device latency/queue/IOPS, process CPU, host-memory pressure and
+   token-timing p50/p95/p99, with their estimator/diagnostic labels preserved;
+3. transient sensitivity, model-SSD identity, raw logs/manifests and ETW result;
+4. trace validation result, model/layout fingerprints and simulator assumptions;
+5. routing report plus demand locality and previous-token predictor
+   coverage/precision/recall;
+6. whether the evidence supports a disk, RAM-bandwidth, compute, mixed, or
+   unresolved bottleneck classification. Step0 does not measure achieved DRAM
+   bandwidth. Without a synchronized, trustworthy memory-controller bandwidth
+   measurement, it may separate disk pressure from the resident path but must
+   label the resident-path split between RAM bandwidth and compute as
+   `unresolved`, not guess from CPU utilization or a standalone MLC/AIDA peak
+   bandwidth benchmark.
 
 Only then select one focused implementation branch:
 

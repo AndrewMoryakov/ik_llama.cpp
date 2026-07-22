@@ -35,6 +35,8 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 | 8 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
 | 9 | `step0/NEXT_AGENT_PROMPT.md` | Copy/paste handoff для другой машины | безопасный старт без истории чата |
 | 10 | `step0/MINIMAX_READINESS_REVIEW_2026-07-21.md` | Финальное ревью готовности | найденные фиксы, тесты и границы GO |
+| 11 | `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` | Расширенный пакет метрик | authoritative, token timing, ETW, routing locality |
+| 12 | `step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md` | Ревью реализации метрик | сделанное, проверки, target-only gates |
 
 ## Подтверждённые факты (grounded в дереве форка)
 1. **`-ser` неактивен в HEAD** — `ggml_top_k_thresh` только объявление + определение + один закомментированный вызов; безопасное возвращение требует отдельной ветки, correctness-тестов и benchmark, а не простого uncomment.

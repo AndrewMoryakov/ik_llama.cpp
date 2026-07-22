@@ -78,6 +78,25 @@ python3 -m pip install -r tools/moe_cache_sim/requirements.txt
    pages (1 MiB at a 4 KiB page), which is much cheaper but only an approximate
    eviction model.
 
+5. Produce a routing-locality report before choosing an implementation:
+
+   ```powershell
+   python -m tools.moe_cache_sim.simulate report `
+     --layout layout.json --trace trace.ndjson --output locality.json
+   ```
+
+   The report contains global and per-layer previous-token Jaccard/exact-match,
+   popularity entropy, hot-set sizes, token reuse distance, selected-weight
+   concentration and 8/32/128-token working sets. These are properties of the
+   unchanged baseline route. They do not predict physical cache hits, SSD
+   latency, post-intervention routing or tokens/s. Global expert identity and
+   working-set units are `(layer, expert)` pairs; previous-token aggregates are
+   over layer-route observations. Percentiles use nearest rank, and reuse
+   distance is a generated-token `batch_index` gap rather than cache stack
+   distance. Weights are normalized among selected experts: trace v1 cannot
+   recover unselected probabilities, total captured gate mass or the k/k+1
+   candidate gap.
+
 Output safety is fail-closed for known inputs. `llama-cli` canonicalizes the
 model path and refuses a trace path that aliases any GGUF file beside it
 (including symlinks/hardlinks); trace outputs may not use the `.gguf`

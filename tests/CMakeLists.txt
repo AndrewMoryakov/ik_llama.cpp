@@ -212,6 +212,14 @@ target_link_libraries(test-moe-trace-writer PRIVATE common)
 add_test(NAME test-moe-trace-writer COMMAND $<TARGET_FILE:test-moe-trace-writer>)
 set_property(TEST test-moe-trace-writer PROPERTY LABELS main)
 
+add_executable(test-token-timing-writer
+    test-token-timing-writer.cpp
+    ../examples/main/token-timing.cpp)
+target_include_directories(test-token-timing-writer PRIVATE ../examples/main)
+target_link_libraries(test-token-timing-writer PRIVATE common)
+add_test(NAME test-token-timing-writer COMMAND $<TARGET_FILE:test-token-timing-writer>)
+set_property(TEST test-token-timing-writer PROPERTY LABELS main)
+
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
     add_test(

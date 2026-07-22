@@ -284,8 +284,15 @@ phys_gen_bytes_per_tok,peak_ws_MB,extra_args,...,cache_policy,manifest_path
 
 ### Статус харнесса
 
-- ✅ A2/B2/C-фаза1 реализованы; это estimator с перечисленными ограничениями.
-- ⏳ B3: **real** live phase/token timestamps, disk latency/queue counters и ETW
-  attribution cross-check. `phase_method=reconstructed_estimate...` прямо
-  маркирует, что текущий B2 не доказывает точные границы decode.
+- ✅ A2/B2/C-фаза1 реализованы; authoritative baseline остаётся estimator с
+  перечисленными ограничениями.
+- ✅ B3-инструментовка реализована как отдельные диагностические lanes:
+  `--token-timing` даёт синхронизированные CLI-ready интервалы и eval/sample
+  deltas без eval callback; Step0 пишет latency/queue/IOPS, memory/CPU series;
+  `step0-etw.ps1` сохраняет WPR GeneralProfile для PID/GGUF attribution.
+- ⏳ B3 ещё требует живой проверки overhead и attribution на Ryzen/MiniMax.
+  Authoritative lane сохраняет `phase_method=reconstructed_estimate...`, а
+  token-timing lane маркируется
+  `device_counter_interpolation_at_token_ready_boundaries_v1` и не
+  входит в authoritative summary до interleaved OFF/ON gate.
 - ⛔ Реальный baseline — ждёт целевой машины (Ryzen9/96 ГБ) + MiniMax-M2 (>RAM).

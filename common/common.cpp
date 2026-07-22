@@ -1580,6 +1580,18 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         }
         return true;
     }
+    if (arg == "--token-timing") {
+        if (!params.supports_token_timing) {
+            return false;
+        }
+        CHECK_ARG
+        params.token_timing_file = argv[i];
+        if (params.token_timing_file.empty()) {
+            fprintf(stderr, "error: --token-timing path must not be empty\n");
+            invalid_param = true;
+        }
+        return true;
+    }
     if (arg == "--override-tensor" || arg == "-ot") {
         CHECK_ARG
         if (!parse_buft_overrides(std::string{ argv[i] }, params.tensor_buft_overrides)) {
@@ -2797,6 +2809,10 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     if (params.supports_moe_trace) {
         options.push_back({ "main",    "       --moe-trace FILE",
                                                                         "experimental: write versioned MoE routing NDJSON (measurement only; adds synchronization overhead)" });
+    }
+    if (params.supports_token_timing) {
+        options.push_back({ "main",    "       --token-timing FILE",
+                                                                        "experimental: write low-overhead token timing NDJSON (diagnostic only)" });
     }
     options.push_back({ "*",           "       --lora FNAME",           "apply LoRA adapter (can be repeated to use multiple adapters)" });
     options.push_back({ "*",           "       --lora-scaled FNAME S",  "apply LoRA adapter with user defined scaling S (can be repeated to use multiple adapters)" });

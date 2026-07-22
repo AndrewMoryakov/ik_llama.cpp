@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import math
 import os
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from tools.moe_cache_sim.simulator import (  # noqa: E402
     SelectedExpert,
     TraceError,
     load_trace,
+    routing_report,
     simulate,
     validate_trace_layout,
 )
@@ -270,6 +272,65 @@ class LayoutTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_routing_locality_report_known_sequence(self):
+        routes = [
+            route(0, 0, 0, 1),
+            route(1, 1, 1, 2),
+            route(2, 2, 1, 2),
+        ]
+        result = routing_report(routes, trace_sha256="a" * 64, layout_fingerprint="layout")
+        report = result["global"]
+        self.assertEqual(result["schema"], "ik_llama.moe_routing_locality_report")
+        self.assertEqual(result["provenance"]["trace_sha256"], "a" * 64)
+        self.assertEqual(report["hotset_experts_for_selection_share"], {
+            "0.50": 1, "0.80": 2, "0.90": 3, "0.95": 3,
+        })
+        self.assertEqual(report["expert_popularity"], [
+            {"layer": 0, "expert": 1, "count": 3, "selection_share": 0.5},
+            {"layer": 0, "expert": 2, "count": 2, "selection_share": 1 / 3},
+            {"layer": 0, "expert": 0, "count": 1, "selection_share": 1 / 6},
+        ])
+        self.assertEqual(result["layers"]["0"]["expert_popularity"][0],
+                         {"expert": 1, "count": 3, "selection_share": 0.5})
+        expected_entropy = -(0.5 * math.log(0.5) + (1 / 3) * math.log(1 / 3) +
+                             (1 / 6) * math.log(1 / 6)) / math.log(3)
+        self.assertAlmostEqual(report["selection_frequency_normalized_entropy"], expected_entropy)
+        self.assertAlmostEqual(report["previous_token"]["mean_jaccard"], 2 / 3)
+        self.assertEqual(report["previous_token"]["p50_jaccard"], 1 / 3)
+        self.assertEqual(report["previous_token"]["p95_jaccard"], 1.0)
+        self.assertEqual(report["previous_token"]["exact_match_rate"], 0.5)
+        self.assertEqual(report["reuse_distance_tokens"]["cold_selections"], 3)
+        self.assertEqual(report["reuse_distance_tokens"]["repeated_selections"], 3)
+        self.assertEqual(report["reuse_distance_tokens"]["p95"], 1)
+        self.assertEqual(report["selected_weight_concentration"], {
+            "mean_top_rank_weight": 0.5,
+            "mean_max_weight": 0.5,
+            "mean_tail_rank_weight": 0.5,
+            "mean_effective_selected_experts": 2.0,
+        })
+
+    def test_routing_locality_global_identity_is_layer_qualified(self):
+        layer0 = route(0, 0, 0)
+        layer1 = Route(
+            event=1, sequence=0, batch_index=0, pos=0, layer=1, n_expert=3,
+            input_token_id=100, selected=layer0.selected,
+        )
+        report = routing_report([layer0, layer1])["global"]
+        self.assertEqual(report["unique_selected_experts"], 2)
+        self.assertEqual(report["expert_popularity"], [
+            {"layer": 0, "expert": 0, "count": 1, "selection_share": 0.5},
+            {"layer": 1, "expert": 0, "count": 1, "selection_share": 0.5},
+        ])
+
+    def test_routing_locality_sliding_window(self):
+        routes = [route(index, index, 0 if index < 4 else 1) for index in range(8)]
+        report = routing_report(routes)["layers"]["0"]
+        window = report["sliding_token_working_set"]["8"]
+        self.assertEqual(window["full_contiguous_windows"], 1)
+        self.assertEqual(window["mean_unique_experts"], 2)
+        self.assertEqual(window["p95_unique_experts"], 2)
+        self.assertIsNone(report["sliding_token_working_set"]["32"]["mean_unique_experts"])
+
     def test_cpu_phase_order_uses_expert_id_not_router_rank(self):
         layout, _ = make_layout()
         mapper = ChunkMapper(layout, page_size=16, chunk_pages=1)
@@ -557,6 +618,29 @@ class TraceAndCliTests(unittest.TestCase):
                 hashlib.sha256(trace_path.read_bytes()).hexdigest(),
             )
             self.assertIsNone(result["provenance"]["static_profile_sha256"])
+
+    def test_report_cli(self):
+        _, document = make_layout()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            layout_path = root / "layout.json"
+            trace_path = root / "trace.jsonl"
+            output_path = root / "locality.json"
+            layout_path.write_text(json.dumps(document), encoding="utf-8")
+            write_trace(trace_path, [route(0, 0, 0), route(1, 1, 0)], document)
+            proc = subprocess.run(
+                [sys.executable, "-m", "tools.moe_cache_sim.simulate", "report",
+                 "--layout", str(layout_path), "--trace", str(trace_path),
+                 "--output", str(output_path)],
+                cwd=REPO_ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            result = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["global"]["previous_token"]["exact_match_rate"], 1.0)
+            self.assertEqual(
+                result["provenance"]["trace_sha256"],
+                hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+            )
 
     def test_simulate_cli_refuses_to_overwrite_inputs(self):
         _, document = make_layout()

@@ -8,7 +8,7 @@ from typing import Sequence
 
 from .layout import LayoutError, load_layout
 from .io_utils import atomic_write_text, paths_alias, reject_output_alias
-from .simulator import TraceError, load_trace, simulate, validate_trace_layout
+from .simulator import TraceError, load_trace, routing_report, simulate, validate_trace_layout
 
 
 def _add_inputs(parser: argparse.ArgumentParser) -> None:
@@ -21,6 +21,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate_parser = subparsers.add_parser("validate", help="validate layout and routing trace")
     _add_inputs(validate_parser)
+
+    report_parser = subparsers.add_parser("report", help="report baseline routing locality")
+    _add_inputs(report_parser)
+    report_parser.add_argument("--output", type=Path)
 
     simulate_parser = subparsers.add_parser("simulate", help="run one cache/predictor scenario")
     _add_inputs(simulate_parser)
@@ -49,6 +53,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_trace_layout(layout, trace_info, routes)
         if args.command == "validate":
             print(f"valid: {len(routes)} routes, {len(layout.layers)} MoE layers, fingerprint={layout.fingerprint}")
+            return 0
+        if args.command == "report":
+            result = routing_report(
+                routes,
+                trace_sha256=trace_info["sha256"],
+                layout_fingerprint=layout.fingerprint,
+            )
+            text = json.dumps(result, indent=2) + "\n"
+            if args.output:
+                protected = [args.layout, args.trace]
+                protected.extend(Path(str(shard["path"])) for shard in layout.shards.values())
+                reject_output_alias(args.output, protected, description="an input artifact")
+                atomic_write_text(args.output, text)
+            else:
+                print(text, end="")
             return 0
         static_profile = None
         static_info = None
