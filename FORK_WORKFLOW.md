@@ -61,13 +61,31 @@ execution branch is `feature/minimax-step0-readiness`. It contains the hardened
 Windows Step0 harness, the target-machine runbook, and the copy/paste handoff
 prompt for a fresh agent. Begin there for a Ryzen 9 7950X / 96 GiB live run.
 
-Read these files in this order after switching branches:
+Bootstrap the branch from a fresh clone (the first `git switch` normally
+creates a tracking branch from the unique origin branch; use the explicit
+`--track` form if it does not):
+
+```powershell
+git fetch origin --prune
+git switch feature/minimax-step0-readiness
+if ($LASTEXITCODE -ne 0) {
+  git switch --track origin/feature/minimax-step0-readiness
+}
+git merge --ff-only origin/feature/minimax-step0-readiness
+git status --short --branch
+git merge-base --is-ancestor 88235a0a6143a8f9fb37af191acbeca0f5fb680f HEAD
+```
+
+Stop on a failed ancestor check or unexpected worktree modifications. Then
+read these files in this order:
 
 ```text
-docs/superpowers/specs/00-INDEX.md
-docs/superpowers/specs/analysis-3-step0-measurements.md
-docs/superpowers/specs/step0/MINIMAX_TARGET_RUNBOOK.md
 docs/superpowers/specs/step0/NEXT_AGENT_PROMPT.md
+docs/superpowers/specs/00-INDEX.md
+docs/superpowers/specs/step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md
+docs/superpowers/specs/step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md
+docs/superpowers/specs/step0/MINIMAX_TARGET_RUNBOOK.md
+docs/superpowers/specs/analysis-3-step0-measurements.md  # historical only
 ```
 
 The earlier research, measurement plan, trace tooling, cache simulator and
@@ -87,13 +105,16 @@ after live evidence should a focused prefetch/cache/CPU optimization branch be
 created. Do not merge this stream into the RTR PR merely because both involve
 model loading or expert tensors.
 
-Current recorded state: the reviewed metrics/readiness package is pushed at
-`c99a323d` (**GO for controlled target-machine testing**). Its handoff prompt
-requires package commit `88235a0a6143a8f9fb37af191acbeca0f5fb680f`; a fresh
-remote clone passed that ancestor guard and contained the required scripts.
-No authoritative Ryzen/MiniMax baseline or MiniMax trace has been captured
-yet. The next agent must execute the runbook rather than infer a bottleneck
-from projections or from Qwen smoke data.
+Current recorded state: the reviewed metrics/readiness package and hardened
+new-machine handoff are pushed at `3a24458a` (**GO for controlled target-machine
+testing**). The handoff requires package commit
+`88235a0a6143a8f9fb37af191acbeca0f5fb680f` as a minimum implementation
+ancestor, not as the exact expected HEAD. No authoritative Ryzen/MiniMax
+baseline or MiniMax trace has been captured yet. The next agent must execute
+the runbook rather than infer a bottleneck from projections or from Qwen smoke
+data. English Windows performance-counter names are the tested configuration;
+the runbook safely stops and reports a localization blocker rather than
+producing false evidence on an unsupported localized counter set.
 
 ## Safe operating rules
 
