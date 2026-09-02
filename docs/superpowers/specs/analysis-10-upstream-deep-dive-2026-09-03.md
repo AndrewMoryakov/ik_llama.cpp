@@ -1,9 +1,12 @@
 # Анализ 10 — глубокий разбор upstream после верификации кода
 
-**Дата:** 2026-09-03
-**Baseline источник:** `upstream/main` @ `3c58ae37` (2026-08-31)
+**Дата:** 2026-09-03 (исходная версия); 2026-09-03 (правки после dry-run merge)
+**Baseline источник:** `upstream/main` @ `3c58ae37` (2026-08-31, исходная
+версия) / `caf7eae5` (на момент dry-run 2026-09-03, после дополнительных
+2 коммитов в upstream).
 **Локальные проверки:** `git show`, `git grep`, `git diff --name-only`,
-`git log`. Все ссылки `file:line` — на `upstream/main` если не указано иное.
+`git log`, `git merge --no-commit` (dry-run). Все ссылки `file:line` — на
+`upstream/main` если не указано иное.
 
 **Связанные документы:**
 
@@ -16,12 +19,20 @@
 - `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` — текущая метрика, к
   quality gate которой analysis-10 добавляет новые гейты.
 
-## TL;DR (коррекция к analysis-8)
+## TL;DR (коррекция к analysis-8 и dry-run 2026-09-03)
 
 **`--defer-ple` — Linux-only, на Windows игнорируется с warning.** Все
 рекомендации analysis-8 §2, §3, §8.1, §10, которые советовали включить
 `--defer-ple` в Step0 baseline grid, **ошибочны** для целевой машины Ryzen
 9 7950X / Windows. Подробности в §1.
+
+**Дополнение после dry-run 2026-09-03** (см. §14):
+
+- `--defer-experts` (PR #1634) — **тоже Linux-only** (deferral семейство).
+- `--run-time-repack` (boolean, без `auto`) — **всё ещё в upstream**,
+  удалён **только** `auto`-режим из PR #1738.
+- `tests/test-compare-llama-bench.py` **переехал** в
+  `scripts/compare-llama-bench.py`, не удалён.
 
 Что **сохраняется**:
 
@@ -129,25 +140,51 @@ performance-knob.
 **Все эти альтернативы уже в плане;** `--defer-ple` для Windows-цели —
 не решение, а distractor.
 
-## 2. RTR auto: подтверждение полной смерти в upstream
+## 2. RTR auto: уточнённый статус в upstream
 
-### 2.1 Файлы, проверенные на отсутствие
+> **Коррекция 2026-09-03 (dry-run):** первоначальная версия §2 утверждала
+> «RTR auto полностью удалён». Это неточно. Upstream удалил **только**
+> `auto`-режим (PR #1738), базовый `--run-time-repack` (boolean)
+> сохранён. Подробности и dry-run доказательства — в §14.1.
 
-- `git ls-tree upstream/main src/llama-rtr-auto.h` → пусто
-- `git ls-tree upstream/main src/llama-cgroup-resolver.h` → пусто
-- `git ls-tree upstream/main docs/RTR_AUTO_PR_FOLLOWUP_PLAN.md` → пусто
-- `git ls-tree upstream/main docs/RTR_AUTO_PR_FOLLOWUP_SPEC.md` → пусто
+### 2.1 Что удалено в upstream
 
-### 2.2 Поиск переименованного эквивалента
+- `src/llama-rtr-auto.h` — удалён (`git ls-tree upstream/main` пусто)
+- `src/llama-cgroup-resolver.h` — удалён
+- `tests/test-rtr-auto-peak.cpp` — удалён
+- `tests/test-rtr-params.cpp` — удалён
+- `tests/test-cgroup-resolver.cpp` — удалён
+- `docs/RTR_AUTO_PR_FOLLOWUP_PLAN.md` — удалён
+- `docs/RTR_AUTO_PR_FOLLOWUP_SPEC.md` — удалён
+- `tests/test-compare-llama-bench.py` — **переехал** в
+  `scripts/compare-llama-bench.py` (см. §14.3, не удалён)
+
+### 2.2 Что сохранено в upstream (важно!)
+
+В `common/common.cpp` upstream всё ещё есть:
+
+```cpp
+if (arg == "-rtr" || arg == "--run-time-repack") { ... }
+options.push_back({ "*", "-rtr, --run-time-repack",
+                    "repack tensors if interleaved variant is available" });
+```
+
+`--run-time-repack` (boolean) — живой флаг. `auto`-режим (PR #1738) —
+удалён. Это значит, что **минимальный repack остался в upstream**;
+специфичная `auto`-логика (tri-state, placement-aware, mmap-state,
+cgroup, Windows job objects) — полностью ушла.
+
+### 2.3 Поиск переименованного эквивалента
 
 `git grep -l "rtr_auto\|rtr-auto\|RTR_AUTO" upstream/main -- 'src/*.cpp'
 'src/*.h' 'common/*.cpp' 'common/*.h'` → **пусто**.
 
 Нет ни одного source-файла в upstream, который бы содержал строки
-`rtr_auto`, `rtr-auto` или `RTR_AUTO`. Это значит, что upstream не
-переименовал функциональность — **он её убрал целиком**.
+`rtr_auto`, `rtr-auto` или `RTR_AUTO`. Auto-режим upstream не
+переименовал — **он его убрал целиком**, заменив на семейство
+`defer-*` флагов (`--defer-ple`, `--defer-experts`).
 
-### 2.3 Что есть в upstream про repack / мmap-эффективность
+### 2.4 Что есть в upstream про repack / мmap-эффективность
 
 Из 134 коммитов единственное релевантное — `b8b3034b Indexer topk: on
 the CPU repack Q8_0 indexer cache (#2285)`:
@@ -161,19 +198,22 @@ the CPU repack Q8_0 indexer cache (#2285)`:
 тензоров. Подтверждает architectural choice upstream: «repack точечно
 там, где даёт выигрыш, а не везде».
 
-### 2.4 Выводы по судьбе PR #1738
+### 2.5 Выводы по судьбе PR #1738
 
 `analysis-8` §8.1 предлагал «переформулировать в Q8_0 indexer repack».
-Это **всё ещё актуально**, но с оговоркой: даже эта узкая
-переформулировка может встретить сопротивление, потому что:
+После §14.1 это **менее** актуально, чем казалось: upstream сохранил
+базовый `--run-time-repack`, и PR #1738 можно переформулировать как
+**аддитивный patch** — «auto-режим поверх существующего boolean
+`--run-time-repack`». Это:
 
-- Indexer topk есть только в моделях с sparse attention (GLM-DSA,
-  DeepSeek-V4), MiniMax-M2.7 к ним не относится.
-- На CPU (`ggml/src/iqk/`) — да, repack есть. Но MiniMax-M2.7 на
-  текущем ggml-пути не использует indexer topk.
-- **Сценарий использования PR #1738 для MiniMax-M2.7 = 0**. PR имеет
-  смысл только как contribution upstream для GLM-DSA-семейства. Это
-  надо явно сказать в PR-описании, если переформулировать.
+- Совместимо с upstream (не заменяет существующее API, расширяет).
+- Узкий (только логика `auto`, не весь фреймворк RTR).
+- Не зависит от MiniMax-M2.7 (general-purpose для всех моделей с RTR).
+
+Оговорка про MiniMax-M2.7: на текущем ggml-пути indexer topk не
+используется, поэтому **MiniMax-M2.7 не получает прямой выгоды** от
+Q8_0 indexer repack. Но сам repack в `--run-time-repack auto` режиме
+остаётся релевантным для любой MoE-модели.
 
 ## 3. Quantization fudge factors (#2361)
 
@@ -398,39 +438,38 @@ common/speculative.h
    common/sampling.cpp`).
 4. **Остальные 11 файлов**: брать upstream-версию без модификаций.
 
-## 8. `tests/test-compare-llama-bench.py` — не переехал, удалён
+## 8. `tests/test-compare-llama-bench.py` — переехал, не удалён
 
-### 8.1 Доказательства
+> **Коррекция 2026-09-03 (dry-run):** первоначальная версия §8
+> утверждала «файл удалён». Это неточно. Файл **переехал** в
+> `scripts/compare-llama-bench.py`. Подробности — в §14.3.
+
+### 8.1 Что обнаружено
 
 - `git log --all --oneline --diff-filter=D -- tests/test-compare-llama-bench.py`
   → `843de95f fix: complete RTR auto pre-PR remediation` (rtr-pr HEAD).
-- `git ls-tree upstream/main tests | Select-String "bench|compare"` →
-  **пусто**.
-- `git ls-tree upstream/main tools | Select-String "bench|compare"` →
-  пусто (на всякий случай).
-- `git ls-tree upstream/main scripts | Select-String "bench|compare"` →
-  пусто.
+  На этой истории файл был удалён **в rtr-pr**, не в upstream.
+- `git ls-tree upstream/main tests` → пусто (файл уже не там).
+- `git ls-tree upstream/main scripts/compare-llama-bench.py` → **есть**.
+- При dry-run merge → `M  scripts/compare-llama-bench.py` (auto-merged).
 
-**Файла нигде нет.** Удалён, не перемещён.
+**Файл переехал из `tests/` в `scripts/` где-то в окне между 9d07d868
+и 3c58ae37, и minimax получит его при merge.**
 
 ### 8.2 Что делать
 
-Проверить, не использует ли `step0/step0-bench.ps1` этот файл:
+`step0/step0-bench.ps1` не использует ни `tests/`, ни `scripts/`-вариант
+(подтверждено grep'ом в исходной версии §8.2) — следствие остаётся: для
+Step0 безопасности 0.
 
-```powershell
-Select-String -Path "docs/superpowers/specs/step0/step0-bench.ps1" `
-  -Pattern "test-compare-llama-bench|compare-llama-bench|llama-bench\.py"
-```
+При merge:
 
-Если использует — нужно либо:
-
-- **Заменить** на прямой `llama-bench` (без python-обёртки) — upstream
-  так и сделал.
-- **Написать** новый wrapper, если minimax зависит от специфической
-  логики сравнения.
-
-`[UNVERIFIED]` — конкретное использование `step0-bench.ps1` не
-проверял. Рекомендация: добавить в dry-run при первом merge.
+- minimax сохранит свою старую `tests/test-compare-llama-bench.py` (если
+  она ему нужна) — добавить явно или удалить после merge.
+- `scripts/compare-llama-bench.py` придёт из upstream, auto-merge
+  успешный.
+- Если содержимое отличается существенно — решить, какая версия
+  предпочтительна (скорее всего upstream, как более новая).
 
 ## 9. Indexer cache quantized — CUDA-only, нерелевантно
 
@@ -479,22 +518,28 @@ b37189aa Actually fix quantized indexer cache on CUDA (#2286) (починили)
 
 ## 12. Что я НЕ проверил `[UNVERIFIED]`
 
-- **Точные hunks** content conflict в `common/common.cpp` / `common.h`
-  — не делал dry-run merge. Предсказание §7.1 основано на
-  известной структуре файлов и моих знаниях о minimax-правках.
+- **Точные hunks** content conflict в `common/common.cpp` / `common.h` —
+  **[ЧАСТИЧНО ВЕРИФИЦИРОВАНО dry-run 2026-09-03, см. §14 и
+  `analysis-9` §12]**. Полная conflict-map: 4 блока в `common/common.cpp`
+  (в районе CLI args), 1 в `.gitignore`, 1 в `docs/parameters.md`, 6 в
+  `examples/main/main.cpp`, 1 в `include/llama.h`, 2 в `src/llama.cpp`.
+  Итого 6 файлов / 15 блоков / 1.6% от 930 изменённых.
 - **Использование `test-compare-llama-bench.py` в `step0-bench.ps1`** —
-  grep не делал, см. §8.2.
-- **`common/sampling.cpp` правил ли minimax** — не проверял git log
-  minimax-30-коммитов на этот файл. Если правил — sampling-конфликт
-  с `0ed847d3` будет сложнее.
+  **ВЕРИФИЦИРОВАНО 2026-09-03** (grep): не используется.
+  Следствие: Step0 безопасен к удалению/переезду файла.
+- **`common/sampling.cpp` правил ли minimax** — **ВЕРИФИЦИРОВАНО
+  2026-09-03** (`git log $mb..HEAD -- common/sampling.cpp` пусто):
+  minimax не правил → sampling-конфликт = upstream-wins.
 - **Все 134 коммита** risk-классифицированы по `git diff --name-only` +
   file-paths. Не смотрел каждое commit-message вручную, возможны
-  miss-классификации (high-risk поставлен в low, или наоборот).
+  miss-классификации.
 - **CI на origin/feature/minimax-step0-readiness** — статус, наличие,
   поведение после merge не проверял.
-- **Merged status `feature/raptor-lake-laptop` и `feature/upstream-integration`**
-  относительно нового upstream — могут быть похожие merge-рецепты,
-  применимые как reference. Не проверял.
+- **`--defer-experts` (PR #1634) точная реализация** — обнаружен в
+  dry-run, не изучался отдельной секцией. Подробности — в §14.2.
+- **`--run-time-repack` минимальное поведение в upstream** — обнаружено
+  в dry-run, что флаг жив. Точная семантика `0`/`1` без `auto` не
+  изучена (см. `common/common.cpp` напрямую при merge).
 
 ## 13. Связанные документы (напоминание)
 
@@ -508,3 +553,115 @@ b37189aa Actually fix quantized indexer cache on CUDA (#2286) (починили)
   должен учитывать fudge factors (см. §3) и Adaptive P Sampler
   (см. §6.1).
 - `FORK_WORKFLOW.md` (на `origin/main`) — branch map.
+
+## 14. Коррекции после dry-run merge 2026-09-03
+
+После публикации исходной версии этого документа выполнен dry-run merge
+`upstream/main` (на момент `caf7eae5`) в `feature/minimax-step0-readiness`
+(HEAD `6a6b44ef`) через `git merge --no-commit --no-ff`, затем
+`git merge --abort`. Snapshot-tag для отката:
+`snapshot/pre-upstream-merge-20260903-014713`.
+
+Полная статистика и conflict-map — в `analysis-9` §12. Здесь только
+коррекции к ранее сделанным утверждениям.
+
+### 14.1 `--run-time-repack` всё ещё в upstream
+
+**Ранее (analysis-8 §2, §4 и §2 этого документа):** «RTR auto в upstream
+полностью удалён».
+
+**После dry-run:** неточно. В `common/common.cpp` upstream:
+
+```cpp
+if (arg == "-rtr" || arg == "--run-time-repack") { ... }
+options.push_back({ "*", "-rtr, --run-time-repack",
+                    "repack tensors if interleaved variant is available" });
+```
+
+Upstream сохранил базовый boolean repack. Удалён **только** `auto`-режим
+(три-стейт) и `auto`-помощники, введённые в PR #1738.
+
+**Что меняется:**
+
+- **PR #1738 имеет смысл как аддитивный patch**: «auto-режим поверх
+  существующего `--run-time-repack`» — это не конфликт с upstream, а
+  расширение. Стратегия переформулировки остаётся валидной.
+- В `include/llama.h` upstream теперь содержит `defer_ple` и
+  `swa_compress` в `llama_model_params`, но **не** `repack_tensors_auto`.
+  Если minimax хочет сохранить RTR auto — поле остаётся в minimax
+  локально, в конфликте с `defer_ple`/`swa_compress`. Resolution:
+  сохранить **все три** (см. `analysis-9` §12.4).
+- В `src/llama.cpp` minimax инициализирует `repack_tensors_auto = false`
+  в `llama_model_default_params()`, upstream заменил на `defer_ple = false,
+  swa_compress = false`. Resolution: сохранить все три.
+
+### 14.2 Семейство `defer-*` флагов: `--defer-experts` (PR #1634)
+
+**Ранее:** §1 описывал только `--defer-ple`. В `docs/parameters.md`
+upstream содержит ещё один deferral flag:
+
+> `--defer-experts` — Defer expert mmap residency on Linux to reduce
+> model load time [PR #1634]
+
+Это **тоже Linux-only** (deferral через mmap-advice, как `--defer-ple`).
+На Windows — no-op или warning.
+
+**Что меняется:**
+
+- В Step0 baseline grid (если когда-нибудь будет Linux-pipeline) — оба
+  `--defer-ple` и `--defer-experts` тестируются как параметры.
+- На Windows — оба no-op, оба не в baseline.
+- При merge → minimax оба флага придут как add в `common/common.{cpp,h}`
+  и `docs/parameters.md`. См. `analysis-9` §12.5 — для `parameters.md`
+  конфликт: minimax-сторона с `-rtr [0|1|auto]` vs upstream-сторона с
+  `--defer-experts` + короткой формой `-rtr`. Сохранить **обе** секции.
+
+### 14.3 `tests/test-compare-llama-bench.py` переехал, не удалён
+
+**Ранее (analysis-10 §8):** «файл удалён, не переехал».
+
+**После dry-run:** неточно. Файл **переехал** в `scripts/compare-llama-bench.py`.
+Доказательства:
+
+- `git status` во время dry-run: `M  scripts/compare-llama-bench.py`
+  (auto-merged, без конфликта).
+- `git ls-tree upstream/main scripts` показывает файл.
+
+**Что меняется:**
+
+- Скрипт `step0-bench.ps1` не использует ни `tests/`, ни
+  `scripts/`-вариант (подтверждено grep'ом в `analysis-10` §8.2) —
+  последствие остаётся: для Step0 безопасности 0.
+- При merge → minimax старая копия `tests/test-compare-llama-bench.py`
+  остаётся как локальный артефакт minimax (если нужна — закоммитить
+  отдельно или удалить после merge).
+- §8 этого документа нужно переписать (см. ниже).
+
+### 14.4 Коррекция к §2 (RTR auto death confirmation)
+
+Исходный §2 утверждал: «RTR auto в upstream **полностью удалён**».
+Корректная формулировка:
+
+> **RTR auto в режиме `auto` (три-стейт) полностью удалён в upstream.**
+> Базовый `--run-time-repack` (boolean) сохранён. Поля `repack_tensors_auto`
+> в `llama_model_params` нет в upstream — есть только `defer_ple` и
+> `swa_compress`. Все followup-файлы PR #1738 (`llama-rtr-auto.h`,
+> `cgroup-resolver.h`, RTR_AUTO_PR_FOLLOWUP_* в `docs/`, тесты
+> `test-rtr-{auto-peak,params,cgroup-resolver}.cpp`) удалены.
+
+### 14.5 Коррекция к §8 (`test-compare-llama-bench.py`)
+
+Исходный §8: «файл удалён, не переехал». Корректная формулировка:
+
+> **Файл переехал** из `tests/test-compare-llama-bench.py` в
+> `scripts/compare-llama-bench.py`. Содержимое может отличаться
+> (upstream-вариант может иметь новые опции), но файл жив. minimax
+> при merge получит `scripts/compare-llama-bench.py` (auto-merge) +
+> сохранит локально старую `tests/`-копию, если она ему нужна.
+
+### 14.6 Где dry-run зафиксирован
+
+- Snapshot-tag: `snapshot/pre-upstream-merge-20260903-014713`
+- Merge commit: **НЕ создавался** (использован `--no-commit`).
+- `analysis-9` §12 — полная conflict-map с 6 файлами / 15 блоками.
+- Рабочая копия чистая, HEAD = `6a6b44ef`.

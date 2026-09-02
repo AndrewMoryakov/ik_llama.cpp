@@ -341,10 +341,10 @@ git add <file>
 **Что делал minimax:** добавил CLI-флаги и аргументы для `--moe-trace` /
 token-timing (см. `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md`).
 
-**Что делал upstream:** другие CLI-флаги (`--defer-ple`, DFlash callbacks,
-sampling).
+**Что делал upstream:** другие CLI-флаги (`--defer-ple`, `--defer-experts`,
+DFlash callbacks, sampling).
 
-**Подход:**
+**Подход (общий):**
 
 1. Открыть `common/arg.cpp` (или эквивалент), `common/common.h` и
    `src/llama.cpp`.
@@ -355,6 +355,40 @@ sampling).
    (`c472ed52`..`3a24458a`).
 5. Если rebase — лучше squash конфликт-фикс в один коммит:
    `fix(merge): reconcile upstream CLI flags with moe-trace token-timing`.
+
+**Конкретные 4 конфликт-блока в `common/common.cpp`** (verified dry-run
+2026-09-03, см. §12):
+
+- **Блок 1** (после `params.speculative.suffix_corpus`):
+  - HEAD (minimax): legacy-формат `params.speculative.suffix_corpus = argv[i]; return true;`
+  - upstream: новый `throw common_speculative_legacy_option_error(arg, ...)`
+  - **Резолв:** принять upstream-формат; minimax не имел этого изменения,
+    legacy-формата больше нет в minimax 30 коммитах.
+
+- **Блок 2** (CLI-args-handler):
+  - HEAD (minimax): `--moe-trace` + `--token-timing` парсинг (оба
+    `params.moe_trace_file` / `params.token_timing_file`).
+  - upstream: пусто (нет этих флагов).
+  - **Резолв:** **сохранить HEAD-блок** (`--moe-trace` + `--token-timing`
+    целиком), удалить upstream-маркер. Убедиться что
+    `params.supports_moe_trace` / `params.supports_token_timing` есть в
+    `common/common.h`.
+
+- **Блок 3** (CLI help text для `-rtr`, `--cpu-moe`):
+  - HEAD (minimax): `-rtr, --run-time-repack [0|1|auto]` (длинная форма).
+  - upstream: `-rtr, --run-time-repack` (короткая форма) + новое
+    `-thp, --transparent-huge-pages`.
+  - **Резолв:** **сохранить обе** формы `-rtr` (расширить upstream
+    до `[0|1|auto]` если переформулируем PR #1738, или оставить две
+    отдельные строки). Сохранить `-thp` (upstream-добавление).
+
+- **Блок 4** (CLI help text для `--override-kv` / `--override-tensor`):
+  - HEAD (minimax): minimax добавил `--moe-trace` + `--token-timing`
+    options внутри этого блока.
+  - upstream: добавил `-ot, --override-tensor` отдельной строкой.
+  - **Резолв:** **сохранить обе секции** (HEAD + upstream добавления).
+    Если minimax-блок остался «внутри» upstream-блока — вытащить
+    minimax-options в их собственные строки.
 
 ### 6.3 `Makefile`
 
@@ -506,22 +540,34 @@ git push origin --tags  # если origin принимает tags
 ## 10. Что я НЕ проверил `[UNVERIFIED]`
 
 - **Точные строки content conflict** в `common/common.{cpp,h}` и
-  `src/llama.cpp` — без локального dry-run merge невозможно предсказать,
-  какой именно hunks пересекутся.
+  `src/llama.cpp` — **ВЕРИФИЦИРОВАНО dry-run 2026-09-03** (§6.2, §12).
+  Полная карта: 4 блока в `common/common.cpp`, 1 в `.gitignore`, 1 в
+  `docs/parameters.md`, 6 в `examples/main/main.cpp`, 1 в
+  `include/llama.h`, 2 в `src/llama.cpp`. Итого 15 блоков / 6 файлов.
 - **CI workflow** (если есть) на `feature/minimax-step0-readiness` —
-  статус и поведение после merge.
+  статус и поведение после merge. **Не проверял** в dry-run.
 - **Поведение `--defer-ple` end-to-end** — даже после merge не
   валидировано, что loader-флаг не падает на MiniMax-M2.7 GGUF.
-  Требует реального прогона.
+  Требует реального прогона. **На Windows — no-op** (см.
+  `analysis-10` §1), для целевой машины не релевантно.
 - **Snapshot tags очистка** — в проекте нет convention по удалению
   тегов через 30 дней; возможно, стоит завести отдельный script.
-- **Стратегия B «прямой merge»** — формально безопасна, потому что
-  minimax не наследует RTR auto файлы, но я не делал dry-run merge
-  для подтверждения нулевого conflict-list'а кроме §5.2.
+- **Стратегия B «прямой merge»** — **ЧАСТИЧНО ВЕРИФИЦИРОВАНО dry-run
+  2026-09-03** (см. §12): 1.6% conflict rate, manageable. 14 файлов в
+  `common/` действительно требуют внимания, но не дали конфликта (только
+  `common/common.cpp` + `common/common.h` + `docs/parameters.md`).
+- **`--defer-experts` (PR #1634)** — обнаружен в dry-run, поведение не
+  изучено отдельной секцией. См. `analysis-10` §14.2.
+- **`--run-time-repack` минимальное поведение в upstream** —
+  обнаружено в dry-run, что флаг жив. Точная семантика `0`/`1` без
+  `auto` не изучена (см. `common/common.cpp` напрямую при merge).
 
 ## 11. Открытые вопросы для пользователя
 
 1. **PR #1738: закрываем или переформулируем?** (решение §2 пункт 1).
+   После `analysis-10` §14.1: переформулировка как «auto-режим поверх
+   `--run-time-repack`» аддитивна, не конфликтует с upstream. Решение
+   остаётся за тобой.
 2. **`Makefile` в minimax: оставить как локальное исключение или
    удалить?** (решение §6.3).
 3. **`llama-mmap.h` в корне: после merge перенести в `include/` или
@@ -530,12 +576,200 @@ git push origin --tags  # если origin принимает tags
    машине?** (решение §2 пункт 4).
 5. **`safety` remote настроен или создаём локальный bare-repo для
    архива rtr-pr?**
+6. **`repack_tensors_auto` в `include/llama.h`: оставить?** (После
+   `analysis-10` §14.1) Если minimax хочет сохранить RTR auto —
+   сохранить поле в структуре, в конфликте с `defer_ple`+`swa_compress`.
+   См. §12.4.
+7. **`--defer-experts` в Step0 baseline grid: тестировать на Linux-варианте
+   когда-нибудь?** (После `analysis-10` §14.2)
+
+## 12. Actual dry-run conflict map (2026-09-03)
+
+> **Источник:** `git merge --no-commit --no-ff upstream/main` в
+> `feature/minimax-step0-readiness` (HEAD `6a6b44ef`) с последующим
+> `git merge --abort`. Snapshot-tag:
+> `snapshot/pre-upstream-merge-20260903-014713`. Upstream HEAD на момент
+> dry-run: `caf7eae5` (на 2 коммита свежее, чем `3c58ae37` из §1).
+
+### 12.1 Статистика
+
+| Категория | Кол-во | Примечание |
+|---|---|---|
+| Всего изменено файлов | 930 | Полная дельта upstream → minimax |
+| Auto-merged (M) | 396 | Без конфликтов |
+| Added (A) | 391 | Новые upstream-файлы, не существовали в minimax |
+| Deleted (D) | 109 | Удалённые в upstream, не было в minimax |
+| Renamed (R) | 28 | WebUI-реорганизация, auto-detected |
+| **Content conflict (UU)** | **6 файлов, 15 блоков** | Ручное разрешение |
+| **% conflict** | **1.6%** | Очень manageable |
+
+### 12.2 Conflict-1: `.gitignore` (1 блок)
+
+```text
+<<<<<<< HEAD (minimax)
+ +tags
+ +.build/
+ +build*
+ +!build-info.cmake
+ ...
+ +!tools/moe_cache_sim/build_layout.py
+=======
++ /tags
++ /.build/
++ /build*
++ /cmake-build-*
+ ...
+```
+
+**Резолв:** добавить upstream-паттерны (`/tags`, `/cmake-build-*`) +
+сохранить minimax-паттерны. Идемпотентно, оба набора совместимы.
+
+### 12.3 Conflict-2: `common/common.cpp` (4 блока)
+
+Подробно в §6.2. Сводка:
+
+| # | Что HEAD (minimax) | Что upstream | Резолв |
+|---|---|---|---|
+| 1 | `params.speculative.suffix_corpus = argv[i];` | `throw common_speculative_legacy_option_error(arg, ...)` | upstream |
+| 2 | `--moe-trace` + `--token-timing` блок (cli args) | (нет, не существует) | **HEAD** |
+| 3 | `-rtr, --run-time-repack [0|1\|auto]` help text | `-rtr, --run-time-repack` + `-thp` | **ОБА** (расширить upstream-форму + добавить `-thp`) |
+| 4 | `--override-kv` (длинный) + `--moe-trace` + `--token-timing` (внутри блока) | `--override-kv` (с `-okv`) + `-ot, --override-tensor` | **ОБА** (HEAD-options наружу, upstream-добавления сохранить) |
+
+### 12.4 Conflict-3: `include/llama.h` (1 блок)
+
+```text
+<<<<<<< HEAD (minimax)
+        // Appended to preserve the source layout of all pre-existing fields.
+        // The C ABI still requires callers and the library to use matching headers.
+        bool repack_tensors_auto; // if true, may auto-disable run-time repack
+=======
+        bool defer_ple;        // keep the per-layer token embedding on the file instead of resident in memory (Linux only)
+        bool swa_compress;     // must match llama_context_params::swa_compress; the fit also assumes that context's n_ubatch
+>>>>>>> upstream/main
+```
+
+**Резолв:** сохранить **все три** поля:
+
+```cpp
+        // Appended to preserve the source layout of all pre-existing fields.
+        // The C ABI still requires callers and the library to use matching headers.
+        bool repack_tensors_auto; // if true, may auto-disable run-time repack
+        bool defer_ple;           // keep the per-layer token embedding on the file (Linux only)
+        bool swa_compress;        // must match llama_context_params::swa_compress
+```
+
+`repack_tensors_auto` — это RTR auto PR #1738. Сохранение зависит от
+решения пользователя по §11.1.
+
+### 12.5 Conflict-4: `docs/parameters.md` (1 блок)
+
+```text
+<<<<<<< HEAD (minimax)
+| `-rtr, --run-time-repack [0|1|auto]` | Repack tensors if interleaved variant is available. `0`/`off` = disable, `1`/`on` = always (legacy), `auto` = enable but auto-disable when the estimated peak memory would exceed safe headroom. ... |
+| `-rtra, --run-time-repack-auto` | Alias for `-rtr auto`: ... |
+| `--ctx-checkpoints` | ... |
+=======
+| `--ui-mcp-proxy, --webui-mcp-proxy` | ... |
+| `--defer-experts` | Defer expert mmap residency on Linux ... |
+| `-rtr, --run-time-repack` | Repack tensors if interleaved variant is available | ... |
+| `--ctx-checkpoints N` | Set the number of checkpoints per slot | 32 | ... |
+| `--ctx-checkpoints-tolerance N` | The number of tokens before the full prompt to create the checkpoint | 5 | ... |
+| `--ctx-checkpoints-eviction NAME` | Eviction strategy for checkpoint. | `variance` | ... |
+```
+
+**Резолв:** сохранить **все** строки обеих сторон:
+- minimax: `-rtr [0|1|auto]` (длинная форма), `-rtra` (alias),
+  `--ctx-checkpoints` (без значения по умолчанию).
+- upstream: `--ui-mcp-proxy`, `--defer-experts`, `-rtr` (короткая),
+  `--ctx-checkpoints N` (с дефолтом 32), `--ctx-checkpoints-tolerance`,
+  `--ctx-checkpoints-eviction`.
+- Note: `-rtr` появится **дважды** в результате merge — это нормально,
+  если хотим сохранить обе формы. Альтернатива: унифицировать.
+
+### 12.6 Conflict-5: `examples/main/main.cpp` (6 блоков)
+
+| # | Что HEAD (minimax) | Что upstream | Резолв |
+|---|---|---|---|
+| 1 | `#include <memory>` | `#include <limits>` | **ОБА** `#include`'а |
+| 2 | `if (moe_trace \|\| token_timing) { ... protected_paths ... }` | (нет) | **HEAD** (весь блок) |
+| 3 | `if (moe_trace && embd_is_generated) { moe_trace->begin_batch(...) }` + `if (llama_decode(...)) { ... end_batch() }` | `const bool need_prompt_target_features = embd_is_prompt && spec != nullptr && params.speculative.uses_target_features();` | **ОБА** (блоки независимы, добавить оба) |
+| 4 | `if (token_timing) { ... after_sample(...) }` + `common_sampler_accept(...)` | (upstream-extensions) | **ОБА** |
+| 5 | `embd.push_back(id); embd_is_generated = true;` | `const int min_usable_draft = ...; if (... common_speculative_before_draft(...))` | **ОБА** (разные ветки кода, оба валидны) |
+| 6 | `if (moe_trace && !moe_trace->finish()) { ... } if (token_timing && !token_timing->finish(...)) { ... }` | (нет) | **HEAD** (весь блок) |
+
+**Общая логика:** minimax-блоки (1, 2, 3, 4, 6) **не пересекаются
+логически** с upstream-блоками. Конфликт только потому, что правки в
+соседних строках. После ручного разрешения: оба набора блоков живут
+параллельно в `main.cpp`.
+
+### 12.7 Conflict-6: `src/llama.cpp` (2 блока)
+
+| # | Что HEAD (minimax) | Что upstream | Резолв |
+|---|---|---|---|
+| 1 | `model.use_mmap_loader_enabled = ml.use_mmap;` (одна строка) | 8 строк MTP-package validation + hot-swap registry | **ОБА** (добавить upstream-блок ПОСЛЕ minimax-строки) |
+| 2 | `/*.repack_tensors_auto =*/ false,` (одна строка) | `/*.defer_ple =*/ false, /*.swa_compress =*/ false,` (две строки) | **ОБА** (все три инициализации в `llama_model_default_params()`) |
+
+### 12.8 Что прошло через merge без конфликта (важные файлы)
+
+- **`common/common.h`** — auto-merged. (Мог быть конфликт, но
+  `params.supports_moe_trace` / `params.supports_token_timing` добавлены
+  minimax в разных местах от upstream-добавлений. Git справился сам.)
+- **`scripts/compare-llama-bench.py`** — auto-merged (M status).
+  Подтверждение: файл переехал из `tests/`, не удалён (см.
+  `analysis-10` §14.3).
+- **`Makefile`** — auto-deleted (D status). Подтверждение: upstream
+  удалил через PR #1847, minimax имел свою копию, merge её удалил без
+  конфликта. Рекомендация §6.3 остаётся в силе.
+- **`common/sampling.{cpp,h}`** — auto-merged (M status). minimax
+  не правил → upstream-wins без вопросов.
+- **`common/chat.cpp`**, **`common/speculative.{cpp,h}`**,
+  **`common/log.{cpp,h}`** — auto-merged. Аналогично.
+- **`ggml/src/iqk/iqk_quantize.{cpp,h}`** — auto-merged (упомянуты в
+  initial merge output, без конфликта).
+- **`src/llama-model.h`**, **`examples/llama-bench/llama-bench.cpp`**,
+  **`tests/CMakeLists.txt`** — auto-merged.
+
+### 12.9 Не-merge'ед, но упомянутые
+
+- **`llama-mmap.h`** в корне rtr-pr (из `analysis-8` §10) — это rtr-pr
+  branch, в minimax его нет. После merge upstream → minimax **придёт**
+  как новый файл (auto-add, без конфликта). См. `analysis-9` §6.4
+  (рекомендация: перенести в `include/` или удалить).
+
+### 12.10 Что НЕ было конфликтом, но я ожидал
+
+- **`common/sampling.{cpp,h}`** — minimax не правил, явно подтверждено в
+  `analysis-10` §12 (теперь VERIFIED). Adaptive P Sampler (#2337) →
+  upstream-wins без вопросов.
+- **`tools/moe_cache_sim/`** — auto-merged (M status). minimax
+  добавил; upstream не трогал; git справился.
+- **`tests/test-{moe-cache-sim,token-timing-*}`** — auto-merged
+  (M status). minimax добавил; upstream не трогал.
+
+### 12.11 Заключение по dry-run
+
+**Merge is mechanical, low-risk, well-bounded.** 1.6% conflict rate, 15
+блоков в 6 файлах — реально за один сеанс с codex sub-agents
+(stale-string / cross-doc / commit-hygiene lenses).
+
+Рекомендованный порядок разрешения:
+
+1. `.gitignore` (1 блок, тривиально) — 1 минута.
+2. `include/llama.h` (1 блок) — 2 минуты.
+3. `docs/parameters.md` (1 блок) — 3 минуты.
+4. `src/llama.cpp` (2 блока) — 5 минут.
+5. `common/common.cpp` (4 блока) — 10 минут.
+6. `examples/main/main.cpp` (6 блоков) — 15 минут.
+
+Итого: ~36 минут ручной работы, **до** запуска GATE 2.
 
 ---
 
 **Связанные документы:**
 
 - `analysis-8-upstream-snapshot-2026-08-31.md` — снапшот upstream
+- `analysis-10-upstream-deep-dive-2026-09-03.md` — глубокий разбор,
+  коррекции после dry-run
 - `step0/MINIMAX_TARGET_RUNBOOK.md` — runbook (помешать merge'у сюда
   до завершения baseline)
 - `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` — что именно
