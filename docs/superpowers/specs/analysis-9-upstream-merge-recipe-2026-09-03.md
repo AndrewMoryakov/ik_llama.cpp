@@ -28,10 +28,15 @@
 
 ## 1. Текущее состояние (verified `git rev-list`)
 
+> **Коррекция 2026-09-03:** upstream HEAD сдвинулся с `3c58ae37` до
+> `caf7eae5` (5 коммитов). Числа ниже пересчитаны:
+> `rtr-pr` теперь **139** upstream-коммитов впереди (было 134),
+> `minimax` теперь **413** (было 408). См. также `analysis-10` §14.
+
 ```text
-upstream/main = 3c58ae37  (2026-08-31, Joel Farthing, --defer-ple)
+upstream/main = caf7eae5  (2026-09-02, Kawrakow, #2370 dense Qwen DFlash)
                  │
-                 │  (134 коммитов)
+                 │  (139 коммитов)
                  ▼
 rtr-pr mb ─── 9d07d868  (2026-07-18, mb между rtr-pr и upstream)
                  │
@@ -39,15 +44,16 @@ rtr-pr mb ─── 9d07d868  (2026-07-18, mb между rtr-pr и upstream)
                  ▼
 rtr-pr HEAD ─ 843de95f  (2026-07-19, fix: complete RTR auto pre-PR remediation)
 
-upstream/main = 3c58ae37
+upstream/main = caf7eae5
                  │
-                 │  408 коммитов
+                 │  413 коммитов
                  ▼
 minimax mb ─── 45dfd80  (2026-05-04, Andrew Moryakov, PR #1735 link)
                  │
                  │  30 minimax-коммитов
                  ▼
-minimax HEAD ─ 3a24458a  (2026-07-22, docs: harden MiniMax target-machine handoff)
+minimax HEAD ─ 6a6b44ef  (2026-09-03, docs: add upstream analysis set 2026-09-03)
+           = eee79613  (правки после dry-run, см. коммит-лог)
 
 origin/main ── 3f839337  (2026-08-27, docs: harden Ryzen MiniMax handoff map)
                  │   ▲
@@ -57,13 +63,18 @@ origin/main ── 3f839337  (2026-08-27, docs: harden Ryzen MiniMax handoff map
 
 Дополнительно:
 
-- `git rev-list --left-right --count HEAD...upstream/main` для rtr-pr: `13  134`.
-- То же для minimax: `30  408`.
+- `git rev-list --left-right --count HEAD...upstream/main` для rtr-pr: `13  139`.
+- То же для minimax: `30  413`.
 - `origin/main` отстаёт от minimax-HEAD на 5 коммитов.
 - merge-base `minimax` с `origin/main` — `0ff3a432` (Kawrakow, 2026-02-28).
 - merge-base `rtr-pr` с `upstream/main` — `9d07d868` (2026-07-18).
 - rtr-pr **локальная**; в `origin` её нет (по `FORK_WORKFLOW.md` —
   изолированный worktree).
+- **Важно:** `feature/minimax-step0-readiness` HEAD (`eee79613` после
+  правок) уже содержит RTR auto implementation через общий предок
+  `0115ace2 runtime : add --run-time-repack auto mode …` (см.
+  `analysis-10` §2.5 и `analysis-9` §12.4). PR #1738 — это **та же
+  реализация** в отдельной ветке для upstream-реквеста, не альтернативная.
 
 ## 2. Решения, которые нужно принять ДО начала слияния
 
@@ -593,6 +604,11 @@ git push origin --tags  # если origin принимает tags
 
 ### 12.1 Статистика
 
+> **Коррекция 2026-09-03:** upstream HEAD на момент dry-run был
+> `caf7eae5` (на 2 коммита свежее, чем `3c58ae37` в §1 исходной
+> версии). Числа ниже отражают именно `caf7eae5`. На 2026-09-03 11:30
+> upstream — `caf7eae5`, rtr-pr отстаёт на 139, minimax — на 413.
+
 | Категория | Кол-во | Примечание |
 |---|---|---|
 | Всего изменено файлов | 930 | Полная дельта upstream → minimax |
@@ -648,6 +664,13 @@ git push origin --tags  # если origin принимает tags
 >>>>>>> upstream/main
 ```
 
+> **Коррекция 2026-09-03:** текст маркеров выше **взят из dry-run
+> conflict markers**, не из реального `include/llama.h` в minimax HEAD.
+> В реальном файле форма может отличаться. Перед merge — открыть
+> `include/llama.h` в minimax и посмотреть, как именно выглядит
+> `repack_tensors_auto` декларация (с комментарием или без, с
+> групппингом или нет).
+
 **Резолв:** сохранить **все три** поля:
 
 ```cpp
@@ -658,8 +681,45 @@ git push origin --tags  # если origin принимает tags
         bool swa_compress;        // must match llama_context_params::swa_compress
 ```
 
-`repack_tensors_auto` — это RTR auto PR #1738. Сохранение зависит от
-решения пользователя по §11.1.
+**Что за `repack_tensors_auto` на самом деле** (verified 2026-09-03,
+это не «просто поле»):
+
+Это **видимый конец** всей RTR auto implementation, которая уже
+**живёт** в `feature/minimax-step0-readiness` HEAD (через общий
+предок `0115ace2 runtime : add --run-time-repack auto mode for
+swap-bound MoE safety`):
+
+- `common/common.h:382` — `bool repack_tensors_auto = false; // if true,
+  use a safety-first memory check before run-time repack`
+- `common/common.cpp:1669-1708` — **полный CLI-парсинг** `-rtr` +
+  `--run-time-repack [0|1/1/on/auto/0/off]`, `-rtra` alias,
+  проброс в `mparams.repack_tensors_auto`.
+- `common/common.cpp:2764` — help text для `-rtr, --run-time-repack
+  [0|1|auto]`.
+- `common/common.cpp:3661` — `mparams.repack_tensors_auto =
+  params.repack_tensors_auto` (проброс в model params).
+- `src/llama.h` — `repack_tensors_auto` в `llama_model_params`
+  (этот conflict, см. выше).
+- `src/llama.cpp:3337+` — `enum class llama_rtr_auto_decision`,
+  `struct llama_rtr_auto_override`, `static bool
+  llama_rtr_auto_parse_layer(...)` — **вся auto-логика** живёт в
+  minimax HEAD.
+- `src/llama-model.h:466` — `llama_rtr_status rtr_status =
+  LLAMA_RTR_STATUS_DISABLED`.
+
+**Это значит:**
+
+- PR #1738 — **не «альтернативная реализация»**. Это **та же самая
+  implementation**, которую AndrewM оформил в отдельной worktree
+  (`feature/rtr-auto-pr-prep`) специально для upstream-реквеста.
+  Minimax её унаследовал через общий предок.
+- `repack_tensors_auto` уже есть. Удалять его = удалить всю RTR
+  auto логику. Сохранение зависит от решения §11.1, но это
+  **substantive** решение, не косметическое.
+- В conflict-map §12.4 я писал «сохранить все три поля» —
+  корректно. Но подразумевалось «сохранить всю RTR auto logic
+  + добавить два новых поля upstream», а не «три равноправных
+  bool'а».
 
 ### 12.5 Conflict-4: `docs/parameters.md` (1 блок)
 
@@ -677,14 +737,32 @@ git push origin --tags  # если origin принимает tags
 | `--ctx-checkpoints-eviction NAME` | Eviction strategy for checkpoint. | `variance` | ... |
 ```
 
-**Резолв:** сохранить **все** строки обеих сторон:
-- minimax: `-rtr [0|1|auto]` (длинная форма), `-rtra` (alias),
-  `--ctx-checkpoints` (без значения по умолчанию).
-- upstream: `--ui-mcp-proxy`, `--defer-experts`, `-rtr` (короткая),
-  `--ctx-checkpoints N` (с дефолтом 32), `--ctx-checkpoints-tolerance`,
-  `--ctx-checkpoints-eviction`.
-- Note: `-rtr` появится **дважды** в результате merge — это нормально,
-  если хотим сохранить обе формы. Альтернатива: унифицировать.
+**Резолв:** сохранить **все** строки обеих сторон, **кроме `-rtr`** —
+унифицировать в одну строку:
+
+- **Принять как одну строку** (рекомендация, superset):
+  ```text
+  | `-rtr, --run-time-repack [0\|1\|auto]` | Repack tensors if interleaved variant is available. `0`/`off` = disable, `1`/`on` = always (legacy), `auto` = enable but auto-disable when the estimated peak memory would exceed safe headroom. Bare `-rtr` with no value is equivalent to `-rtr 1` (legacy on). In a Windows Job Object, `auto` conservatively disables repack because effective memory headroom is unknown. [PR 147](https://github.com/ikawrakow/ik_llama.cpp/pull/147), [PR 1738](https://github.com/ikawrakow/ik_llama.cpp/pull/1738) | 0 | ... |
+  ```
+  minimax-форма `[-rtr, --run-time-repack [0|1|auto]]` — superset
+  upstream-формы `-rtr, --run-time-repack`. Документационная DRY:
+  одна строка, не две.
+
+- **Сохранить** (другие строки, кроме `-rtr`):
+  - minimax: `-rtra` (alias), `--ctx-checkpoints` (без дефолта).
+  - upstream: `--ui-mcp-proxy`, `--defer-experts`, `--ctx-checkpoints
+    N` (с дефолтом 32), `--ctx-checkpoints-tolerance`,
+    `--ctx-checkpoints-eviction`.
+
+**Почему не «обе формы -rtr»:** исходная рекомендация §12.5
+предлагала «сохранить обе строки, унифицировать или нет». Это плохо:
+- Документационный долг (нарушает DRY).
+- Длинная форма (с `[0|1|auto]`) — strict superset короткой. Обе
+  рядом вводят в заблуждение: пользователь видит `-rtr` дважды и
+  думает, что это разные флаги.
+- Реальная семантика (что upstream оставил в `common/common.cpp` —
+  см. `analysis-10` §14.1) — `0`/`1` без `auto`. Это subset minimax-
+  формы. Унификация в minimax-форму ничего не теряет.
 
 ### 12.6 Conflict-5: `examples/main/main.cpp` (6 блоков)
 
@@ -711,9 +789,24 @@ git push origin --tags  # если origin принимает tags
 
 ### 12.8 Что прошло через merge без конфликта (важные файлы)
 
-- **`common/common.h`** — auto-merged. (Мог быть конфликт, но
-  `params.supports_moe_trace` / `params.supports_token_timing` добавлены
-  minimax в разных местах от upstream-добавлений. Git справился сам.)
+> **Коррекция 2026-09-03:** §12.8 изначально утверждал, что
+> `common/common.h` «auto-merged без конфликта, Git справился сам».
+> Это слишком легкомысленно. Реально: minimax-сторона имеет
+> `repack_tensors_auto` поле (от RTR auto через общий предок
+> `0115ace2`), upstream-сторона добавила `defer_ple`, `defer_experts`
+> и `swa_compress` (последний — в `llama_context_params`).
+> Auto-merge прошёл, потому что git поместил новые поля в
+> неконфликтующие места структуры. **Перед merge** — открыть
+> `common/common.h` и проверить, что:
+> 1. `repack_tensors_auto` на месте (RTR auto logic не потерялась).
+> 2. `defer_ple` + `defer_experts` на месте (Linux-only, см.
+>    `analysis-10` §14.2).
+> 3. `swa_compress` на месте в `llama_context_params` (если применимо).
+> 4. `params.supports_moe_trace` / `params.supports_token_timing` на
+>    месте (нужны для `--moe-trace` / `--token-timing` CLI).
+
+- **`common/common.h`** — auto-merged (см. коррекцию выше). Поля
+  RTR auto и defer-семейства сосуществуют.
 - **`scripts/compare-llama-bench.py`** — auto-merged (M status).
   Подтверждение: файл переехал из `tests/`, не удалён (см.
   `analysis-10` §14.3).
@@ -728,6 +821,13 @@ git push origin --tags  # если origin принимает tags
   initial merge output, без конфликта).
 - **`src/llama-model.h`**, **`examples/llama-bench/llama-bench.cpp`**,
   **`tests/CMakeLists.txt`** — auto-merged.
+
+> **Дополнение 2026-09-03 к `examples/llama-bench/llama-bench.cpp`:**
+> в upstream этот файл имеет поле `bool defer_experts = false;`
+> (line 272). Auto-merge прошёл успешно (minimax не правил). При
+> использовании llama-bench в Step0 (если когда-нибудь понадобится) —
+> новое поле будет в `--help` llama-bench. На Windows — no-op (Linux
+> only, как `--defer-ple`).
 
 ### 12.9 Не-merge'ед, но упомянутые
 

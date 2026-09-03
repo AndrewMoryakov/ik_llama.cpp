@@ -200,6 +200,34 @@ the CPU repack Q8_0 indexer cache (#2285)`:
 
 ### 2.5 Выводы по судьбе PR #1738
 
+> **Коррекция 2026-09-03 (verified git log + grep):** §2.5 и §14.1
+> утверждали, что PR #1738 — «аддитивный patch поверх существующего
+> `--run-time-repack`». Это неточно. Реально:
+>
+> **`feature/minimax-step0-readiness` HEAD уже содержит RTR auto
+> implementation.** Через общий предок `0115ace2 runtime : add
+> --run-time-repack auto mode for swap-bound MoE safety` (от 4 мая
+> 2026) minimax унаследовал всю логику:
+>
+> - `common/common.h:382` — `bool repack_tensors_auto`
+> - `common/common.cpp:1669-1708` — CLI parsing `-rtr` + `-rtra`
+> - `common/common.cpp:2764` — help text
+> - `common/common.cpp:3661` — проброс в mparams
+> - `src/llama.h` — поле в `llama_model_params` (см. `analysis-9` §12.4)
+> - `src/llama.cpp:3337+` — `enum class llama_rtr_auto_decision`,
+>   `struct llama_rtr_auto_override`, `llama_rtr_auto_parse_layer`
+> - `src/llama-model.h:466` — `llama_rtr_status`
+>
+> `feature/rtr-auto-pr-prep` (HEAD `843de95f`) — это **та же самая
+> implementation**, оформленная в отдельном worktree для
+> upstream-реквеста (PR #1738).
+>
+> **Следствие:** PR #1738 — не «аддитивный patch», а **«та же
+> логика в отдельной ветке, ожидающая upstream review»**. Решение
+> §11.1 анализа-9 («закрыть» vs «переформулировать») — это не
+> косметический выбор, а вопрос о том, что AndrewM хочет делать с
+> уже-работающей (в minimax) RTR auto.
+
 `analysis-8` §8.1 предлагал «переформулировать в Q8_0 indexer repack».
 После §14.1 это **менее** актуально, чем казалось: upstream сохранил
 базовый `--run-time-repack`, и PR #1738 можно переформулировать как
@@ -594,6 +622,11 @@ Upstream сохранил базовый boolean repack. Удалён **толь
 - В `src/llama.cpp` minimax инициализирует `repack_tensors_auto = false`
   в `llama_model_default_params()`, upstream заменил на `defer_ple = false,
   swa_compress = false`. Resolution: сохранить все три.
+- **Коррекция 2026-09-03:** minimax HEAD **уже имеет RTR auto logic**
+  (через общий предок `0115ace2`, см. §2.5). `repack_tensors_auto`
+  поле в `include/llama.h` — это **видимая часть** ~30 строк
+  implementation. См. `analysis-9` §12.4 для полного списка
+  файлов.
 
 ### 14.2 Семейство `defer-*` флагов: `--defer-experts` (PR #1634)
 

@@ -3,9 +3,13 @@
 **Дата аудита:** 2026-09-02
 **Baseline:** `origin/feature/rtr-auto-pr-prep` @ `843de95f`
 (`fix: complete RTR auto pre-PR remediation`, 2026-07-19)
-**Upstream:** `ikawrakow/ik_llama.cpp` @ `3c58ae37`
-(`loader: add --defer-ple to keep per-layer token embedding out of resident
-memory`, 2026-08-31)
+**Upstream:** `ikawrakow/ik_llama.cpp` @ `caf7eae5`
+(`map dense Qwen DFlash packages correctly (#2370)`, 2026-09-02)
+> **Коррекция 2026-09-03:** исходная версия указывала `3c58ae37`
+> (2026-08-31, Joel Farthing, `--defer-ple`). К моменту dry-run
+> `caf7eae5` уже 5 коммитов свежее. Все остальные числа в этом
+> документе (134 upstream ahead) пересчитаны в `analysis-9` §12 и
+> `analysis-10` §14.
 **Scope:** только `upstream/main`. Это не план merge и не замена baseline
 измерений на целевой машине. Все цифры — производные от `git log`/`git diff`,
 никакие числа из реальных прогонов MiniMax-M2.7 не заявляются.
