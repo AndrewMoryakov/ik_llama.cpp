@@ -49,8 +49,11 @@
 - Risk classification всех 141 upstream-коммитов (на 2026-09-07, от `fe215a8c`) по зонам ответственности
   (§6) — actionable для приоритизации merge.
 - Предсказание content conflict в `common/` (14 файлов) — §7.
-- Подтверждение, что `tests/test-compare-llama-bench.py` **не переехал**,
-  а просто удалён (§8).
+- ✅ **КОРРЕКЦИЯ 2026-09-07:** `tests/test-compare-llama-bench.py`
+  **переехал** в `scripts/compare-llama-bench.py` (см. §8, §14.3) —
+  **не** «просто удалён». Это fork-only файл (85fc0aff, Andrew_Moryakov);
+  upstream имел `scripts/compare-llama-bench.py` из #4844; rename
+  detection в git по умолчанию не связывает их (разные источники).
 - Тонкости логики `random_fragment` на Windows vs Linux (§1.1).
 - Indexer cache quantized timeline (§5) — временно отключали, потом
   починили; для MiniMax-M2.7 нерелевантно (CPU-only), но знать полезно.
@@ -61,9 +64,10 @@
 
 **Файл:** `src/llama-mmap.cpp` (PR #2389, коммит `3c58ae37`)
 
-PR добавил новую функцию `random_fragment` в **двух** `#if`-ветках
-(Linux и Windows); третья fallback-ветка (бросающая
-`std::runtime_error("mmap not supported")`) существовала **до** PR:
+PR добавил новую функцию `random_fragment` в **трёх** `#if`-ветках
+(verified `git show 3c58ae37^:src/llama-mmap.cpp | Select-String
+random_fragment` возвращает пусто; `git show 3c58ae37:src/llama-mmap.cpp`
+возвращает 3 определения):
 
 - Linux-ветка (`_POSIX_MAPPED_FILES`): вызывает `posix_madvise(addr+first,
   len, POSIX_MADV_RANDOM)`.
@@ -71,7 +75,8 @@ PR добавил новую функцию `random_fragment` в **двух** `#
 - Fallback (нет mmap support): бросает `std::runtime_error("mmap not
   supported")`.
 
-**Файл:** `src/llama.cpp:5120` (upstream/main)
+**Файл:** `src/llama.cpp:5124` (upstream/main, КОРРЕКЦИЯ 2026-09-07: ранее
+указано 5120, off-by-4)
 
 ```cpp
 LLAMA_LOG_WARN("%s: deferred per-layer token embedding is only supported
@@ -207,17 +212,27 @@ the CPU repack Q8_0 indexer cache (#2285)`:
 > `--run-time-repack`». Это неточно. Реально:
 >
 > **`feature/minimax-step0-readiness` HEAD уже содержит RTR auto
-> implementation.** Через общий предок `0115ace2 runtime : add
-> --run-time-repack auto mode for swap-bound MoE safety` (от 4 мая
-> 2026) minimax унаследовал всю логику:
+> implementation с идентичным кодом.** Verified `git diff
+> feature/rtr-auto-pr-prep HEAD -- common/common.cpp include/llama.h
+> src/llama.cpp src/llama-model.h` показывает **нет различий** в RTR auto
+> code. **КОРРЕКЦИЯ 2026-09-07:** `0115ace2` НЕ является общим предком
+> `feature/rtr-auto-pr-prep` (`git merge-base --is-ancestor 0115ace2
+> feature/rtr-auto-pr-prep` = NO) — rtr-pr получил RTR auto через
+> **другой коммит**. Код идентичен, но ancestry — разная. Если когда-то
+> minimax RTR auto изменится без синхронизации с rtr-pr — rebase сломается
+> непредсказуемо. Список файлов (verified `git show HEAD`):
 >
 > - `common/common.h:382` — `bool repack_tensors_auto`
 > - `common/common.cpp:1669-1708` — CLI parsing `-rtr` + `-rtra`
 > - `common/common.cpp:2764` — help text
 > - `common/common.cpp:3661` — проброс в mparams
-> - `src/llama.h` — поле в `llama_model_params` (см. `analysis-9` §12.4)
-> - `src/llama.cpp:3337+` — `enum class llama_rtr_auto_decision`,
->   `struct llama_rtr_auto_override`, `llama_rtr_auto_parse_layer`
+> - `include/llama.h:441` — поле в `llama_model_params` (см. `analysis-9` §12.4).
+>   **КОРРЕКЦИЯ:** путь `include/llama.h`, не `src/llama.h` (которого
+>   не существует).
+> - `src/llama.cpp:3609+` — `enum class llama_rtr_auto_decision`
+>   (строка 3609), `struct llama_rtr_auto_override` (3615),
+>   `llama_rtr_auto_parse_layer` (3620). **КОРРЕКЦИЯ:** не 3337+ (3337 —
+>   это header секции, off-by-272).
 > - `src/llama-model.h:466` — `llama_rtr_status`
 >
 > `feature/rtr-auto-pr-prep` (HEAD `843de95f`) — это **та же самая
@@ -387,13 +402,13 @@ dequantize_row_*, vec_dot_*_q8_k для обоих типов. Раннее ут
 
 | Зона | Файлов | Risk для CPU-only MiniMax-M2.7 | Почему |
 |---|---|---|---|
-| `ggml/src/ggml-cuda/*` (CUDA) | 45 | **Нулевой** (build без CUDA) | Не компилируется при `-DGGML_CUDA=OFF` |
+| `ggml/src/ggml-cuda/*` (CUDA) | 44 (+3 в `template-instances/`) | **Нулевой** (build без CUDA) | Не компилируется при `-DGGML_CUDA=OFF`. КОРРЕКЦИЯ 2026-09-07: было 45, реально 44 файла под `ggml-cuda/`. |
 | `examples/server/webui_llamacpp/*` (web UI) | 0 в `9d07d868..upstream/main` | **Нулевой** | Не задевает inference path |
-| `ggml/src/ggml-quants.{c,h}`, `ggml/src/iqk/*` (CPU quant) | ~10 | **Средний** | Влияет на квант-таблицы, нужен re-quant + perplexity smoke |
+| `ggml/src/ggml-quants.{c,h}`, `ggml/src/iqk/*` (CPU quant) | 23 | **Средний** | Влияет на квант-таблицы, нужен re-quant + perplexity smoke. КОРРЕКЦИЯ 2026-09-07: было `~10`, реально 23 (1 quants + 22 в `iqk/`). |
 | `ggml/src/ggml.c`, `ggml/include/ggml.h` (core) | 2 | **Средний-высокий** | API меняется; проверить совместимость с minimax-правками |
-| `src/llama.{cpp,h}`, `src/llama-*.cpp` (inference) | ~80 | **Высокий** | Ядро inference; build + smoke обязателен |
+| `src/llama.{cpp,h}`, `src/llama-*.cpp` (inference) | 30 | **Высокий** | Ядро inference; build + smoke обязателен. КОРРЕКЦИЯ 2026-09-07: было `~80`, реально 30. |
 | `common/*` (CLI, sampling, chat, spec) | 14 (см. §7) | **Средний-высокий** | Conflicted с minimax-правками (см. §7) |
-| `src/graphs/build_*.cpp` (graph builders) | 4 (новые модели) | **Низкий** | Не задействованы пока MiniMax-M2.7 не на одной из новых моделей |
+| `src/graphs/build_*.cpp` (graph builders) | 15 | **Низкий** | Не задействованы пока MiniMax-M2.7 не на одной из новых моделей. КОРРЕКЦИЯ 2026-09-07: было 4, реально 15. |
 | `src/llama-{dsv4,kda}.cpp` (новые модели) | 2 | **Нулевой** (MiniMax-M2.7 не использует) | Только при merge с поддержкой новых моделей |
 | `models/templates/*.jinja` (chat templates) | 2 (GLM-5.2, DeepSeek-V4) | **Нулевой** | Не MiniMax-M2.7 |
 | `tests/*` (тесты) | ~20 (новые + удалённые) | **Низкий** | Build-only, regression-check |
@@ -684,7 +699,8 @@ Upstream сохранил базовый boolean repack. Удалён **толь
   (см. `analysis-9` §12.4).
 - В `src/llama.cpp` minimax инициализирует `repack_tensors_auto = false`
   в `llama_model_default_params()` (строка 6138), upstream имеет три
-  инициализации (строки 7974-7976): `defer_experts = false`,
+  инициализации (строки **7978-7980**, КОРРЕКЦИЯ 2026-09-07: ранее
+  7974-7976, off-by-4): `defer_experts = false`,
   `defer_ple = false`, `swa_compress = false`. Resolution: сохранить
   все четыре.
 - **Коррекция 2026-09-03:** minimax HEAD **уже имеет RTR auto logic**

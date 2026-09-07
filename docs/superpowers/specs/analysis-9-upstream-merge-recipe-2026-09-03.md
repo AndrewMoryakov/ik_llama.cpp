@@ -19,7 +19,7 @@
    собственных коммитов на новый upstream (134 коммита добавятся). Это
    автоматически удалит «мёртвые» RTR auto файлы, которые upstream убрал.
 2. Потом синхронизировать **minimax-step0-readiness** с `upstream/main`
-   через merge (415 коммитов добавятся, 33 собственных коммита minimax
+   через merge (415 коммитов добавятся, 34 собственных коммита minimax
    сохранятся как merge-commit lineage).
 3. **fork main** (`origin/main`) после шага 2 — fast-forward на 5 коммитов
    от minimax-HEAD.
@@ -34,9 +34,15 @@
 > относительно **текущего** upstream:
 > `rtr-pr` теперь **141** upstream-коммитов впереди (было 134 → 139
 > → 141), `minimax` теперь **415** (было 408 → 413 → 415).
-> `minimax HEAD` = `434bdd62` (текущий локальный, после 3 правок
-> `6a6b44ef` → `eee79613` → `434bdd62`). Автор upstream HEAD —
-> **Joel Farthing**, не Kawrakow (исправлено).
+> `minimax HEAD` = `085ca0b7` (текущий локальный, после 4 правок
+> `6a6b44ef` → `eee79613` → `434bdd62` → `085ca0b7`).
+> Автор upstream HEAD — **Joel Farthing**, не Kawrakow (исправлено).
+> **КОРРЕКЦИЯ 2026-09-07:** lineage claim про "общий предок `0115ace2`"
+> был **неверным** — verified `git merge-base --is-ancestor 0115ace2
+> feature/rtr-auto-pr-prep` = NO. rtr-pr и minimax имеют **идентичный
+> RTR auto код** (verified `git diff feature/rtr-auto-pr-prep HEAD --
+> common/common.cpp include/llama.h src/llama.cpp src/llama-model.h`
+> пусто для RTR auto), но через **разные коммиты**. См. §1 "Дополнительно".
 
 ```text
 upstream/main = fe215a8c  (2026-09-03, Joel Farthing, #2404 qwen4exp)
@@ -55,7 +61,7 @@ upstream/main = fe215a8c
                  ▼
 minimax mb ─── 45dfd80  (2026-05-04, Andrew Moryakov, PR #1735 link)
                  │
-                 │  33 minimax-коммита
+                 │  34 minimax-коммита
                  ▼
 minimax HEAD ─ 6a6b44ef  (2026-09-03, docs: add upstream analysis set)
                  │
@@ -66,25 +72,43 @@ minimax HEAD ─ 6a6b44ef  (2026-09-03, docs: add upstream analysis set)
               [текущий HEAD]
 
 origin/main ── 3f839337  (2026-07-22, docs: harden Ryzen MiniMax handoff map)
-                 │   ▲
-                 │   │  (5 коммитов, fast-forward)
-                 └───┘
+                 │
+                 │  5 коммитов (ВПЕРЕДИ minimax на эту дельту;
+                 │  origin/main 2026-07-22 docs, minimax разошёлся
+                 │  с origin/main в 0ff3a432 (2026-02-28, Kawrakow).
+                 │  КОРРЕКЦИЯ 2026-09-07: ранее утверждалось
+                 │  "origin/main отстаёт на 5 коммитов" — это было
+                 │  backwards; origin/main ВПЕРЕДИ на 5 в своей
+                 │  параллельной ветке, но minimax опережает origin/main
+                 │  на 250+ коммитов в своей.)
+                 ▼
+              (5 коммитов origin/main отсутствуют в minimax)
 ```
 
 Дополнительно:
 
 - `git rev-list --left-right --count HEAD...upstream/main` для rtr-pr: `13  141`.
-- То же для minimax: `33  415`.
-- `origin/main` отстаёт от minimax-HEAD (`434bdd62`) на 5 коммитов.
+- То же для minimax: `34  415` (КОРРЕКЦИЯ 2026-09-07: было 33 — добавлен
+  коммит `085ca0b7 docs: apply verifier-agent corrections`).
+- `origin/main` (`3f839337`) **впереди** minimax-HEAD (`085ca0b7`) на 5
+  коммитов в своей параллельной ветке; minimax опережает origin/main на
+  250+ коммитов в основной ветке. **fast-forward в §3.8 невозможен** —
+  `git merge --ff-only` откажется (топологии разошлись в 0ff3a432).
 - merge-base `minimax` с `origin/main` — `0ff3a432` (Kawrakow, 2026-02-28).
 - merge-base `rtr-pr` с `upstream/main` — `9d07d868` (2026-07-18).
 - rtr-pr **локальная**; в `origin` её нет (по `FORK_WORKFLOW.md` —
   изолированный worktree).
-- **Важно:** `feature/minimax-step0-readiness` HEAD уже содержит RTR
-  auto implementation через общий предок `0115ace2 runtime : add
-  --run-time-repack auto mode …` (см. `analysis-10` §2.5 и
-  `analysis-9` §12.4). PR #1738 — это **та же implementation** в
-  отдельной ветке для upstream-реквеста, не альтернативная.
+- **Важно (КОРРЕКЦИЯ 2026-09-07):** `feature/minimax-step0-readiness`
+  HEAD уже содержит RTR auto implementation **с идентичным кодом**
+  через **параллельную имплементацию** в rtr-pr (verified `git diff
+  feature/rtr-auto-pr-prep HEAD -- common/common.cpp include/llama.h
+  src/llama.cpp src/llama-model.h` — нет различий в RTR auto).
+  **КОРРЕКЦИЯ:** предыдущая формулировка "через общий предок
+  `0115ace2`" была **неверной** — `git merge-base --is-ancestor 0115ace2
+  feature/rtr-auto-pr-prep` = NO. rtr-pr получил RTR auto через
+  **другой коммит**. Если когда-то изменить RTR auto в minimax без
+  синхронизации с rtr-pr — rebase сломается. PR #1738 — это **та же
+  implementation** в отдельной ветке для upstream-реквеста.
 
 ## 2. Решения, которые нужно принять ДО начала слияния
 
@@ -196,7 +220,7 @@ git fetch upstream --prune --no-tags
 $backup = git rev-parse HEAD
 git branch "backup/minimax-pre-upstream-merge-$(Get-Date -Format 'yyyyMMdd-HHmmss')" HEAD
 
-# Merge (НЕ rebase) — 415 коммитов upstream + 33 minimax-коммита
+# Merge (НЕ rebase) — 415 коммитов upstream + 34 minimax-коммита
 # (КОРРЕКЦИЯ 2026-09-07: было 408 + 30; сейчас upstream `fe215a8c` и HEAD `434bdd62`)
 git switch feature/minimax-step0-readiness
 git merge --no-ff upstream/main -m "merge: bring upstream main 2026-09-03 (fe215a8c) into minimax-step0-readiness"
@@ -287,7 +311,7 @@ $localFiles | ForEach-Object { Write-Host "  $_" }
 | `tests/test-rtr-auto-peak.cpp` | Удалён в upstream | **`git rm`** при rebase |
 | `tests/test-rtr-params.cpp` | Удалён в upstream | **`git rm`** при rebase |
 | `tests/test-cgroup-resolver.cpp` | Удалён в upstream | **`git rm`** при rebase |
-| `tests/test-compare-llama-bench.py` | **Renamed → `scripts/compare-llama-bench.py`** (КОРРЕКЦИЯ 2026-09-07: ранее помечено как "Удалён" — это rename) | `git rm` ИЛИ `git checkout --theirs` (auto-detect) |
+| `tests/test-compare-llama-bench.py` | **Fork-only файл, не в upstream** (КОРРЕКЦИЯ 2026-09-07: ранее помечено как "Renamed → scripts/" — но `git diff --name-status` показывает `D` (потому что это не rename, а удаление fork-only файла)) | **`git rm`** (файл существует в rtr-pr как fork artifact) |
 | `docs/RTR_AUTO_PR_FOLLOWUP_PLAN.md` | Удалён в upstream | **`git rm`** при rebase |
 | `docs/RTR_AUTO_PR_FOLLOWUP_SPEC.md` | Удалён в upstream | **`git rm`** при rebase |
 | `common/common.{cpp,h}` | Изменён в обоих (rtr-auto + upstream) | **content conflict**; смотреть §6.2 |
@@ -424,7 +448,10 @@ Upstream удалил через `Remove Makefile (#1847)`. Этот merge пр�
 rtr-pr/minimax как часть `843de95f..upstream/main` дельты.
 
 **В minimax:** `Makefile` присутствует (см. `analysis-8` §1). Merge даст
-**delete/modify** конфликт.
+**auto-deleted (D status)**, не conflict. **КОРРЕКЦИЯ 2026-09-07:**
+ранее утверждалось "delete/modify conflict" — dry-run 2026-09-03
+показал, что git обрабатывает как pure delete. Принять upstream-версию
+(`Makefile` удалён), см. §5.2.
 
 **Решение:**
 

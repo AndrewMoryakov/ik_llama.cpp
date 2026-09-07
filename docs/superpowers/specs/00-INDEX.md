@@ -35,11 +35,12 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 | 8 | `analysis-8-upstream-snapshot-2026-08-31.md` | Снапшот `upstream/main` от 2026-08-31 (134 коммитов на дату; сейчас 141) | судьба PR #1738, `--defer-ple`, DFlash 2, IQ4_KS/KT |
 | 9 | `analysis-9-upstream-merge-recipe-2026-09-03.md` | Готовый рецепт слияния upstream в форк | rebase rtr-pr → merge minimax, конфликты, gates, rollback |
 | 10 | `analysis-10-upstream-deep-dive-2026-09-03.md` | Углублённая верификация в коде upstream | `--defer-ple` Linux-only, RTR auto полное удаление, IQ4_KS/KT в iqk/ (4 файла), risk classification 141 коммит |
-| 11 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
-| 12 | `step0/NEXT_AGENT_PROMPT.md` | Copy/paste handoff для другой машины | безопасный старт без истории чата |
-| 13 | `step0/MINIMAX_READINESS_REVIEW_2026-07-21.md` | Финальное ревью готовности | найденные фиксы, тесты и границы GO |
-| 14 | `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` | Расширенный пакет метрик | authoritative, token timing, ETW, routing locality |
-| 15 | `step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md` | Ревью реализации метрик | сделанное, проверки, target-only gates |
+| 11 | `analysis-11-second-review-findings-2026-09-07.md` | Находки 2-го review-прохода (3 verifier-агента) | 8 CRITICAL + 10 MAJOR + 5 MINOR; F1-F5 recipe-level не исправлены |
+| 12 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
+| 13 | `step0/NEXT_AGENT_PROMPT.md` | Copy/paste handoff для другой машины | безопасный старт без истории чата |
+| 14 | `step0/MINIMAX_READINESS_REVIEW_2026-07-21.md` | Финальное ревью готовности | найденные фиксы, тесты и границы GO |
+| 15 | `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` | Расширенный пакет метрик | authoritative, token timing, ETW, routing locality |
+| 16 | `step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md` | Ревью реализации метрик | сделанное, проверки, target-only gates |
 
 ## Подтверждённые факты (grounded в дереве форка)
 1. **`-ser` неактивен в HEAD** — `ggml_top_k_thresh` только объявление + определение + один закомментированный вызов; безопасное возвращение требует отдельной ветки, correctness-тестов и benchmark, а не простого uncomment.

@@ -46,9 +46,10 @@
   указано «232 / +23 035 / -4 501» — verified `git diff --shortstat
   843de95f..upstream/main` даёт другие числа). Headline-impact:
   `src/llama.cpp` (+1 915 / -1 075, total 2 990), `src/llama-spec-features-dflash.{cpp,h}`
-  (+276 / -20, total 296), `src/llama-model.h` (+112 / -11, total 123), новые
-  `src/llama-reload.cpp` (+132) и `tests/test-iq4-ks-kt-decode.cpp` (+443).
-  См. §5.
+  (**+280 / -21, total 301**, КОРРЕКЦИЯ 2026-09-07: было +276/-20/total 296),
+  `src/llama-model.h` (**+133 / -11, total 144**, КОРРЕКЦИЯ 2026-09-07: было
+  +112/-11/total 123), новые `src/llama-reload.cpp` (+132) и
+  `tests/test-iq4-ks-kt-decode.cpp` (+443). См. §5.
 
 ## 1. Что удалено в upstream (нас касается напрямую)
 
@@ -242,7 +243,7 @@ upstream-решение, а не случайность.
    awareness: если в `analysis-2` или `analysis-5` появится задача spec
    decoding, отправная точка — `#2345` + `#2341` + `#2348`, не DFlash v1.
 5. **Решить, синхронизировать ли `feature/minimax-step0-readiness` с
-   `upstream/main`.** Текущий `HEAD` (`434bdd62`) — 33 коммита впереди
+   `upstream/main`.** Текущий `HEAD` (`085ca0b7`) — 34 коммита впереди
    `feature/rtr-auto-pr-prep`, который, в свою очередь, на 141 (КОРРЕКЦИЯ
    2026-09-07: было 134) позади
    upstream. Merge upstream → minimax в принципе не требуется до завершения
