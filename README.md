@@ -70,6 +70,11 @@ That's all! Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in Browser start
 
 ### [Common parameters and options](./docs/parameters.md)
 
+### [2026-09-07 upstream snapshot analysis session](./docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md)
+
+Work-in-progress analysis for MiniMax-M2.7 Step0 readiness on Ryzen 9 7950X / 96 GB.
+Includes upstream snapshot, merge recipe, deep-dive verification, and second-review findings.
+
 ## Latest News
 
 
