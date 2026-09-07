@@ -19,7 +19,7 @@
    собственных коммитов на новый upstream (134 коммита добавятся). Это
    автоматически удалит «мёртвые» RTR auto файлы, которые upstream убрал.
 2. Потом синхронизировать **minimax-step0-readiness** с `upstream/main`
-   через merge (408 коммитов добавятся, 30 собственных коммитов minimax
+   через merge (415 коммитов добавятся, 33 собственных коммита minimax
    сохранятся как merge-commit lineage).
 3. **fork main** (`origin/main`) после шага 2 — fast-forward на 5 коммитов
    от minimax-HEAD.
@@ -28,15 +28,20 @@
 
 ## 1. Текущее состояние (verified `git rev-list`)
 
-> **Коррекция 2026-09-03:** upstream HEAD сдвинулся с `3c58ae37` до
-> `caf7eae5` (5 коммитов). Числа ниже пересчитаны:
-> `rtr-pr` теперь **139** upstream-коммитов впереди (было 134),
-> `minimax` теперь **413** (было 408). См. также `analysis-10` §14.
+> **Коррекция 2026-09-07:** upstream HEAD сдвинулся с `3c58ae37` до
+> `fe215a8c` (Joel Farthing, 2026-09-03, `#2404 qwen4exp gather selected
+> cells for depth-constant TG attention`). Числа ниже пересчитаны
+> относительно **текущего** upstream:
+> `rtr-pr` теперь **141** upstream-коммитов впереди (было 134 → 139
+> → 141), `minimax` теперь **415** (было 408 → 413 → 415).
+> `minimax HEAD` = `434bdd62` (текущий локальный, после 3 правок
+> `6a6b44ef` → `eee79613` → `434bdd62`). Автор upstream HEAD —
+> **Joel Farthing**, не Kawrakow (исправлено).
 
 ```text
-upstream/main = caf7eae5  (2026-09-02, Kawrakow, #2370 dense Qwen DFlash)
+upstream/main = fe215a8c  (2026-09-03, Joel Farthing, #2404 qwen4exp)
                  │
-                 │  (139 коммитов)
+                 │  (141 коммит)
                  ▼
 rtr-pr mb ─── 9d07d868  (2026-07-18, mb между rtr-pr и upstream)
                  │
@@ -44,18 +49,23 @@ rtr-pr mb ─── 9d07d868  (2026-07-18, mb между rtr-pr и upstream)
                  ▼
 rtr-pr HEAD ─ 843de95f  (2026-07-19, fix: complete RTR auto pre-PR remediation)
 
-upstream/main = caf7eae5
+upstream/main = fe215a8c
                  │
-                 │  413 коммитов
+                 │  415 коммитов
                  ▼
 minimax mb ─── 45dfd80  (2026-05-04, Andrew Moryakov, PR #1735 link)
                  │
-                 │  30 minimax-коммитов
+                 │  33 minimax-коммита
                  ▼
-minimax HEAD ─ 6a6b44ef  (2026-09-03, docs: add upstream analysis set 2026-09-03)
-           = eee79613  (правки после dry-run, см. коммит-лог)
+minimax HEAD ─ 6a6b44ef  (2026-09-03, docs: add upstream analysis set)
+                 │
+                 │  eee79613  (2026-09-03, docs: correct analysis-9/10 with dry-run findings)
+                 │
+                 │  434bdd62  (2026-09-07, docs: correct analysis-8/9/10 with self-review findings)
+                 ▼
+              [текущий HEAD]
 
-origin/main ── 3f839337  (2026-08-27, docs: harden Ryzen MiniMax handoff map)
+origin/main ── 3f839337  (2026-07-22, docs: harden Ryzen MiniMax handoff map)
                  │   ▲
                  │   │  (5 коммитов, fast-forward)
                  └───┘
@@ -63,18 +73,18 @@ origin/main ── 3f839337  (2026-08-27, docs: harden Ryzen MiniMax handoff map
 
 Дополнительно:
 
-- `git rev-list --left-right --count HEAD...upstream/main` для rtr-pr: `13  139`.
-- То же для minimax: `30  413`.
-- `origin/main` отстаёт от minimax-HEAD на 5 коммитов.
+- `git rev-list --left-right --count HEAD...upstream/main` для rtr-pr: `13  141`.
+- То же для minimax: `33  415`.
+- `origin/main` отстаёт от minimax-HEAD (`434bdd62`) на 5 коммитов.
 - merge-base `minimax` с `origin/main` — `0ff3a432` (Kawrakow, 2026-02-28).
 - merge-base `rtr-pr` с `upstream/main` — `9d07d868` (2026-07-18).
 - rtr-pr **локальная**; в `origin` её нет (по `FORK_WORKFLOW.md` —
   изолированный worktree).
-- **Важно:** `feature/minimax-step0-readiness` HEAD (`eee79613` после
-  правок) уже содержит RTR auto implementation через общий предок
-  `0115ace2 runtime : add --run-time-repack auto mode …` (см.
-  `analysis-10` §2.5 и `analysis-9` §12.4). PR #1738 — это **та же
-  реализация** в отдельной ветке для upstream-реквеста, не альтернативная.
+- **Важно:** `feature/minimax-step0-readiness` HEAD уже содержит RTR
+  auto implementation через общий предок `0115ace2 runtime : add
+  --run-time-repack auto mode …` (см. `analysis-10` §2.5 и
+  `analysis-9` §12.4). PR #1738 — это **та же implementation** в
+  отдельной ветке для upstream-реквеста, не альтернативная.
 
 ## 2. Решения, которые нужно принять ДО начала слияния
 
@@ -186,9 +196,10 @@ git fetch upstream --prune --no-tags
 $backup = git rev-parse HEAD
 git branch "backup/minimax-pre-upstream-merge-$(Get-Date -Format 'yyyyMMdd-HHmmss')" HEAD
 
-# Merge (НЕ rebase) — 408 коммитов upstream + 30 minimax-коммитов
+# Merge (НЕ rebase) — 415 коммитов upstream + 33 minimax-коммита
+# (КОРРЕКЦИЯ 2026-09-07: было 408 + 30; сейчас upstream `fe215a8c` и HEAD `434bdd62`)
 git switch feature/minimax-step0-readiness
-git merge --no-ff upstream/main -m "merge: bring upstream main 2026-08-31 into minimax-step0-readiness"
+git merge --no-ff upstream/main -m "merge: bring upstream main 2026-09-03 (fe215a8c) into minimax-step0-readiness"
 ```
 
 Если merge — fast-forward (то есть upstream/main достижим из minimax — в
@@ -211,9 +222,11 @@ ctest --test-dir build -C Release --output-on-failure
 # — не запускать на целевой машине с этой версией до отдельного решения
 
 # 3. Проверить, что новые upstream-флаги появились в --help
-& ".\build\bin\Release\llama-cli.exe" --help 2>&1 | Select-String -Pattern "defer-ple|rtr|prefetch-experts|muge"
-# ожидаемо увидеть: --defer-ple
-# ожидаемо НЕ увидеть: --run-time-repack (он исчез)
+& ".\build\bin\Release\llama-cli.exe" --help 2>&1 | Select-String -Pattern "defer-ple|defer-experts|rtr|prefetch-experts|muge"
+# ожидаемо увидеть: --defer-ple, --defer-experts, --run-time-repack
+# (последний — КОРРЕКЦИЯ 2026-09-07: ранее утверждалось что флаг
+# исчез, но он жив в upstream `common/common.cpp:2216, 3308`. Удалён
+# только `auto`-режим.)
 ```
 
 ### 3.7 Push minimax
@@ -274,7 +287,7 @@ $localFiles | ForEach-Object { Write-Host "  $_" }
 | `tests/test-rtr-auto-peak.cpp` | Удалён в upstream | **`git rm`** при rebase |
 | `tests/test-rtr-params.cpp` | Удалён в upstream | **`git rm`** при rebase |
 | `tests/test-cgroup-resolver.cpp` | Удалён в upstream | **`git rm`** при rebase |
-| `tests/test-compare-llama-bench.py` | Удалён в upstream | **`git rm`** при rebase |
+| `tests/test-compare-llama-bench.py` | **Renamed → `scripts/compare-llama-bench.py`** (КОРРЕКЦИЯ 2026-09-07: ранее помечено как "Удалён" — это rename) | `git rm` ИЛИ `git checkout --theirs` (auto-detect) |
 | `docs/RTR_AUTO_PR_FOLLOWUP_PLAN.md` | Удалён в upstream | **`git rm`** при rebase |
 | `docs/RTR_AUTO_PR_FOLLOWUP_SPEC.md` | Удалён в upstream | **`git rm`** при rebase |
 | `common/common.{cpp,h}` | Изменён в обоих (rtr-auto + upstream) | **content conflict**; смотреть §6.2 |
@@ -312,7 +325,7 @@ minimax и upstream расходятся в `45dfd80`. Дельта:
 | `src/llama.{cpp,h}` | Изменён в upstream; minimax не трогал | upstream-сторона выигрывает автоматически |
 | `ggml/src/*` | Изменён в upstream; minimax не трогал | upstream-сторона |
 | `examples/llava/*` | Удалён в upstream (Prune examples/llava) | автоматически; minimax не имел этих файлов в `45dfd80` |
-| `Makefile` | Удалён в upstream; **есть в minimax** | **delete/modify conflict**; см. §6.3 |
+| `Makefile` | Удалён в upstream; **есть в minimax** | **auto-deleted (D status), не conflict** (КОРРЕКЦИЯ 2026-09-07: ранее предсказан delete/modify conflict; dry-run показал, что git обрабатывает как pure delete). См. §12.8 для фактического результата. Рекомендация §6.3 по удалению — остаётся в силе. |
 
 Upstream-удалённые файлы vs minimax (`45dfd80..upstream/main`):
 `Makefile`, `examples/llava/*` (16 файлов), `examples/server/webui_*/...`
@@ -329,6 +342,10 @@ git rm src/llama-cgroup-resolver.h
 git rm tests/test-rtr-auto-peak.cpp
 git rm tests/test-rtr-params.cpp
 git rm tests/test-cgroup-resolver.cpp
+# Примечание 2026-09-07: tests/test-compare-llama-bench.py переехал
+# в scripts/compare-llama-bench.py (КОРРЕКЦИЯ к §5.1). Если rebase
+# rtr-pr детектит rename — `git rm` не нужен, git сам выполнит rename.
+# Если rename-detection выключен — оставить `git rm` ниже.
 git rm tests/test-compare-llama-bench.py
 git rm docs/RTR_AUTO_PR_FOLLOWUP_PLAN.md
 git rm docs/RTR_AUTO_PR_FOLLOWUP_SPEC.md
@@ -374,7 +391,7 @@ DFlash callbacks, sampling).
   - HEAD (minimax): legacy-формат `params.speculative.suffix_corpus = argv[i]; return true;`
   - upstream: новый `throw common_speculative_legacy_option_error(arg, ...)`
   - **Резолв:** принять upstream-формат; minimax не имел этого изменения,
-    legacy-формата больше нет в minimax 30 коммитах.
+    legacy-формата больше нет в minimax 33 коммитах.
 
 - **Блок 2** (CLI-args-handler):
   - HEAD (minimax): `--moe-trace` + `--token-timing` парсинг (оба
@@ -548,13 +565,26 @@ git push origin --tags  # если origin принимает tags
        отразить факт слияния + новые ссылки на upstream-флаги.
 ```
 
-## 10. Что я НЕ проверил `[UNVERIFIED]`
+## 10. Verified / Unverified статус
 
-- **Точные строки content conflict** в `common/common.{cpp,h}` и
-  `src/llama.cpp` — **ВЕРИФИЦИРОВАНО dry-run 2026-09-03** (§6.2, §12).
-  Полная карта: 4 блока в `common/common.cpp`, 1 в `.gitignore`, 1 в
-  `docs/parameters.md`, 6 в `examples/main/main.cpp`, 1 в
-  `include/llama.h`, 2 в `src/llama.cpp`. Итого 15 блоков / 6 файлов.
+> **Коррекция 2026-09-07:** предыдущая версия §10 смешивала VERIFIED и
+> UNVERIFIED под одним заголовком. Разделено.
+
+### 10.1 VERIFIED (через dry-run 2026-09-03 и verifier-агентов)
+
+- **Конфликт-мапа 6 файлов / 15 блоков** (см. §12).
+- **Стратегия B «прямой merge»** — 1.6% conflict rate, manageable. 14
+  файлов в `common/` требуют внимания, но не дали конфликта (только
+  `common/common.cpp` + `common/common.h` + `docs/parameters.md`).
+- **`--run-time-repack` жив в upstream** (`common/common.cpp:2216`,
+  `:3308`).
+- **`--defer-experts` жив в upstream** (см. `analysis-10` §14.2).
+- **`repack_tensors_auto` жив в minimax HEAD** через общий предок
+  `0115ace2`.
+- **6 файлов / 15 блоков** в dry-run conflict-map (см. §12).
+
+### 10.2 UNVERIFIED (всё ещё открыто)
+
 - **CI workflow** (если есть) на `feature/minimax-step0-readiness` —
   статус и поведение после merge. **Не проверял** в dry-run.
 - **Поведение `--defer-ple` end-to-end** — даже после merge не
@@ -563,15 +593,12 @@ git push origin --tags  # если origin принимает tags
   `analysis-10` §1), для целевой машины не релевантно.
 - **Snapshot tags очистка** — в проекте нет convention по удалению
   тегов через 30 дней; возможно, стоит завести отдельный script.
-- **Стратегия B «прямой merge»** — **ЧАСТИЧНО ВЕРИФИЦИРОВАНО dry-run
-  2026-09-03** (см. §12): 1.6% conflict rate, manageable. 14 файлов в
-  `common/` действительно требуют внимания, но не дали конфликта (только
-  `common/common.cpp` + `common/common.h` + `docs/parameters.md`).
-- **`--defer-experts` (PR #1634)** — обнаружен в dry-run, поведение не
-  изучено отдельной секцией. См. `analysis-10` §14.2.
-- **`--run-time-repack` минимальное поведение в upstream** —
-  обнаружено в dry-run, что флаг жив. Точная семантика `0`/`1` без
-  `auto` не изучена (см. `common/common.cpp` напрямую при merge).
+- **`--defer-experts` (PR #1634)** точная реализация в `common/common.cpp` —
+  флаг жив, но точная семантика CLI-парсера не изучена отдельной
+  секцией.
+- **`--run-time-repack` точная семантика `0`/`1` без `auto`** — флаг
+  жив, но минимальное поведение в `common/common.cpp` после удаления
+  auto-режима не изучено детально.
 
 ## 11. Открытые вопросы для пользователя
 
@@ -671,12 +698,15 @@ git push origin --tags  # если origin принимает tags
 > `repack_tensors_auto` декларация (с комментарием или без, с
 > групппингом или нет).
 
-**Резолв:** сохранить **все три** поля:
+**Резолв:** сохранить **все четыре** поля (КОРРЕКЦИЯ 2026-09-07: upstream
+добавил `defer_experts` между `flash_attn` и `defer_ple` — verified
+`git blame upstream/main -- include/llama.h`):
 
 ```cpp
         // Appended to preserve the source layout of all pre-existing fields.
         // The C ABI still requires callers and the library to use matching headers.
         bool repack_tensors_auto; // if true, may auto-disable run-time repack
+        bool defer_experts;       // defer expert mmap residency to speed up model loading (Linux only)
         bool defer_ple;           // keep the per-layer token embedding on the file (Linux only)
         bool swa_compress;        // must match llama_context_params::swa_compress
 ```
@@ -698,12 +728,16 @@ swap-bound MoE safety`):
   [0|1|auto]`.
 - `common/common.cpp:3661` — `mparams.repack_tensors_auto =
   params.repack_tensors_auto` (проброс в model params).
-- `src/llama.h` — `repack_tensors_auto` в `llama_model_params`
-  (этот conflict, см. выше).
-- `src/llama.cpp:3337+` — `enum class llama_rtr_auto_decision`,
+- `include/llama.h:441` — `repack_tensors_auto` в `llama_model_params`
+  (этот conflict, см. выше). **КОРРЕКЦИЯ 2026-09-07:** ранее указывалось
+  `src/llama.h` — файл `src/llama.h` не существует, правильный путь
+  `include/llama.h`.
+- `src/llama.cpp:3609+` — `enum class llama_rtr_auto_decision`,
   `struct llama_rtr_auto_override`, `static bool
   llama_rtr_auto_parse_layer(...)` — **вся auto-логика** живёт в
-  minimax HEAD.
+  minimax HEAD. **КОРРЕКЦИЯ 2026-09-07:** ранее указывалось `3337+` —
+  это header комментарий секции; сами символы на 3609+ (off by 272
+  строк).
 - `src/llama-model.h:466` — `llama_rtr_status rtr_status =
   LLAMA_RTR_STATUS_DISABLED`.
 
@@ -716,10 +750,11 @@ swap-bound MoE safety`):
 - `repack_tensors_auto` уже есть. Удалять его = удалить всю RTR
   auto логику. Сохранение зависит от решения §11.1, но это
   **substantive** решение, не косметическое.
-- В conflict-map §12.4 я писал «сохранить все три поля» —
-  корректно. Но подразумевалось «сохранить всю RTR auto logic
-  + добавить два новых поля upstream», а не «три равноправных
-  bool'а».
+- В conflict-map §12.4 я писал «сохранить все три поля» — это
+  устаревшая формулировка (КОРРЕКЦИЯ 2026-09-07: upstream добавил
+  `defer_experts` отдельно от `defer_ple`). Текущее: «сохранить все
+  четыре поля». Подразумевалось «сохранить всю RTR auto logic +
+  добавить три новых поля upstream», а не «равноправные bool'ы».
 
 ### 12.5 Conflict-4: `docs/parameters.md` (1 блок)
 
@@ -785,7 +820,7 @@ swap-bound MoE safety`):
 | # | Что HEAD (minimax) | Что upstream | Резолв |
 |---|---|---|---|
 | 1 | `model.use_mmap_loader_enabled = ml.use_mmap;` (одна строка) | 8 строк MTP-package validation + hot-swap registry | **ОБА** (добавить upstream-блок ПОСЛЕ minimax-строки) |
-| 2 | `/*.repack_tensors_auto =*/ false,` (одна строка) | `/*.defer_ple =*/ false, /*.swa_compress =*/ false,` (две строки) | **ОБА** (все три инициализации в `llama_model_default_params()`) |
+| 2 | `/*.repack_tensors_auto =*/ false,` (одна строка) | `/*.defer_experts =*/ false, /*.defer_ple =*/ false, /*.swa_compress =*/ false,` (**три** строки, КОРРЕКЦИЯ 2026-09-07: ранее указано "две строки" — пропущен `defer_experts`) | **ОБА** (все четыре инициализации в `llama_model_default_params()`) |
 
 ### 12.8 Что прошло через merge без конфликта (важные файлы)
 

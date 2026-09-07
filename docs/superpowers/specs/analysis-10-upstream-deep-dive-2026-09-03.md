@@ -46,7 +46,7 @@
 
 Что **нового** в этом документе, чего не было в analysis-8:
 
-- Risk classification всех 134 upstream-коммитов по зонам ответственности
+- Risk classification всех 141 upstream-коммитов (на 2026-09-07, от `fe215a8c`) по зонам ответственности
   (§6) — actionable для приоритизации merge.
 - Предсказание content conflict в `common/` (14 файлов) — §7.
 - Подтверждение, что `tests/test-compare-llama-bench.py` **не переехал**,
@@ -61,7 +61,9 @@
 
 **Файл:** `src/llama-mmap.cpp` (PR #2389, коммит `3c58ae37`)
 
-PR добавил новую функцию `random_fragment` в трёх `#if`-ветках:
+PR добавил новую функцию `random_fragment` в **двух** `#if`-ветках
+(Linux и Windows); третья fallback-ветка (бросающая
+`std::runtime_error("mmap not supported")`) существовала **до** PR:
 
 - Linux-ветка (`_POSIX_MAPPED_FILES`): вызывает `posix_madvise(addr+first,
   len, POSIX_MADV_RANDOM)`.
@@ -186,7 +188,7 @@ cgroup, Windows job objects) — полностью ушла.
 
 ### 2.4 Что есть в upstream про repack / мmap-эффективность
 
-Из 134 коммитов единственное релевантное — `b8b3034b Indexer topk: on
+Из 141 коммита единственное релевантное — `b8b3034b Indexer topk: on
 the CPU repack Q8_0 indexer cache (#2285)`:
 
 ```text
@@ -325,28 +327,61 @@ DFlash 2 / DSpark в Step0 baseline **не входят** (см.
 - `ggml/src/ggml-cuda/*` (12 файлов) — CUDA + IQK-multiply-mat.
 - `ggml/src/vulkan-shaders/*` (6 файлов) — Vulkan shaders для
   `dequant`, `get_rows`, `mul_mat_vec`.
+- **`ggml/src/iqk/*` (4 файла, **CORRECTION 2026-09-07**)**:
+  - `iqk_quantize.cpp` — `quantize_row_iq4_ks`, `dequantize_row_iq4_ks`,
+    `quantize_row_iq4_kt`, `dequantize_row_iq4_kt`, `vec_dot_iq4_ks_q8_k`,
+    `vec_dot_iq4_kt_q8_k` (декодер + квантайзер).
+  - `iqk_mul_mat.cpp` — matrix multiplication IQ4_KS/KT × Q8_K.
+  - `iqk_gemm_iqk_quants.cpp` — IQK-GEMM через quantize cache.
+  - `iqk_gemm_ktquants.cpp` — KT-специфичный GEMM.
 
 ### 5.2 Где НЕ поддерживается
 
-- `ggml/src/iqk/*` — CPU-путь (AVX2/AVX-512). **Ни одного файла с
-  IQ4_KS/KT в `iqk/`.**
-- `src/llama-quantize.cpp` — квантизация. Если IQ4_KS/KT нет в
-  quantize.cpp — новые GGUFs с этими типами не создать (только
-  конвертировать из уже-созданных).
+- `src/llama-quantize.cpp` — квантизация CLI-уровня (высокоуровневый
+  tool). `iqk_quantize.cpp` содержит низкоуровневые quantize_row_*
+  функции, но это не вызывается из `llama-quantize` CLI. **[ЧАСТИЧНО
+  ВЕРИФИЦИРОВАНО 2026-09-07]:** нужен отдельный `git grep
+  "quantize_row_iq4" llama-quantize` чтобы подтвердить, что эти типы
+  можно создать через `llama-quantize` tool. До этой проверки — позиция
+  «новые GGUFs с IQ4_KS/KT не создать через штатный tool» остаётся
+  гипотезой.
 
 ### 5.3 Вывод
 
+**Коррекция 2026-09-07** (по результатам verifier-агента): IQ4_KS / IQ4_KT
+**имеют CPU-путь в `ggml/src/iqk/`** — 4 файла содержат quantize_row_*,
+dequantize_row_*, vec_dot_*_q8_k для обоих типов. Раннее утверждение
+этого раздела («нет ни декодера, ни квантайзера») было **фактически
+неверным**.
+
 Для CPU-only MiniMax-M2.7 на Ryzen 9 7950X / Windows IQ4_KS / IQ4_KT
-**неприменимы напрямую** — нет ни декодера, ни квантайзера. Vulkan-
-вариант существует, но в `step0` baseline CPU-only без GPU.
+**технически применимы** как CPU-кванты в inference path (через iqk_mul_mat).
+Однако:
 
-Если в будущем планируется hybrid CPU+GPU — IQ4_KS/KT стоит держать в
-голове, но это вне scope текущего `feature/minimax-step0-readiness`.
+- Штатный `llama-quantize` tool может не уметь создавать GGUFs этих
+  типов (требует отдельной проверки).
+- IQ4_KS / IQ4_KT — относительно новые типы (PR #1634, #2332, #2339),
+  quality gate на MiniMax-M2.7 не валидирован.
+- В текущем `step0` baseline MiniMax-M2.7 уже размечен под другой
+  quant (см. `step0/MINIMAX_TARGET_RUNBOOK.md`); добавление IQ4_KS/KT
+  требует re-quantize + новый perplexity smoke.
 
-## 6. Risk classification 134 upstream-коммитов
+**Рекомендация:** в `step0/MINIMAX_TARGET_RUNBOOK.md` добавить footnote:
+"IQ4_KS / IQ4_KT имеют CPU-путь в `ggml/src/iqk/`, но не валидированы
+на MiniMax-M2.7. Если когда-то baseline будет расширяться — стоит
+включить как кандидаты."
 
-Источник: `git diff --name-only 9d07d868..upstream/main` (221 файл, 134
-коммита).
+## 6. Risk classification 141 upstream-коммитов
+
+> **Коррекция 2026-09-07:** upstream сдвинулся с `caf7eae5` (на котором
+> был написан исходный текст §6) до `fe215a8c` (Joel Farthing, 2026-09-03,
+> qwen4exp). При merge-base `9d07d868` (rtr-pr): **141 upstream-коммитов**
+> (было 134 в исходной версии §6, 139 в §14.1, теперь 141). Числа
+> файлов / строк / contributor counts также обновлены ниже.
+
+Источник: `git diff --name-only 9d07d868..upstream/main` (221 файл, 141
+коммит). `git diff --shortstat 843de95f..upstream/main`: **231 файл,
++23 642 / -4 527 строк.**
 
 ### 6.1 По областям
 
@@ -381,7 +416,7 @@ DFlash 2 / DSpark в Step0 baseline **не входят** (см.
 
 ### 6.3 Практический вывод
 
-Из 134 коммитов **для CPU-only MiniMax-M2.7 baseline** реально влияют:
+Из 141 коммита **для CPU-only MiniMax-M2.7 baseline** реально влияют:
 
 - `7cff686d` (quant fudge, см. §3) — при re-quant.
 - `08b500b9` (ggml: fix HC_POST single-token CPU chunk count) — CPU-
@@ -391,7 +426,7 @@ DFlash 2 / DSpark в Step0 baseline **не входят** (см.
 - Sampling-изменения (`0ed847d3`) — могут сдвинуть quality gate, нужна
   re-validation.
 
-Остальные 130 коммитов — либо CUDA-only, либо другие модели, либо
+Остальные 136 коммитов — либо CUDA-only, либо другие модели, либо
 WebUI/server, либо tooling. **Build с `-DGGML_CUDA=OFF` отрезает** 45
 файлов автоматически, что сильно снижает реальный risk-surface.
 
@@ -524,43 +559,66 @@ b37189aa Actually fix quantized indexer cache on CUDA (#2286) (починили)
 | §6.2 «common/common.{cpp,h}» | **Уточнить** порядок: `git checkout --ours` как base, потом `--theirs`, потом руками re-apply minimax-блоки (см. §7.2) | §7.1 |
 | §6.4 «llama-mmap.h в корне rtr-pr» | Подтверждается: upstream-файл, придёт как add в minimax, не критично | (без изменений) |
 | §7 GATE 2 п.4 | **Убрать** `--defer-ple` smoke | §1 |
-| §10 «[UNVERIFIED]» п.3 «судьба test-compare-llama-bench.py» | **Подтверждено**: удалён, не переехал. Проверить `step0-bench.ps1` при merge | §8 |
+| §10 «[UNVERIFIED]» п.3 «судьба test-compare-llama-bench.py» | **Подтверждено**: переехал в `scripts/compare-llama-bench.py`, не удалён (см. §8, §14.3) | §8 |
 
 ## 11. Новые открытые вопросы
 
-1. **PR #1738 — закрыть или переформулировать под indexer topk Q8_0?**
-   Решение: переформулировка возможна только для GLM-DSA-семейства, не
-   для MiniMax-M2.7. Если MiniMax-M2.7 — единственный use-case →
-   закрывать. (`analysis-8` §8.1 + §2.4 здесь.)
+1. **PR #1738 — закрыть или переформулировать?**
+   **Коррекция 2026-09-07:** `feature/minimax-step0-readiness` HEAD уже
+   содержит RTR auto implementation через общий предок `0115ace2`
+   (`src/llama.cpp:3609+` — `enum class llama_rtr_auto_decision`,
+   `struct llama_rtr_auto_override`, `llama_rtr_auto_parse_layer`).
+   `feature/rtr-auto-pr-prep` — **та же implementation** в отдельной
+   worktree для upstream-реквеста. PR #1738 имеет смысл как «auto-режим
+   поверх существующего `--run-time-repack`» (см. §2.5, §14.1) —
+   аддитивный patch, не альтернатива. Решение: **закрыть** имеет смысл
+   (реализация уже в minimax), **переформулировать** имеет смысл если
+   хочется upstream merge именно этого варианта.
 2. **Quant fudge factors — применять ли к будущим quant-ам MiniMax?**
    Не блокирует merge, но влияет на любые новые квант-серии. Решение —
    не на сейчас.
-3. **`step0-bench.ps1` использует `test-compare-llama-bench.py`?**
-   Проверить grep'ом перед merge.
+3. ✅ **`step0-bench.ps1` использует `test-compare-llama-bench.py`?**
+   **РЕШЕНО в §8.2/§14.3: не использует** ни `tests/`, ни `scripts/`
+   вариант (verified grep'ом 2026-09-03).
 4. **Sampling quality gate** — перепрогон perplexity smoke на
    `Adaptive P Sampler` (`0ed847d3`) — отдельная задача, не блокер
    merge.
-5. **WebUI-файлы** — `examples/server/webui_llamacpp/*` в 134-коммитной
+5. **WebUI-файлы** — `examples/server/webui_llamacpp/*` в 141-коммитной
    дельте **не меняются** (0 файлов). Это либо уже-стабилизировано, либо
    обновляется в отдельной ветке. Не блокер.
+6. **IQ4_KS / IQ4_KT applicability** — см. §5.3. CPU-путь в
+   `ggml/src/iqk/` существует; штатный `llama-quantize` tool — отдельная
+   проверка. Если baseline расширяется — стоит включить как кандидаты.
 
-## 12. Что я НЕ проверил `[UNVERIFIED]`
+## 12. Verified / Unverified статус
 
-- **Точные hunks** content conflict в `common/common.cpp` / `common.h` —
-  **[ЧАСТИЧНО ВЕРИФИЦИРОВАНО dry-run 2026-09-03, см. §14 и
-  `analysis-9` §12]**. Полная conflict-map: 4 блока в `common/common.cpp`
-  (в районе CLI args), 1 в `.gitignore`, 1 в `docs/parameters.md`, 6 в
-  `examples/main/main.cpp`, 1 в `include/llama.h`, 2 в `src/llama.cpp`.
-  Итого 6 файлов / 15 блоков / 1.6% от 930 изменённых.
-- **Использование `test-compare-llama-bench.py` в `step0-bench.ps1`** —
-  **ВЕРИФИЦИРОВАНО 2026-09-03** (grep): не используется.
-  Следствие: Step0 безопасен к удалению/переезду файла.
-- **`common/sampling.cpp` правил ли minimax** — **ВЕРИФИЦИРОВАНО
-  2026-09-03** (`git log $mb..HEAD -- common/sampling.cpp` пусто):
-  minimax не правил → sampling-конфликт = upstream-wins.
-- **Все 134 коммита** risk-классифицированы по `git diff --name-only` +
-  file-paths. Не смотрел каждое commit-message вручную, возможны
-  miss-классификации.
+> **Коррекция 2026-09-07:** предыдущая версия §12 смешивала VERIFIED и
+> UNVERIFIED items под одним заголовком. Разделено на две подсекции.
+
+### 12.1 VERIFIED (через dry-run 2026-09-03 и verifier-агентов 2026-09-07)
+
+- **Конфликт-мапа 6 файлов / 15 блоков** — full map в `analysis-9` §12
+  (4 блока в `common/common.cpp`, 1 в `.gitignore`, 1 в
+  `docs/parameters.md`, 6 в `examples/main/main.cpp`, 1 в
+  `include/llama.h`, 2 в `src/llama.cpp`).
+- **`step0-bench.ps1` не использует `test-compare-llama-bench.py`** (grep).
+- **`common/sampling.cpp` не правился minimax** (`git log $mb..HEAD --
+  common/sampling.cpp` пусто).
+- **`--run-time-repack` жив в upstream** (`common/common.cpp:2216`, `:3308`).
+- **`--defer-experts` жив в upstream** (`common/common.h:458`, docs/parameters.md:114).
+- **IQ4_KS / IQ4_KT имеют CPU-путь в `ggml/src/iqk/`** (4 файла, см. §5.1).
+- **`scripts/compare-llama-bench.py` существует в upstream, `tests/`-вариант
+  удалён** (rename).
+- **`repack_tensors_auto` жив в HEAD** (через предок `0115ace2`,
+  `src/llama.cpp:3609+`).
+- **`random_fragment` no-op на Windows, posix_madvise на Linux** (см. §1.1).
+- **`Makefile` auto-deleted при merge** (не conflict; см. `analysis-9` §12.8).
+
+### 12.2 UNVERIFIED (всё ещё открыто)
+
+- **Все 141 upstream-коммита** risk-классифицированы по `git diff
+  --name-only` + file-paths. Не смотрел каждое commit-message вручную,
+  возможны miss-классификации.
 - **CI на origin/feature/minimax-step0-readiness** — статус, наличие,
   поведение после merge не проверял.
 - **`--defer-experts` (PR #1634) точная реализация** — обнаружен в
@@ -568,6 +626,10 @@ b37189aa Actually fix quantized indexer cache on CUDA (#2286) (починили)
 - **`--run-time-repack` минимальное поведение в upstream** — обнаружено
   в dry-run, что флаг жив. Точная семантика `0`/`1` без `auto` не
   изучена (см. `common/common.cpp` напрямую при merge).
+- **Точные `hunks` content conflict** — предсказание 95% точное (на основе
+  dry-run conflict-markers), но финальный `<<<<<<<` после `git checkout
+  --ours/--theirs` может отличаться. После реального merge — сверить
+  с `analysis-9` §12 построчно.
 
 ## 13. Связанные документы (напоминание)
 
@@ -614,14 +676,17 @@ Upstream сохранил базовый boolean repack. Удалён **толь
 - **PR #1738 имеет смысл как аддитивный patch**: «auto-режим поверх
   существующего `--run-time-repack`» — это не конфликт с upstream, а
   расширение. Стратегия переформулировки остаётся валидной.
-- В `include/llama.h` upstream теперь содержит `defer_ple` и
-  `swa_compress` в `llama_model_params`, но **не** `repack_tensors_auto`.
-  Если minimax хочет сохранить RTR auto — поле остаётся в minimax
-  локально, в конфликте с `defer_ple`/`swa_compress`. Resolution:
-  сохранить **все три** (см. `analysis-9` §12.4).
+- В `include/llama.h` upstream теперь содержит `defer_experts`,
+  `defer_ple` и `swa_compress` в `llama_model_params`, но **не**
+  `repack_tensors_auto`. Если minimax хочет сохранить RTR auto — поле
+  остаётся в minimax локально, в конфликте с `defer_experts` /
+  `defer_ple` / `swa_compress`. Resolution: сохранить **все четыре**
+  (см. `analysis-9` §12.4).
 - В `src/llama.cpp` minimax инициализирует `repack_tensors_auto = false`
-  в `llama_model_default_params()`, upstream заменил на `defer_ple = false,
-  swa_compress = false`. Resolution: сохранить все три.
+  в `llama_model_default_params()` (строка 6138), upstream имеет три
+  инициализации (строки 7974-7976): `defer_experts = false`,
+  `defer_ple = false`, `swa_compress = false`. Resolution: сохранить
+  все четыре.
 - **Коррекция 2026-09-03:** minimax HEAD **уже имеет RTR auto logic**
   (через общий предок `0115ace2`, см. §2.5). `repack_tensors_auto`
   поле в `include/llama.h` — это **видимая часть** ~30 строк

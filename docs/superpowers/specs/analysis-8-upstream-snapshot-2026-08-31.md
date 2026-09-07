@@ -6,10 +6,14 @@
 **Upstream:** `ikawrakow/ik_llama.cpp` @ `caf7eae5`
 (`map dense Qwen DFlash packages correctly (#2370)`, 2026-09-02)
 > **Коррекция 2026-09-03:** исходная версия указывала `3c58ae37`
-> (2026-08-31, Joel Farthing, `--defer-ple`). К моменту dry-run
-> `caf7eae5` уже 5 коммитов свежее. Все остальные числа в этом
-> документе (134 upstream ahead) пересчитаны в `analysis-9` §12 и
-> `analysis-10` §14.
+> (2026-08-31, Joel Farthing, `--defer-ple`).
+>
+> **Коррекция 2026-09-07:** upstream HEAD сдвинулся с `caf7eae5` до
+> `fe215a8c` (Joel Farthing, 2026-09-03, `#2404 qwen4exp gather selected
+> cells for depth-constant TG attention`). 7 новых коммитов. Текущее
+> число: **141** upstream-коммитов впереди (было 134 → 139 → **141**).
+> Все остальные числа в этом документе пересчитаны в `analysis-9` §1
+> и `analysis-10` §6.
 **Scope:** только `upstream/main`. Это не план merge и не замена baseline
 измерений на целевой машине. Все цифры — производные от `git log`/`git diff`,
 никакие числа из реальных прогонов MiniMax-M2.7 не заявляются.
@@ -38,10 +42,13 @@
   DFlash 2, не DFlash v1.
 - **Quant: IQ4_KS / IQ4_KT** теперь живут и в Vulkan (#2332), и в HIP/RDNA3
   (#2339). В `step0` квант-сценарии их нужно учитывать.
-- **232 файла, +23 035 / -4 501 строк.** Headline-impact: `src/llama.cpp`
-  (+2 900), `src/llama-spec-features-dflash.{cpp,h}` (+296), `src/llama-model.h`
-  (+116), новые `src/llama-reload.cpp` (+132) и `tests/test-iq4-ks-kt-decode.cpp`
-  (+443). См. §5.
+- **231 файл, +23 642 / -4 527 строк** (КОРРЕКЦИЯ 2026-09-07: ранее
+  указано «232 / +23 035 / -4 501» — verified `git diff --shortstat
+  843de95f..upstream/main` даёт другие числа). Headline-impact:
+  `src/llama.cpp` (+1 915 / -1 075, total 2 990), `src/llama-spec-features-dflash.{cpp,h}`
+  (+276 / -20, total 296), `src/llama-model.h` (+112 / -11, total 123), новые
+  `src/llama-reload.cpp` (+132) и `tests/test-iq4-ks-kt-decode.cpp` (+443).
+  См. §5.
 
 ## 1. Что удалено в upstream (нас касается напрямую)
 
@@ -56,7 +63,10 @@ D  src/llama-cgroup-resolver.h
 D  tests/test-rtr-auto-peak.cpp
 D  tests/test-rtr-params.cpp
 D  tests/test-cgroup-resolver.cpp
-D  tests/test-compare-llama-bench.py          (-282 строк; видимо, переехал в tools/)
+R  tests/test-compare-llama-bench.py → scripts/compare-llama-bench.py
+                                            (КОРРЕКЦИЯ 2026-09-07: ранее помечено
+                                            как "D" + "видимо, переехал в tools/" — это
+                                            rename в `scripts/`, не delete)
 ```
 
 Прямые следствия:
@@ -173,9 +183,9 @@ speculative decoding не входит в baseline grid. Но если позж�
 ## 7. Активность upstream по авторам (843de95f..upstream/main)
 
 ```text
-   62  Iwan Kawrakow
-   23  Joel Farthing
-   17  Samuel Oliveira Alves        (DFlash 2)
+   63  Iwan Kawrakow
+   24  Joel Farthing
+   19  Samuel Oliveira Alves        (DFlash 2)
     5  Nexesenex
     3  Yap Sok Ann
     3  mb8565
@@ -184,6 +194,8 @@ speculative decoding не входит в baseline grid. Но если позж�
     2  Thireus
     2  replikeit
 ```
+(КОРРЕКЦИЯ 2026-09-07: ранее 62/23/17, теперь 63/24/19 — 7 новых
+коммитов между `caf7eae5` и `fe215a8c`.)
 
 Headline-контрибьюторы — Kawrakow + Farthing. Это объясняет, почему
 выбор архитектуры (`--defer-ple` вместо RTR auto) — скорее сознательное
@@ -196,7 +208,8 @@ upstream-решение, а не случайность.
 Два варианта:
 
 1. **Закрыть PR #1738** как deprioritized и заархивировать ветку. Перед
-   архивацией — синхронизировать с `upstream/main` (134 коммита), чтобы
+   архивацией — синхронизировать с `upstream/main` (141 коммит, КОРРЕКЦИЯ
+   2026-09-07: было 134), чтобы
    дальнейшие cherry-picks не тащили старые RTR auto слои.
 2. **Переформулировать PR** в сторону узкого Q8_0 indexer cache repack
    (по сути, cherry-pick `#2285` + тесты). Плюс: меньше конфликт-зоны,
@@ -229,8 +242,9 @@ upstream-решение, а не случайность.
    awareness: если в `analysis-2` или `analysis-5` появится задача spec
    decoding, отправная точка — `#2345` + `#2341` + `#2348`, не DFlash v1.
 5. **Решить, синхронизировать ли `feature/minimax-step0-readiness` с
-   `upstream/main`.** Текущий `HEAD` (3a24458a) — 30 коммитов впереди
-   `feature/rtr-auto-pr-prep`, который, в свою очередь, на 134 позади
+   `upstream/main`.** Текущий `HEAD` (`434bdd62`) — 33 коммита впереди
+   `feature/rtr-auto-pr-prep`, который, в свою очередь, на 141 (КОРРЕКЦИЯ
+   2026-09-07: было 134) позади
    upstream. Merge upstream → minimax в принципе не требуется до завершения
    Step0 baseline (см. `00-INDEX.md §⚠️ Главный гейт`). Решение — отдельное.
 
