@@ -64,10 +64,17 @@ Z: -> disk #0  WDC WD20EFPX-68C4TN0      SATA   1863 GB
   Эта ветка целиком содержится в `dev`, а `dev` прошёл гейты и содержит
   upstream `1a2a8604`. Проверка `88235a0a` на `dev` проходит. Мерить логично на
   `dev`; отличие от runbook осознанное.
-- **Каталог сборки.** Runbook ждёт `.\build\bin\Release\`. Фактически
-  используется Ninja-сборка в `..\build-ui\bin\` без подкаталога `Release`.
-  Runbook это разрешает — «set all three executable variables to the real
-  Release paths».
+- **Каталог сборки. ИСПРАВЛЕНО 2026-09-08.** Runbook ждёт `.\build\bin\Release\`.
+  Ранее здесь значилась Ninja-сборка `..\build-ui\bin\`. **Её использовать
+  нельзя:** она собрана без `HAVE_FANCY_SIMD`, то есть без Zen4-ядер IQK —
+  `GGML_AVX512_VNNI` был `OFF`, а MSVC по `/arch:AVX512` макрос
+  `__AVX512VNNI__` не определяет. Базовая линия на ней описывала бы
+  обобщённый AVX-512, а не 7950X.
+  Мерить на `D:\build-zen4\bin\` — собрана флагами `scripts/build-zen.bat`,
+  `HAVE_FANCY_SIMD is defined` подтверждено запуском.
+  Подробности и цифры: `docs/sessions/2026-09-08-upstream-merge/evidence-5-zen4-build-2026-09-08.md`.
+  Runbook подмену пути разрешает — «set all three executable variables to the
+  real Release paths».
 - **Модель.** Runbook написан под **MiniMax-M2.7**. На диске —
   `D:\MiniMax-M2.5-VariantA.gguf`, 123.6 ГБ. **ВОПРОС ЗАКРЫТ 2026-09-08:**
   оператор подтвердил, что M2.5 и M2.7 архитектурно идентичны, поэтому этот
