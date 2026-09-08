@@ -2,6 +2,8 @@
 
 #include "common.h"
 
+struct llama_model;
+
 struct spec_tuner_arm {
     float  value;
     double Q     = 0.0; // mean per-step Tokens-Per-Second (TPS)
@@ -31,6 +33,20 @@ struct spec_tuner {
 
     double   epsilon    = 0.15;  // 15% explore, 85% exploit
 
+    int      configured_n_max = 0;
+    int      dflash_min_samples_per_arm = 3;
+    int      dflash_recovery_probe_interval = 128;
+    double   dflash_quarantine_ratio = 0.90;
+    std::vector<bool> dflash_quarantined;
+    int      dflash_probe_cursor = 0;
+    bool     dflash_last_exploratory = false;
+    bool     dflash_last_recovery_probe = false;
+    uint64_t n_target_only_selections = 0;
+    uint64_t n_dflash_selections = 0;
+    uint64_t n_exploratory_selections = 0;
+    uint64_t n_quarantines = 0;
+    uint64_t n_recovery_probes = 0;
+
     // task-change detection (per-call)
     // If tuner goes bad for 30 consecutive calls, reset the tuner.
     double   step_ema        = 0.0;
@@ -55,7 +71,7 @@ struct spec_tuner {
     common_speculative_type spec_type = COMMON_SPECULATIVE_TYPE_NONE;
     std::vector<spec_tuner_coord> coords;
 
-    void init(common_speculative_type type, const common_params_speculative & user_params);
+    void init(common_speculative_type type, const common_params_speculative & user_params, const llama_model * model_tgt);
     void propose(common_params_speculative & params);
     void accept_feedback(int n_accepted, int n_drafted, double step_tps);
     void end_of_request(double slot_tps, int n_past, common_params_speculative & active_params);
@@ -64,4 +80,12 @@ struct spec_tuner {
     void reset_exploration();
 
     void write_best(common_params_speculative & params) const;
+
+    bool has_dflash_target_only_arm() const {
+        return enabled && spec_type == COMMON_SPECULATIVE_TYPE_DFLASH && configured_n_max > 0;
+    }
+
+private:
+    int select_dflash_arm(spec_tuner_coord & coord);
+    void update_dflash_quarantine();
 };

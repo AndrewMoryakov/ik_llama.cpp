@@ -332,35 +332,81 @@ struct fattn_mma_f16_config<192, 192> {
     }
 };
 
+//template <>
+//struct fattn_mma_f16_config<512, 512> {
+//    static constexpr int  nbatch_fa      = 64;
+//    static constexpr int  nwarps_max     = 4;
+//    static constexpr bool Q_in_reg       = false;
+//    static constexpr int  nstages_target = 1;
+//
+//    static int get_nbatch_K2_host([[maybe_unused]] const int cc, [[maybe_unused]] const int ncols) {
+//        return 256;
+//    }
+//
+//    static constexpr __device__ int get_nbatch_K2_device([[maybe_unused]] int ncols) {
+//        return 256;
+//    }
+//
+//    static int get_nbatch_V2_host([[maybe_unused]] const int cc, [[maybe_unused]] const int ncols) {
+//        return 256;
+//    }
+//
+//    static constexpr __device__ int get_nbatch_V2_device([[maybe_unused]] int ncols) {
+//        return 256;
+//    }
+//
+//    static int get_nbatch_combine_host(const int /*cc*/, const int /*ncols*/) {
+//        return 256;
+//    }
+//
+//    static constexpr __device__ int get_nbatch_combine_device(int /*ncols*/) {
+//        return 256;
+//    }
+//};
+
 template <>
 struct fattn_mma_f16_config<512, 512> {
-    static constexpr int  nbatch_fa      = 64;
-    static constexpr int  nwarps_max     = 4;
+    static constexpr int  nbatch_fa      = 32;
+    static constexpr int  nwarps_max     = 8;
     static constexpr bool Q_in_reg       = false;
     static constexpr int  nstages_target = 1;
 
-    static int get_nbatch_K2_host([[maybe_unused]] const int cc, [[maybe_unused]] const int ncols) {
-        return 256;
+    static int get_nbatch_K2_host(const int cc, const int ncols) {
+        if (ggml_cuda_highest_compiled_arch(cc) == CC_TURING) {
+            return ncols <= 16 ? 96 : 128;
+        }
+        return ncols <= 16 ? 256 : 128;
     }
 
-    static constexpr __device__ int get_nbatch_K2_device([[maybe_unused]] int ncols) {
-        return 256;
+    static constexpr __device__ int get_nbatch_K2_device(int ncols) {
+#if __CUDA_ARCH__ == CC_TURING
+        return ncols <= 16 ? 96 : 128;
+#else
+        return ncols <= 16 ? 256 : 128;
+#endif // __CUDA_ARCH__ == CC_TURING
     }
 
-    static int get_nbatch_V2_host([[maybe_unused]] const int cc, [[maybe_unused]] const int ncols) {
-        return 256;
+    static int get_nbatch_V2_host(const int cc, const int ncols) {
+        if (ggml_cuda_highest_compiled_arch(cc) == CC_TURING) {
+            return ncols <= 16 ? 64 : 128;
+        }
+        return ncols <= 16 ? 256 : 128;
     }
 
-    static constexpr __device__ int get_nbatch_V2_device([[maybe_unused]] int ncols) {
-        return 256;
+    static constexpr __device__ int get_nbatch_V2_device(int ncols) {
+#if __CUDA_ARCH__ == CC_TURING
+        return ncols <= 16 ? 64 : 128;
+#else
+        return ncols <= 16 ? 256 : 128;
+#endif // __CUDA_ARCH__ == CC_TURING
     }
 
     static int get_nbatch_combine_host(const int /*cc*/, const int /*ncols*/) {
-        return 256;
+        return 128;
     }
 
     static constexpr __device__ int get_nbatch_combine_device(int /*ncols*/) {
-        return 256;
+        return 128;
     }
 };
 
@@ -1148,7 +1194,7 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
     }
 
     // If attention sinks are used, potentially re-scale if KQ_max is small.
-    // Also add the sink as a value to KQ_rowsum, this is done after synchonization of KQ_rowsum
+    // Also add the sink as a value to KQ_rowsum, this is done after synchronization of KQ_rowsum
     //     so it's being done unconditionally for every thread.
     if (!is_fixup && (np == 1 || threadIdx.y % np == 0) && sinks_f) {
         float KQ_max_scale[cols_per_thread];
@@ -1907,7 +1953,7 @@ static void launch_fattn_new_mma(
     const int ntiles_total = ntiles_x * ntiles_z * K->ne[2] * Q->ne[3];
 
     // Optional optimization where the mask is scanned to determine whether part of the calculation can be skipped.
-    // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
+    // Only worth the overhead if there is at least one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
     //     multiple sequences of possibly different lengths.
     if (mask && K->ne[1] % FATTN_KQ_STRIDE == 0 && (Q->ne[1] >= 1024 || Q->ne[3] > 1)) {
         const int s31 = mask->nb[1] / sizeof(half2);
@@ -2122,7 +2168,10 @@ template <int DKQ, int DV, int ncols2>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const ggml_tensor * Q = dst->src[0];
 
-    if constexpr ((DKQ == 576 || DKQ == 512) && ncols2 <= 4) {
+    if constexpr (DKQ == 512 && ncols2 == 2) {
+        ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 8, ncols2>(ctx, dst);
+    }
+    else if constexpr ((DKQ == 576 || DKQ == 512) && ncols2 <= 4) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 4, ncols2>(ctx, dst);
     } else {
 
@@ -2132,7 +2181,7 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(ggml_backend_cuda_con
         //    return;
         //} else {
         if (Q->ne[1] <= 8/ncols2) {
-            if constexpr (DKQ == 512) {
+            if constexpr (DKQ == 512 || DKQ == 576) {
                 ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 2, ncols2>(ctx, dst);
             } else {
                 ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 8/ncols2, ncols2>(ctx, dst);
@@ -2147,7 +2196,7 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(ggml_backend_cuda_con
         return;
     }
 
-    if (Q->ne[1] <= 32/ncols2) {
+    if (Q->ne[1] <= 32/ncols2 || (DKQ == 512 && ncols2 == 16)) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 32/ncols2, ncols2>(ctx, dst);
         return;
     }
@@ -2228,7 +2277,7 @@ void ggml_cuda_flash_attn_ext_mma_new(ggml_backend_cuda_context & ctx, ggml_tens
     }
     if (K->ne[0] == 256) {
         GGML_ASSERT(Q->ne[0] == 256 && V->ne[0] == 256);
-        if (gqa_ratio == 6) {
+        if (gqa_ratio % 6 == 0) {
             ggml_cuda_flash_attn_ext_mma_f16_case<256, 256, 1, 8>(ctx, dst);
         } else {
             GGML_ABORT("Not implemented");
@@ -2255,11 +2304,23 @@ void ggml_cuda_flash_attn_ext_mma_new(ggml_backend_cuda_context & ctx, ggml_tens
         return;
     }
     if (Q->ne[0] == 512 && K->ne[0] == 512 && V->ne[0] == 512) {
-        if (gqa_ratio == 8) {
+        // head_dim 512: ncols2=16 exceeds the max dynamic shared memory on some GPUs (e.g. Ada,
+        // where cudaFuncSetAttribute returns invalid argument), so route gqa_ratio % 8 == 0
+        // (covers 8 and 16) through the ncols2=8 kernel. It iterates over Q-head groups
+        // (iter_z = ceil(gqa_ratio/ncols2)), so 16 heads run as two passes of 8. This unblocks
+        // head_dim-512 models with a 16:1 GQA ratio such as Gemma 4 12B's global layers.
+        if (gqa_ratio % 16 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<512, 512, 16>(ctx, dst);
+        }
+        else if (gqa_ratio % 8 == 0) {
             ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<512, 512, 8>(ctx, dst);
         }
-        else if (gqa_ratio == 4) {
+        else if (gqa_ratio % 4 == 0) {
             ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<512, 512, 4>(ctx, dst);
+        }
+        else if (gqa_ratio % 2 == 0) {
+            // Gemma4-4B assistant
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<512, 512, 2>(ctx, dst);
         }
         else {
             GGML_ABORT("Fatal error");
@@ -2275,8 +2336,14 @@ void ggml_cuda_flash_attn_ext_mma_new(ggml_backend_cuda_context & ctx, ggml_tens
         }
         return;
     }
+    if (gqa_ratio % 12 == 0 && Q->ne[1] <= 4 && K->ne[1] >= 2048) {
+        ggml_cuda_flash_attn_ext_mma_f16_case<576, 512, 1, 16>(ctx, dst);
+        return;
+    }
     if (gqa_ratio % 16 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx, dst);
+    } else if (gqa_ratio % 8 == 0) {
+        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 8>(ctx, dst);
     } else if (gqa_ratio % 4 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx, dst);
     } else {

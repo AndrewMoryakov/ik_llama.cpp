@@ -1,6 +1,8 @@
 #pragma warning(disable : 4996)
 #include "server-context.h"
 #include "server-common.h"
+#include "server-chat.h"
+#include "server-cors-proxy.h"
 #include "chat.h"
 
 #include "common.h"
@@ -14,6 +16,25 @@
 
 // mime type for sending response
 #define MIMETYPE_JSON "application/json; charset=utf-8"
+
+// Tee llama/ggml log output to --log-file (when set) and stderr. Gated on
+// log_target_changed() so it's a no-op unless --log-file was passed (LOG_TARGET
+// is non-null by default). The stdout/stderr guard mirrors LOG_TEE_IMPL and
+// avoids doubled output when fopen() falls back to stderr.
+static void llama_log_tee_callback(enum ggml_log_level level, const char * text, void * /*user_data*/) {
+    if (text == nullptr) {
+        return;
+    }
+    if (log_target_changed()) {
+        FILE * tgt = LOG_TARGET;
+        if (tgt != nullptr && tgt != stdout && tgt != stderr) {
+            fprintf(tgt, "%s", text);
+            fflush(tgt);
+        }
+    }
+    fputs(text, stderr);
+    fflush(stderr);
+}
 
 
 #ifndef NDEBUG
@@ -328,6 +349,18 @@ struct server_response_reader {
         return !cancelled && received_count < id_tasks.size();
     }
 
+    // cancel-cascade fix: true only if one of THIS reader's tasks is on a
+    // slot (the active decode). Used to gate llama_decode_stop() so a queued/
+    // deferred task's disconnect cannot abort another task's active decode via
+    // the process-global stop_internal_decode flag. Best-effort cross-thread
+    // read (slots are not resized at runtime; same race class as the global).
+    bool any_task_on_slot() const {
+        for (const auto & slot : ctx_server.slots) {
+            if (slot.is_processing() && id_tasks.count(slot.id_task)) return true;
+        }
+        return false;
+    }
+
     // return nullptr if should_stop() is true before receiving a result
     // note: if one error is received, it will stop further processing and return error result
     server_task_result_ptr next(const std::function<bool()>& should_stop) {
@@ -451,6 +484,23 @@ int main(int argc, char ** argv) {
 
     // parse arguments from environment variables
     gpt_params_parse_from_env(params);
+
+    // Tee llama/ggml logs to --log-file; installed before model load so that
+    // load-time logs are captured too.
+    llama_log_set(llama_log_tee_callback, nullptr);
+
+    // Route common_log (SLT_*/SRV_*/QUE_*/RES_*/bare LOG_* slot+queue output) to
+    // --log-file via its native file sink. The worker tees to stderr and file
+    // (common/log.cpp), so this captures every common_log line in one call
+    // instead of mirroring each macro. Share LOG_TARGET's already-opened FILE*
+    // so there's a single handle on the file (a second fopen would truncate and
+    // the two handles' writes would corrupt each other).
+    if (log_target_changed()) {
+        FILE * tgt = LOG_TARGET;
+        if (tgt != nullptr && tgt != stdout && tgt != stderr) {
+            common_log_set_file_ptr(common_log_main(), tgt);
+        }
+    }
 
     // TODO: not great to use extern vars
     server_log_json = params.log_json;
@@ -584,7 +634,13 @@ int main(int argc, char ** argv) {
         state.store(SERVER_STATE_ERROR);
         return 1;
     } else {
-        ctx_server.init();
+        try {
+            ctx_server.init();
+        } catch (const std::exception & e) {
+            LOG_ERROR("server init failed", {{"error", e.what()}});
+            state.store(SERVER_STATE_ERROR);
+            return 1;
+        }
         state.store(SERVER_STATE_READY);
     }
 
@@ -743,6 +799,25 @@ int main(int argc, char ** argv) {
                     }
 
                     res.set_content(health.dump(), "application/json");
+
+                    const char * hotswap_env = std::getenv("LLAMA_HOTSWAP_ENABLED");
+                    if (hotswap_env) {
+                        // WARNING: llama_reload_changed_tensors is NOT thread-safe with active inference.
+                        // Best effort: only attempt the reload when no slot is processing (a request
+                        // arriving between the metrics snapshot and the reload can still race it).
+                        if (n_processing_slots > 0) {
+                            LOG_INFO("hotswap: skipping tensor reload, slots are processing", {{"processing", n_processing_slots}});
+                        } else if (llama_reload_changed_tensors(ctx_server.ctx)) {
+                            // KV cache entries and cached prompts were computed with the
+                            // previous weights; drop them so they cannot be reused.
+                            ctx_server.kv_cache_clear();
+                            for (auto & slot : ctx_server.slots) {
+                                slot.cache_tokens.clear();
+                            }
+                            LOG_INFO("hotswap: tensors reloaded; KV cache and cached prompts cleared", {});
+                        }
+                    }
+
                     break;
                 }
             case SERVER_STATE_LOADING_MODEL:
@@ -1013,7 +1088,8 @@ int main(int argc, char ** argv) {
                 {"vision", ctx_server.chat_params.allow_image},
                 {"audio",  ctx_server.chat_params.allow_audio},
             } },
-            { "n_ctx",                       ctx_server.n_ctx }
+            { "n_ctx",                       ctx_server.n_ctx },
+            { "cors_proxy_enabled",          ctx_server.params_base.webui_mcp_proxy},
 
         };
 
@@ -1118,7 +1194,7 @@ int main(int argc, char ** argv) {
                 // non-stream, wait for the results
                 auto all_results = rd->wait_for_all(is_connection_closed);
                 if (all_results.is_terminated) {
-                    llama_decode_stop(); // send a signal to stop decode process
+                    if (rd->any_task_on_slot()) llama_decode_stop(); // cancel-cascade fix: stop only if OUR task is the active decode
                     return; // connection is closed
                 }
                 else if (all_results.error) {
@@ -1132,8 +1208,8 @@ int main(int argc, char ** argv) {
                         arr.push_back(res->to_json());
                     }
                     // if single request, return single object instead of array
-                    res_ok(res, arr.size() == 1 ? arr[0] : arr);              
-                }                       
+                    res_ok(res, arr.size() == 1 ? arr[0] : arr);
+                }
             }
             else {
                 // in streaming mode, the first error must be treated as non-stream response
@@ -1141,7 +1217,7 @@ int main(int argc, char ** argv) {
                 // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
                 server_task_result_ptr first_result = rd->next(is_connection_closed);
                 if (first_result == nullptr) {
-                    llama_decode_stop(); // send a signal to stop decode process
+                    if (rd->any_task_on_slot()) llama_decode_stop(); // cancel-cascade fix: stop only if OUR task is the active decode
                     return; // connection is closed
                 }
                 else if (first_result->is_error()) {
@@ -1254,6 +1330,48 @@ int main(int argc, char ** argv) {
     };
 
     const auto handle_models = [&params, &model_meta](const httplib::Request & req, httplib::Response & res) {
+        json codex_model = {
+            {"slug", params.model_alias},
+            {"display_name", params.model_alias},
+            {"description", nullptr},
+            {"default_reasoning_level", nullptr},
+            {"supported_reasoning_levels", json::array()},
+            {"shell_type", "default"},
+            {"visibility", "list"},
+            {"supported_in_api", true},
+            {"priority", 0},
+            {"additional_speed_tiers", json::array()},
+            {"service_tiers", json::array()},
+            {"default_service_tier", nullptr},
+            {"availability_nux", nullptr},
+            {"upgrade", nullptr},
+            {"base_instructions", ""},
+            {"model_messages", nullptr},
+            {"supports_reasoning_summaries", false},
+            {"default_reasoning_summary", "auto"},
+            {"support_verbosity", false},
+            {"default_verbosity", nullptr},
+            {"apply_patch_tool_type", nullptr},
+            {"web_search_tool_type", "text"},
+            {"truncation_policy", {
+                {"mode", "tokens"},
+                {"limit", params.n_ctx},
+            }},
+            {"supports_parallel_tool_calls", false},
+            {"supports_image_detail_original", false},
+            {"context_window", params.n_ctx},
+            {"max_context_window", params.n_ctx},
+            {"auto_compact_token_limit", (params.n_ctx * 9) / 10},
+            {"effective_context_window_percent", 95},
+            {"experimental_supported_tools", json::array()},
+            {"input_modalities", json::array({"text"})},
+            {"supports_search_tool", false},
+            {"use_responses_lite", false},
+            {"auto_review_model_override", nullptr},
+            {"tool_mode", nullptr},
+            {"multi_agent_version", nullptr},
+        };
+
         json models = {
             {"object", "list"},
             {"data", {
@@ -1265,7 +1383,8 @@ int main(int argc, char ** argv) {
                      {"meta",     model_meta},
                      {"max_model_len", params.n_ctx}, //vllm specs
                  },
-             }}
+             }},
+            {"models", json::array({codex_model})},
         };
 
         res.set_content(models.dump(), "application/json; charset=utf-8");
@@ -1291,7 +1410,7 @@ int main(int argc, char ** argv) {
         log_prompt(ctx_server.params_base, json::parse(req.body));
         auto body = json::parse(req.body);
         std::vector<raw_buffer> files;
-        json body_parsed = convert_responses_to_chatcmpl(body);
+        json body_parsed = server_chat_convert_responses_to_chatcmpl(body);
         json data = oaicompat_chat_params_parse(body_parsed, ctx_server.chat_params, files);
         handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
@@ -1305,7 +1424,7 @@ int main(int argc, char ** argv) {
     const auto handle_anthropic_messages = [&ctx_server, &handle_completions_impl](const httplib::Request & req, httplib::Response & res) {
         std::vector<raw_buffer> files;
         log_prompt(ctx_server.params_base, json::parse(req.body));
-        json body = convert_anthropic_to_oai(json::parse(req.body));
+        json body = server_chat_convert_anthropic_to_oai(json::parse(req.body));
         SRV_DBG("%s\n", "Request converted: Anthropic -> OpenAI Chat Completions");
         SRV_DBG("converted request: %s\n", body.dump().c_str());
         json body_parsed = oaicompat_chat_params_parse(
@@ -1324,7 +1443,7 @@ int main(int argc, char ** argv) {
     const auto handle_anthropic_count_tokens = [&ctx_server, &handle_completions_impl](const httplib::Request & req, httplib::Response & res) {
         std::vector<raw_buffer> files;
         log_prompt(ctx_server.params_base, json::parse(req.body));
-        json body = convert_anthropic_to_oai(json::parse(req.body));
+        json body = server_chat_convert_anthropic_to_oai(json::parse(req.body));
         SRV_DBG("%s\n", "Request converted: Anthropic -> OpenAI Chat Completions");
         SRV_DBG("converted request: %s\n", body.dump().c_str());
         json body_parsed = oaicompat_chat_params_parse(
@@ -1349,10 +1468,11 @@ int main(int argc, char ** argv) {
     const auto handle_infill = [&ctx_server, &handle_completions_impl](const httplib::Request & req, httplib::Response & res) {
         log_prompt(ctx_server.params_base, json::parse(req.body));
         json data = json::parse(req.body);
-        const int id_task = ctx_server.queue_tasks.get_new_id();
-        server_tokens token; // dummy tokens
-        ctx_server.queue_results.add_waiting_task_id(id_task);
-        ctx_server.request_completion(id_task, -1, data, true, false, std::move(token));
+        //avoid double submits
+        //const int id_task = ctx_server.queue_tasks.get_new_id();
+        //server_tokens token; // dummy tokens
+        //ctx_server.queue_results.add_waiting_task_id(id_task);
+        //ctx_server.request_completion(id_task, -1, data, true, false, token);
         std::vector<raw_buffer> files; // dummy
         handle_completions_impl(
             SERVER_TASK_TYPE_INFILL,
@@ -1470,7 +1590,7 @@ int main(int argc, char ** argv) {
 
         // collect results
         if (all_results.is_terminated) {
-            llama_decode_stop();
+            if (rd.any_task_on_slot()) llama_decode_stop(); // cancel-cascade fix: stop only if OUR task is the active decode
             return; // connection is closed
         }
         else if (all_results.error) {
@@ -2045,12 +2165,14 @@ int main(int argc, char ** argv) {
     svr->Get ("/props",               handle_props);
     svr->Get("/v1/props",             handle_props_simple);
     svr->Get ("/v1/models",           handle_models);
+    svr->Get ("/models",              handle_models);
     svr->Post("/completion",          handle_completions); // legacy
     svr->Post("/completions", handle_completions); // legacy
     svr->Post("/v1/completions",     handle_completions_oai);
     svr->Post("/chat/completions",    handle_chat_completions);
     svr->Post("/v1/chat/completions", handle_chat_completions);
     svr->Post("/v1/responses",        handle_responses);
+    svr->Post("/responses",           handle_responses);
     svr->Post("/v1/messages",         handle_anthropic_messages);
     svr->Post("/v1/messages/count_tokens", handle_anthropic_count_tokens);
     svr->Post("/infill",              handle_infill);
@@ -2100,6 +2222,16 @@ int main(int argc, char ** argv) {
             svr->Post("/zstd_update_transparent", handle_zstd_config_update);
 	}
 #endif
+    }
+
+    // CORS proxy (EXPERIMENTAL, only used by the Web UI for MCP)
+    if (params.webui_mcp_proxy) {
+        SRV_WRN("%s", "-----------------\n");
+        SRV_WRN("%s", "CORS proxy is enabled, do not expose server to untrusted environments\n");
+        SRV_WRN("%s", "This feature is EXPERIMENTAL and may be removed or changed in future versions\n");
+        SRV_WRN("%s", "-----------------\n");
+        svr->Get("/cors-proxy", proxy_handler_get);
+        svr->Post("/cors-proxy", proxy_handler_post);
     }
     //
     // Start the server

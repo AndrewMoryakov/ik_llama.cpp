@@ -46,7 +46,7 @@ public:
     void begin_batch(const llama_token * tokens, int32_t n_tokens, llama_pos pos, llama_seq_id sequence);
     void end_batch();
 
-    static bool callback(struct ggml_tensor * tensor, bool ask, void * user_data);
+    static int callback(struct ggml_tensor * tensor, bool ask, void * user_data);
 
 private:
     struct pending_route {

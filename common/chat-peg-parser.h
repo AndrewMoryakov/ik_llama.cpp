@@ -40,6 +40,12 @@ class common_chat_peg_gemma4_mapper : public common_chat_peg_mapper {
     void visit(const common_peg_ast_arena & arena, common_peg_ast_id id);
 };
 
+class common_chat_peg_minimax_m3_mapper : public common_chat_peg_mapper {
+  public:
+    common_chat_peg_minimax_m3_mapper(common_chat_msg & msg) : common_chat_peg_mapper(msg) {}
+    virtual void from_ast(const common_peg_ast_arena & arena, const common_peg_parse_result & result);
+};
+
 struct content_structure;
 struct tool_call_structure;
 
@@ -90,11 +96,14 @@ class common_chat_peg_builder : public common_peg_parser_builder {
 
     // Use for schema-declared string types - won't be treated as potential JSON container
     common_peg_parser tool_arg_string_value(const common_peg_parser & p) { return tag(TOOL_ARG_STRING_VALUE, p); }
-    common_peg_parser tool_arg_json_value(const common_peg_parser & p) { return atomic(tag(TOOL_ARG_VALUE, p)); }
+    common_peg_parser tool_arg_json_value(const common_peg_parser & p) { return tag(TOOL_ARG_VALUE, p); }
 
 
     // Return a parser that parses the prefix of a string, up to a given delimiter.
     common_peg_parser prefix(const std::string & s, const std::string & delimiter = {});
+
+    // Return a parser that parses all elements of tag, but leading and trailing spaces are optional
+    common_peg_parser optspace(const std::string & tag);
 
     // Legacy-compatible helper for building standard JSON tool calls
     // Used by tests and manual parsers
@@ -192,4 +201,3 @@ struct tagged_peg_parser {
 
 tagged_peg_parser build_tagged_peg_parser(
     const std::function<common_peg_parser(common_peg_parser_builder & builder)> & fn);
-

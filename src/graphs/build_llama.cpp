@@ -3,7 +3,7 @@
 #include "../llama-context.h"
 
 ggml_cgraph * llm_build_context::build_llama() {
-    struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, model.max_nodes(n_tokens), false);
+    ggml_cgraph * gf = new_graph_custom();
 
     // mutable variable, needed during the last layer of the computation to skip unused tokens
     int32_t n_tokens = this->n_tokens;
@@ -46,17 +46,15 @@ ggml_cgraph * llm_build_context::build_llama() {
         int this_n_swa = this_KQ_mask == KQ_mask_swa ? hparams.n_swa : 0;
 
         // rope freq factors for llama3; may return nullptr for llama2 and other models
-        //auto rope_factors = build_rope_factors(il);
+        auto rope_factors = build_rope_factors(il);
 
         // self-attention
         if (use_rope) {
             cur = build_std_attention(gf, model.layers[il].attn_norm, inpL,
-                    inp_pos, il == n_layer - 1 && n_tokens > 1 ? inp_out_ids : nullptr, nullptr,
+                    inp_pos, il == n_layer - 1 && n_tokens > 1 ? inp_out_ids : nullptr, rope_factors,
                     this_KQ_mask, nullptr, nullptr, kq_scale, hparams.f_attention_scale, this_n_swa, il, true, false, true);
         }
         else {
-
-            auto rope_factors = build_rope_factors(il);
 
             // norm
             cur = llm_build_norm(ctx0, inpL, hparams, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, cb, il);

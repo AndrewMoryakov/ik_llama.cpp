@@ -3,8 +3,7 @@
 #include "../llama-context.h"
 
 ggml_cgraph * llm_build_context::build_glm4_moe() {
-    // create a new graph
-    struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, model.max_nodes(n_tokens), false);
+    ggml_cgraph * gf = new_graph_custom();
 
     const int64_t n_embd_head = hparams.n_embd_head_v(0);
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k(0));
@@ -19,17 +18,7 @@ ggml_cgraph * llm_build_context::build_glm4_moe() {
             ext_factor, attn_factor, beta_fast, beta_slow) : nullptr;
 
     if (cparams.mtp_op_type != MTP_OP_NONE) {
-        ggml_tensor* hidden_states_from_main_model;
-
-        if (cparams.mtp_op_type == MTP_OP_WARMUP || cparams.mtp_op_type == MTP_OP_UPDATE_ACCEPTED) {
-            hidden_states_from_main_model = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd, n_tokens);
-        } else {
-            hidden_states_from_main_model = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, hparams.n_embd);
-        }
-        ggml_set_name(hidden_states_from_main_model, "inp_mtp_states");
-        ggml_set_input(hidden_states_from_main_model);
-
-        lctx.inp_mtp_states = hidden_states_from_main_model;
+        ggml_tensor * hidden_states_from_main_model = build_inp_mtp_states(hparams.n_embd);
 
         const int il_mtp = hparams.n_layer - 1;
         const auto & mtp_layer = model.layers[il_mtp];
@@ -159,7 +148,7 @@ ggml_cgraph * llm_build_context::build_glm4_moe() {
 }
 
 ggml_cgraph * llm_build_context::build_glm4() {
-    struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, model.max_nodes(n_tokens), false);
+    ggml_cgraph * gf = new_graph_custom();
 
     const int64_t n_embd_head = hparams.n_embd_head_v(0);
     const int64_t n_embd_gqa  = hparams.n_embd_v_gqa();
@@ -299,7 +288,7 @@ struct ggml_tensor * llm_build_context::build_glm4_moe_mtp(
 
     struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
 
-    struct ggml_tensor * inp_out_ids = build_inp_out_ids();
+    struct ggml_tensor * inp_out_ids = n_tokens > 1 ? build_inp_out_ids() : nullptr;
 
     // If nextn.embed_tokens is missing (GLM-4.6), use model.tok_embd
     ggml_tensor * mtp_embd_weights = mtp_layer.nextn.embed_tokens;
@@ -308,19 +297,14 @@ struct ggml_tensor * llm_build_context::build_glm4_moe_mtp(
     }
     ggml_tensor * token_emb = build_inp_embd_mtp(mtp_embd_weights);
 
-    ggml_tensor * token_emb_norm = llm_build_norm(ctx0, token_emb, hparams, mtp_layer.nextn.enorm, NULL, LLM_NORM_RMS, cb, il);
-    ggml_tensor * hidden_state_norm = llm_build_norm(ctx0, prev_embeddings, hparams, mtp_layer.nextn.hnorm, NULL, LLM_NORM_RMS, cb, il);
-
-    ggml_tensor * combined = ggml_concat(ctx0, token_emb_norm, hidden_state_norm, 0);
-    cb(combined, "mtp_concat", il);
-    ggml_tensor* cur = llm_build_lora_mm(lctx, ctx0, mtp_layer.nextn.eh_proj, combined);
+    ggml_tensor * cur = build_mtp_input(mtp_layer, prev_embeddings, token_emb, il, nullptr);
 
     // Self-Attention
     const float kq_scale = 1.0f / sqrtf(float(n_embd_head));
     ggml_tensor * ffn_inp;
     if (rope_cache == nullptr) {
         cur = build_std_attention(gf, mtp_layer.attn_norm, cur,
-                inp_pos, nullptr, nullptr,
+                inp_pos, inp_out_ids, nullptr,
                 KQ_mask, nullptr, nullptr,
                 kq_scale, 0.0f, 0, il, true, false, true, false, false, nullptr);
         ffn_inp = cur;
@@ -348,6 +332,9 @@ struct ggml_tensor * llm_build_context::build_glm4_moe_mtp(
                         kq_scale, cb, il);
         ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "mtp_ffn_inp", il);
+        if (inp_out_ids) {
+            ffn_inp = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
+        }
     }
 
     // MoE FFN
@@ -368,19 +355,12 @@ struct ggml_tensor * llm_build_context::build_glm4_moe_mtp(
     cur = lctx.cvec.apply_to(ctx0, cur, il);
     cb(cur, "ffn_out", il);
 
-    cur = llm_build_norm(ctx0, cur, hparams, mtp_layer.nextn.shared_head_norm, NULL, LLM_NORM_RMS, cb, il);
-    cb(cur, "result_norm", -1);
-
-    if (inp_out_ids) {
-        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
-    }
-
     // If nextn.shared_head_head is missing (GLM-4.6), use model.output (Main LM Head)
     ggml_tensor * mtp_head_weights = mtp_layer.nextn.shared_head_head;
     if (mtp_head_weights == nullptr) {
         mtp_head_weights = model.output;
     }
-    cur = llm_build_lora_mm(lctx, ctx0, mtp_head_weights, cur);
+    cur = build_output(lctx, ctx0, cur, mtp_head_weights, mtp_layer.nextn.shared_head_norm, cb);
     cb(cur, "result_output", -1);
 
     return cur;

@@ -7,12 +7,15 @@
 #include <cmath>
 
 #define LLAMA_MAX_LAYERS  512
+#define LLAMA_MAX_PLE_NGRAM 8
+#define LLAMA_MAX_PLE_HEADS 64
 
 enum llm_expert_gating_func_type {
     LLM_EXPERT_GATING_FUNC_TYPE_NONE             = 0,
     LLM_EXPERT_GATING_FUNC_SOFTMAX               = 1,
     LLM_EXPERT_GATING_FUNC_SIGMOID               = 2,
     LLM_EXPERT_GATING_FUNC_TYPE_SOFTMAX_WEIGHT = 3,
+    LLM_EXPERT_GATING_FUNC_TYPE_SQRT_SOFTPLUS  = 4,
 };
 
 struct llama_hparams {
@@ -23,6 +26,7 @@ struct llama_hparams {
     uint32_t n_vocab;
     uint32_t n_ctx_train; // context size the model was trained on
     uint32_t n_embd;
+    uint32_t n_embd_out = 0;
     uint32_t n_layer;
     int32_t n_layer_kv_from_start = -1; // if non-negative, the first n_layer_kv_from_start layers have KV cache
     uint32_t n_rot;
@@ -82,7 +86,6 @@ struct llama_hparams {
     float    yarn_attn_factor =  1.0f;
     float    yarn_beta_fast   = 32.0f;
     float    yarn_beta_slow   =  1.0f;
-
     std::array<int, 4> rope_sections;
     std::array<float,    LLAMA_MAX_LAYERS> rope_freq_base_per_layer;
     std::array<uint32_t, LLAMA_MAX_LAYERS> rope_dim_per_layer;
@@ -93,6 +96,8 @@ struct llama_hparams {
     uint32_t ssm_d_state = 0;
     uint32_t ssm_dt_rank = 0;
     uint32_t ssm_n_group = 0;
+    bool     kda_safe_gate = false;
+    float    kda_gate_lower_bound = 0.0f;
 
     // for hybrid state-space models (e.g. qwen3next)
     std::array<bool, LLAMA_MAX_LAYERS> recurrent_layer_arr;
@@ -127,12 +132,68 @@ struct llama_hparams {
     uint32_t indexer_n_head    = 0;
     uint32_t indexer_head_size = 0;
     uint32_t indexer_top_k     = 0;
+    // GLM-5.2 IndexShare: per-layer full/shared indexer map. "full" layers compute their own lightning-
+    // indexer top-k; "shared" layers reuse the previous full layer's top-k. Populated from GGUF
+    // indexer_types metadata if present, else derived from the GLM-5.2 config rule at load time.
+    std::array<bool, LLAMA_MAX_LAYERS> indexer_is_full = {};
+
+    // openPangu-2.0 (mHC / Hyper-Connections + learned param sink)
+    uint32_t mhc_num_stream    = 1;
+    uint32_t mhc_recur_norm    = 0;
+    uint32_t param_sink_number = 0;
+    // window used by the NextN/MTP layers in place of n_swa
+    uint32_t n_swa_mtp = 0;
+
+    // DeepSeek-V4
+    uint32_t dsv4_o_group_count     = 0;
+    uint32_t dsv4_o_lora_rank       = 0;
+    uint32_t dsv4_hc_mult           = 0;
+    uint32_t dsv4_hc_sinkhorn_iters = 0;
+    uint32_t dsv4_hash_layer_count  = 0;
+    float    dsv4_compress_rope_base = 0.0f;
+    float    dsv4_hc_eps             = 0.0f;
+    std::array<uint32_t, LLAMA_MAX_LAYERS> dsv4_compress_ratios = {};
+
+    // qwen4exp. hc_low_rank 0 means the full-rank hyper-connection form; the
+    // ple_* group is inert unless the model carries an n-gram embedding layer.
+    uint32_t hc_low_rank         = 0;
+    uint32_t ple_ngram_size      = 0;
+    uint32_t ple_heads_per_ngram = 0;
+    uint32_t ple_conv_kernel     = 0;
+    uint32_t ple_n_heads         = 0;   // (ngram_size - 1) * heads_per_ngram
+    uint32_t ple_head_dim        = 0;
+    uint32_t ple_eos_token_id    = 0;
+    uint32_t ple_image_token_id  = 0;
+    std::array<bool,     LLAMA_MAX_LAYERS> ple_layer_arr = {};
+    std::array<uint64_t, LLAMA_MAX_PLE_NGRAM> ple_layer_multipliers = {};
+    std::array<uint64_t, LLAMA_MAX_PLE_HEADS> ple_head_offsets      = {};
+    std::array<uint64_t, LLAMA_MAX_PLE_HEADS> ple_head_vocab_sizes  = {};
 
 	// qwen3vl deepstack
     uint32_t n_deepstack_layers = 0;
 
     // gemma4 per-layer embedding
     uint32_t n_embd_per_layer = 0;
+
+    // gemma4 separate assistant MTP
+    uint32_t mtp_backbone_n_embd = 0;
+    bool     mtp_use_ordered_embeddings = false;
+    uint32_t mtp_num_centroids = 0;
+    uint32_t mtp_centroid_top_k = 0;
+
+    // DFlash draft model metadata
+    uint32_t dflash_block_size = 16;
+    uint32_t dflash_mask_token_id = 0;
+    uint32_t dflash_n_target_features = 0;
+    uint32_t dflash_n_target_layers = 0;
+    uint32_t dflash_target_layer_ids[8] = {};
+    uint32_t dflash_conv_kernel_size = 0;
+    uint32_t dflash_conv_group_size = 0;
+    uint32_t dflash_selector_rank = 0;
+    uint32_t dflash_selector_top_k = 0;
+    float    dflash_backbone_rotary_base = 0.0f;
+    bool     dflash_laguna = false;
+    bool     dflash_dsv4 = false;
 
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
     // ref: https://github.com/ggerganov/llama.cpp/pull/8141
@@ -152,6 +213,17 @@ struct llama_hparams {
         if (this->n_vocab       != other.n_vocab)       return true;
         if (this->n_ctx_train   != other.n_ctx_train)   return true;
         if (this->n_embd        != other.n_embd)        return true;
+        if (this->mtp_backbone_n_embd != other.mtp_backbone_n_embd) return true;
+        if (this->dflash_block_size != other.dflash_block_size) return true;
+        if (this->dflash_mask_token_id != other.dflash_mask_token_id) return true;
+        if (this->dflash_n_target_features != other.dflash_n_target_features) return true;
+        if (this->dflash_n_target_layers != other.dflash_n_target_layers) return true;
+        if (this->dflash_conv_kernel_size != other.dflash_conv_kernel_size) return true;
+        if (this->dflash_conv_group_size != other.dflash_conv_group_size) return true;
+        if (this->dflash_selector_rank != other.dflash_selector_rank) return true;
+        if (this->dflash_selector_top_k != other.dflash_selector_top_k) return true;
+        if (this->dflash_laguna != other.dflash_laguna) return true;
+        if (this->dflash_dsv4   != other.dflash_dsv4)   return true;
         if (this->n_layer       != other.n_layer)       return true;
         if (this->n_rot         != other.n_rot)         return true;
         if (this->n_swa         != other.n_swa)         return true;
@@ -181,7 +253,11 @@ struct llama_hparams {
         if (this->ssm_d_state != other.ssm_d_state) return true;
         if (this->ssm_dt_rank != other.ssm_dt_rank) return true;
         if (this->ssm_n_group != other.ssm_n_group) return true;
+        if (this->kda_safe_gate != other.kda_safe_gate) return true;
         if (this->recurrent_layer_arr != other.recurrent_layer_arr) return true;
+        for (int i = 0; i < 8; ++i) {
+            if (this->dflash_target_layer_ids[i] != other.dflash_target_layer_ids[i]) return true;
+        }
 
         if (this->dec_start_token_id != other.dec_start_token_id) return true;
 
@@ -189,6 +265,7 @@ struct llama_hparams {
 
         if (!is_float_close(this->f_norm_eps,            other.f_norm_eps,            EPSILON)) return true;
         if (!is_float_close(this->f_norm_rms_eps,        other.f_norm_rms_eps,        EPSILON)) return true;
+        if (!is_float_close(this->kda_gate_lower_bound,  other.kda_gate_lower_bound,  EPSILON)) return true;
         if (!is_float_close(this->rope_attn_factor,      other.rope_attn_factor,      EPSILON)) return true;
         if (!is_float_close(this->rope_freq_base_train,  other.rope_freq_base_train,  EPSILON)) return true;
         if (!is_float_close(this->rope_freq_scale_train, other.rope_freq_scale_train, EPSILON)) return true;
@@ -197,6 +274,7 @@ struct llama_hparams {
         if (!is_float_close(this->f_residual_scale,      other.f_residual_scale,      EPSILON)) return true;
         if (!is_float_close(this->f_embedding_scale,     other.f_embedding_scale,     EPSILON)) return true;
         if (!is_float_close(this->f_attention_scale,     other.f_attention_scale,     EPSILON)) return true;
+        if (!is_float_close(this->f_attn_v_scale,        other.f_attn_v_scale,        EPSILON)) return true;
 
         return false;
     }
@@ -290,8 +368,8 @@ struct llama_hparams {
         return ssm_d_state * ssm_d_inner;
     }
 
-    uint32_t n_embd_v_s_id(int nv) const {
-        if (ssm_n_group <= 0 || nv < 1 || ssm_dt_rank < 1) return 0;
+    std::pair<uint32_t, uint32_t> n_embd_v_s_dims(int nv) const {
+        if (ssm_n_group <= 0 || nv < 1 || ssm_dt_rank < 1) return {0, 0};
         int num_v_heads = ssm_dt_rank;
         int num_k_heads = ssm_n_group;
         int gqa_ratio   = num_v_heads / num_k_heads;
@@ -301,14 +379,40 @@ struct llama_hparams {
         int head_k_dim  = ssm_d_state;
         int head_v_dim  = ssm_d_inner / num_v_heads;
         uint32_t conv_dim       = 2 * nk * head_k_dim + nv * head_v_dim;
-        uint32_t conv_state_dim = conv_dim * (ssm_d_conv - 1);
+        //uint32_t conv_state_dim = conv_dim * (ssm_d_conv - 1);
+        //uint32_t ssm_state_dim  = head_v_dim * head_v_dim * nv;
+        //return {conv_state_dim, ssm_state_dim};
         uint32_t ssm_state_dim  = head_v_dim * head_v_dim * nv;
-        return conv_state_dim + ssm_state_dim;
+        return {conv_dim, ssm_state_dim};
+    }
 
+    uint32_t n_embd_v_s_id(int nv) const {
+        auto [conv_dim, ssm_state_dim] = n_embd_v_s_dims(nv);
+        return (ssm_d_conv - 1) * conv_dim + ssm_state_dim;
     }
 
     bool is_recurrent(uint32_t il) const {
         return il < n_layer ? recurrent_layer_arr[il] : false;
+    }
+
+    bool is_ple(uint32_t il) const {
+        return il < n_layer ? ple_layer_arr[il] : false;
+    }
+
+    // the layer runs Qwen sparse attention over pooled blocks; deepseek4 fills the same
+    // ratio array for its CSA/HCA layers and reads the ratio value directly instead
+    bool is_qsa(uint32_t il) const {
+        return il < n_layer ? dsv4_compress_ratios[il] > 0 : false;
+    }
+
+    // rows the PLE convolution history adds to a layer's recurrent state row: the taps reach
+    // (kernel - 1) * ngram_size positions back, over every channel of the wide residual
+    uint32_t n_embd_ple_conv(uint32_t il) const {
+        return is_ple(il) ? ple_conv_state() * dsv4_hc_mult * n_embd : 0;
+    }
+
+    uint32_t ple_conv_state() const {
+        return ple_conv_kernel > 0 ? (ple_conv_kernel - 1) * ple_ngram_size : 0;
     }
 
     static bool is_float_close(float a, float b, float abs_tol) {
@@ -341,3 +445,28 @@ struct llama_hparams {
 };
 
 static_assert(std::is_trivially_copyable<llama_hparams>::value, "llama_hparams must be trivially copyable");
+
+// sinks + retained window + one u-batch, padded as one sum so the total is pad-aligned for any
+// sink_rows; compaction then fires every C - W tokens, and the slack floor keeps a small u-batch from compacting every few tokens
+static inline uint32_t llama_swa_compact_rows(uint32_t window, uint32_t pad, uint32_t n_ubatch,
+                                              uint32_t sink_rows) {
+    const uint32_t min_slack = 256;
+    const uint32_t slack     = n_ubatch > min_slack ? n_ubatch : min_slack;
+    const uint32_t unpadded  = sink_rows + window + slack;
+    return pad > 1 ? ((unpadded + pad - 1)/pad)*pad : unpadded;
+}
+
+static inline uint32_t llama_kv_layer_rows(const llama_hparams & hparams, int il, uint32_t kv_size,
+                                           bool swa_compress, uint32_t n_ubatch, uint32_t pad) {
+    if (!swa_compress || il < 0 || il >= (int) hparams.n_layer) {
+        return kv_size;
+    }
+    if (il >= (int) (hparams.n_layer - hparams.nextn_predict_layers)) {
+        return kv_size;
+    }
+    if (!hparams.swa_layers[il]) {
+        return kv_size;
+    }
+    const uint32_t rows = llama_swa_compact_rows(hparams.n_swa, pad, n_ubatch, hparams.param_sink_number);
+    return rows < kv_size ? rows : kv_size;
+}

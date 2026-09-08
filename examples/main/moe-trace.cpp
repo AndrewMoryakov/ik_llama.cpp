@@ -437,7 +437,7 @@ void moe_trace_writer::end_batch() {
     }
 }
 
-bool moe_trace_writer::callback(struct ggml_tensor * tensor, bool ask, void * user_data) {
+int moe_trace_writer::callback(struct ggml_tensor * tensor, bool ask, void * user_data) {
     auto * self = static_cast<moe_trace_writer *>(user_data);
     if (self == nullptr || tensor == nullptr) {
         return false;

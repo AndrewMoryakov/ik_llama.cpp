@@ -70,7 +70,10 @@ delta_net::delta_net(llama_context & _lctx, const llama_batch & _batch) : lctx(_
         GGML_ASSERT((uint32_t) s < qnext_state_slots);
     }
 
-    save_per_step_states = lctx.kv_self.save_per_step_ssm && batch.n_tokens > 1;
+    int max_per_step = lctx.kv_self.save_per_step_ssm
+        ? lctx.kv_self.ckpt.per_step_max_allocated
+        : 0;
+    save_per_step_states = lctx.kv_self.save_per_step_ssm && batch.n_tokens > 1 && batch.n_tokens <= max_per_step;
 }
 
 delta_net::~delta_net() = default;
@@ -79,8 +82,7 @@ std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_fused_delta_net(ggml_co
         ggml_tensor * q, ggml_tensor * k, ggml_tensor * v,
         ggml_tensor * g, ggml_tensor * beta, ggml_tensor * state,
         int il, const llm_build_cb & cb, int repeat_type,
-        bool save_all_steps,
-        ggml_cgraph * gf, ggml_tensor * per_step_ckpt) {
+        ggml_tensor * per_step_ckpt) {
 
     const int64_t S_k      = q->ne[0];
     const int64_t H_k      = q->ne[2];
@@ -93,7 +95,9 @@ std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_fused_delta_net(ggml_co
     GGML_ASSERT(q->ne[0] == S_k && q->ne[2] == H_k && q->ne[1] == n_tokens && q->ne[3] == n_seqs);
     GGML_ASSERT(k->ne[0] == S_k && k->ne[2] == H_k && k->ne[1] == n_tokens && k->ne[3] == n_seqs);
     GGML_ASSERT(v->ne[2] == n_tokens);
-    GGML_ASSERT(g->ne[0] == H_v && g->ne[1] == n_tokens && g->ne[2] == n_seqs);
+    const bool scalar_gate = g->ne[0] == H_v && g->ne[1] == n_tokens && g->ne[2] == n_seqs;
+    const bool channel_gate = g->ne[0] == S_v && g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs;
+    GGML_ASSERT(scalar_gate || channel_gate);
     GGML_ASSERT(beta->ne[0] == H_v && beta->ne[2] == n_tokens && beta->ne[3] == n_seqs);
     GGML_ASSERT(state->ne[0] == S_v && state->ne[1] == S_v && state->ne[2] == H_v && state->ne[3] == n_seqs);
     //GGML_ASSERT(H_k == H_v);
@@ -107,7 +111,7 @@ std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_fused_delta_net(ggml_co
     cb(state,"state_in", il);
 
     v = ggml_permute(ctx0, v, 0, 2, 1, 3);
-    g = ggml_permute(ctx0, g, 2, 0, 3, 1);
+    g = channel_gate ? ggml_permute(ctx0, g, 1, 2, 0, 3) : ggml_permute(ctx0, g, 2, 0, 3, 1);
     beta = ggml_permute(ctx0, beta, 2, 0, 1, 3);
 
     ggml_tensor * state_flat = ggml_reshape_4d(ctx0, state, S_v, S_v * H_v, 1, n_seqs);
@@ -122,7 +126,7 @@ std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_fused_delta_net(ggml_co
     cb(beta,      "beta_fused", il);
     cb(state_flat,"state_fused", il);
 
-    ggml_tensor * fused_result = ggml_delta_net(ctx0, q, k, v, g, beta, state_flat, save_all_steps);
+    ggml_tensor * fused_result = ggml_delta_net(ctx0, q, k, v, g, beta, state_flat, per_step_ckpt);
     cb(fused_result, "delta_net_fused_raw", il);
     fused_result->op_params[0] = repeat_type;
 
@@ -136,42 +140,22 @@ std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_fused_delta_net(ggml_co
             ggml_row_size(fused_result->type, S_v * H_v * n_tokens), 0);
     //output_tokens = ggml_cont_4d(ctx0, output_tokens, S_v, H_v, n_tokens, n_seqs);
 
-    // per-step states are at [output_size, output_size + n_tokens*state_size)
-    const int64_t last_state_offset = save_all_steps
-        ? (output_size + (n_tokens - 1) * state_size)
-        : output_size;
-
     ggml_tensor * new_state_flat = ggml_view_1d(ctx0, fused_result, state_size,
-            last_state_offset * ggml_element_size(fused_result));
+            output_size * ggml_element_size(fused_result));
     ggml_tensor * new_state = ggml_reshape_4d(ctx0, new_state_flat, S_v, S_v, H_v, n_seqs);
 
     cb(output_tokens, "output_tokens", il);
     cb(new_state,     "new_state", il);
 
-    // Copy all per-step SSM states to persistent checkpoint tensor
-    if (save_all_steps && per_step_ckpt != nullptr && gf != nullptr && n_tokens > 1) {
-        const int64_t per_step_total = n_tokens * state_size;
-        if (per_step_total <= ggml_nelements(per_step_ckpt)) {
-            ggml_tensor * all_steps_src = ggml_view_1d(ctx0, fused_result, per_step_total,
-                    output_size * ggml_element_size(fused_result));
-            ggml_tensor * ckpt_dst = ggml_view_1d(ctx0, per_step_ckpt, per_step_total, 0);
-            auto ckpt_cpy = ggml_cpy(ctx0, all_steps_src, ckpt_dst);
-            cb(ckpt_cpy, "per_step_ckpt_cpy", il);
-            ggml_build_forward_expand(gf, ckpt_cpy);
-        } else {
-            LLAMA_LOG_WARN("%s: per-step checkpoint tensor too small for %lld tokens (need %lld, have %lld), skipping per-step save\n",
-                    __func__, (long long)n_tokens, (long long)per_step_total, (long long)ggml_nelements(per_step_ckpt));
-        }
-    }
-
     return {output_tokens, new_state};
 }
 
-std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_qkvz(llama_context & lctx, ggml_context * ctx0, ggml_tensor * wqkv, ggml_tensor * wqkv_gate,
+std::pair<ggml_tensor *, ggml_tensor *> delta_net::build_qkvz(llama_context & lctx, ggml_context * ctx0,
+        ggml_tensor * wqkv, ggml_tensor * wqkv_gate,
         ggml_tensor * input, int il, const llm_build_cb & cb, ggml_cgraph * gf) {
 
     const int64_t n_tok = input->ne[1];
-    ggml_tensor * qkv_mixed = llm_build_context::llm_build_lora_mm(lctx, ctx0, wqkv, input);
+    auto qkv_mixed = llm_build_context::llm_build_lora_mm(lctx, ctx0, wqkv, input);
     cb(qkv_mixed, "qkv_mixed", il);
     ggml_tensor * z = llm_build_context::llm_build_lora_mm(lctx, ctx0, wqkv_gate, input);
     cb(z, "z", il);
@@ -306,7 +290,7 @@ ggml_tensor * delta_net::build_qkv(ggml_context * ctx0, ggml_tensor * state_stor
         int64_t head_k_dim, int64_t num_k_heads, int64_t head_v_dim, int64_t num_v_heads, int64_t ssm_d_conv,
         int64_t state_seq_id_local, uint32_t qnext_state_slots, bool reset_state_local,
         float eps_norm, int repeat_type, int il, const llm_build_cb & cb, ggml_cgraph * gf,
-        bool save_per_step_states, ggml_tensor * per_step_ckpt) {
+        ggml_tensor * per_step_ckpt, ggml_tensor * per_step_conv) {
     const int64_t key_dim        = head_k_dim * num_k_heads;
     const int64_t value_dim      = head_v_dim * num_v_heads;
     const int64_t conv_dim       = key_dim * 2 + value_dim;
@@ -349,7 +333,7 @@ ggml_tensor * delta_net::build_qkv(ggml_context * ctx0, ggml_tensor * state_stor
     cb(state, "state_predelta", il);
     ggml_build_forward_expand(gf, state);
 
-    ggml_tensor * conv_output_raw = ggml_ssm_conv(ctx0, conv_states, qkv_mixed, ssm_conv1d, inp_s_seq_qnext);
+    ggml_tensor * conv_output_raw = ggml_ssm_conv(ctx0, conv_states, qkv_mixed, ssm_conv1d, inp_s_seq_qnext, per_step_conv);
     cb(conv_output_raw, "conv_output_raw", il);
 
     ggml_tensor * conv_output = ggml_view_2d(ctx0, conv_output_raw, conv_dim, n_tok, conv_dim * ggml_element_size(conv_output_raw), 0);
@@ -392,7 +376,7 @@ ggml_tensor * delta_net::build_qkv(ggml_context * ctx0, ggml_tensor * state_stor
     cb(k_conv, "k_conv_normed", il);
 
     auto [output, new_state] = build_fused_delta_net(ctx0, q_conv, k_conv, v_conv, gate, beta, state, il, cb, repeat_type,
-            save_per_step_states, gf, per_step_ckpt);
+            per_step_ckpt);
 
     cb(output, "attn_output", il);
     cb(new_state, "new_state", il);
@@ -404,25 +388,36 @@ ggml_tensor * delta_net::build_qkv(ggml_context * ctx0, ggml_tensor * state_stor
     cb(new_conv_states_cont, "new_conv_states_cont", il);
     ggml_tensor * new_conv_flat = ggml_reshape_2d(ctx0, new_conv_states_cont, conv_state_dim, 1);
     ggml_tensor * new_ssm_flat  = ggml_reshape_2d(ctx0, new_state, ssm_state_dim, 1);
-    ggml_tensor * new_state_flat = ggml_concat(ctx0, new_conv_flat, new_ssm_flat, 0);
-    cb(new_state_flat, "new_state_flat", il);
+    ggml_tensor * conv_state_dst = ggml_view_2d(ctx0, state_dst, conv_state_dim, 1, state_row_size, 0);
+    ggml_tensor * ssm_dst        = ggml_view_2d(ctx0, state_dst, ssm_state_dim, 1, state_row_size,
+            conv_state_dim * ggml_element_size(state_dst));
 
-    auto state_cpy = ggml_cpy(ctx0, new_state_flat, state_dst);
-    cb(state_cpy, "state_cpy", il);
-    ggml_build_forward_expand(gf, state_cpy);
+    // expand this one first: ggml_delta_net_find_state_cpy() matches this copy only while nothing
+    // but view no-ops stands between it and the op, and the backends then write the slot directly
+    auto ssm_cpy = ggml_cpy(ctx0, new_ssm_flat, ssm_dst);
+    cb(ssm_cpy, "ssm_state_cpy", il);
+    ggml_build_forward_expand(gf, ssm_cpy);
+
+    auto conv_cpy = ggml_cpy(ctx0, new_conv_flat, conv_state_dst);
+    cb(conv_cpy, "conv_state_cpy", il);
+    ggml_build_forward_expand(gf, conv_cpy);
 
     return output;
 }
 
 ggml_tensor * delta_net::build_gated_output(llama_context & lctx, ggml_context * ctx0, ggml_tensor * ssm_norm, ggml_tensor * ssm_out, ggml_tensor * output, ggml_tensor * z,
-        int64_t head_v_dim, int64_t num_v_heads, int64_t n_tok, int il, const llm_build_cb & cb) {
+        int64_t head_v_dim, int64_t num_v_heads, int64_t n_tok, int il, const llm_build_cb & cb, ggml_unary_op gate_op) {
 
     ggml_tensor * attn_out_2d = ggml_reshape_2d(ctx0, output, head_v_dim, num_v_heads * n_tok);
     ggml_tensor * z_2d        = ggml_reshape_2d(ctx0, z,      head_v_dim, num_v_heads * n_tok);
 
     ggml_tensor * attn_out_norm = llm_build_context::llm_build_norm(ctx0, attn_out_2d, lctx.model.hparams, ssm_norm, nullptr, LLM_NORM_RMS, cb, il);
     cb(attn_out_norm, "attn_rms_norm", il);
-    attn_out_norm = ggml_fused_mul_unary(ctx0, z_2d, attn_out_norm, GGML_UNARY_OP_SILU);
+    // the fused form only takes SILU when both operands share a shape, so the sigmoid
+    // gate is spelled out
+    attn_out_norm = gate_op == GGML_UNARY_OP_SIGMOID
+        ? ggml_mul(ctx0, attn_out_norm, ggml_sigmoid(ctx0, z_2d))
+        : ggml_fused_mul_unary(ctx0, z_2d, attn_out_norm, gate_op);
     cb(attn_out_norm, "attn_out_norm", il);
 
     ggml_tensor * final_output = ggml_reshape_2d(ctx0, attn_out_norm, head_v_dim*num_v_heads, n_tok);
@@ -455,7 +450,8 @@ static ggml_tensor * get_input_tensor_sm_graph(ggml_context * ctx, ggml_tensor *
 
 ggml_tensor * delta_net::build_layer_attn_linear_core(ggml_context * ctx0, ggml_cgraph * gf,
             ggml_tensor * delta_input, ggml_tensor * inp_s_seq_qnext, ggml_tensor * inp_out_ids,
-            uint32_t state_seq_id_local, bool reset_state_local, int il, const llm_build_cb & cb) const {
+            uint32_t state_seq_id_local, bool reset_state_local, int il, const llm_build_cb & cb,
+            bool external_residual, ggml_unary_op gate_op) const {
 
     const int64_t n_tok = delta_input->ne[1];
     const int64_t n_seqs = 1;
@@ -512,8 +508,8 @@ ggml_tensor * delta_net::build_layer_attn_linear_core(ggml_context * ctx0, ggml_
             } else {
                 num_k_heads_id = split_smm_in->splits[id]->ne[1]/(2*head_k_dim*(1 + gqa_ratio));
                 num_v_heads_id = num_k_heads_id * gqa_ratio;
-                auto p = build_qkvz(lctx, ctx0, nullptr, nullptr, split_smm_in->splits[id], head_k_dim, num_k_heads_id, head_v_dim, num_v_heads_id, cur, il, cb, gf);
-                //auto p = build_qkvz(lctx, ctx0, split_smm_in->splits[id], head_k_dim, num_k_heads_id, head_v_dim, num_v_heads_id, cur, il_cb, cb);
+                auto p = build_qkvz(lctx, ctx0, nullptr, nullptr, split_smm_in->splits[id],
+                        head_k_dim, num_k_heads_id, head_v_dim, num_v_heads_id, cur, il, cb, gf);
                 qkv_mixed = p.first;
                 z = p.second;
             }
@@ -539,10 +535,18 @@ ggml_tensor * delta_net::build_layer_attn_linear_core(ggml_context * ctx0, ggml_
             }
             auto split_ssm_conv1d = (ggml_split_tensor_t *)l.ssm_conv1d->extra;
             GGML_ASSERT(split_ssm_conv1d && split_ssm_conv1d->splits[id]);
+            ggml_tensor * per_step_ckpt = nullptr;
+            if (save_per_step_states && il < (int)kv_self.ckpt.per_step_ssm.size()) {
+                per_step_ckpt = kv_self.ckpt.per_step_ssm[il][id];
+            }
+            auto per_step_conv = save_per_step_states && il < (int)kv_self.ckpt.per_step_conv.size() &&
+                                 id < (int)kv_self.ckpt.per_step_conv[il].size()
+                               ? kv_self.ckpt.per_step_conv[il][id] : nullptr;
+
             auto output = build_qkv(ctx0, split_s_l->splits[id], split_ssm_conv1d->splits[id], qkv_mixed, inp_s_seq_qnext, beta, gate,
                                head_k_dim, num_k_heads_id, head_v_dim, num_v_heads_id, hparams.ssm_d_conv,
                                state_seq_id_local, qnext_state_slots, reset_state_local, hparams.f_norm_rms_eps,
-                               l.ssm_beta_alpha ? 0 : 1, il, cb, gf);
+                               l.ssm_beta_alpha ? 0 : 1, il, cb, gf, per_step_ckpt, per_step_conv);
             split_norm = (ggml_split_tensor_t *)l.ssm_norm->extra;
             GGML_ASSERT(split_norm && split_norm->splits[id]);
             auto split_ssm_out = (ggml_split_tensor_t *)l.ssm_out->extra;
@@ -583,8 +587,11 @@ ggml_tensor * delta_net::build_layer_attn_linear_core(ggml_context * ctx0, ggml_
             input->view_src = input->src[idx];
         }
     }
-    auto norm = model.layers[il].attn_norm->extra ? ((ggml_split_tensor_t *)model.layers[il].attn_norm->extra)->splits[idx] : model.layers[il].attn_norm;
-    auto cur = llm_build_context::llm_build_norm(ctx0, input, hparams, norm, nullptr, LLM_NORM_RMS, cb, il);
+    ggml_tensor * cur = input;
+    if (model.layers[il].attn_norm) {
+        auto norm = model.layers[il].attn_norm->extra ? ((ggml_split_tensor_t *)model.layers[il].attn_norm->extra)->splits[idx] : model.layers[il].attn_norm;
+        cur = llm_build_context::llm_build_norm(ctx0, input, hparams, norm, nullptr, LLM_NORM_RMS, cb, il);
+    }
 
     auto [qkv_mixed, z] = build_qkvz(lctx, ctx0, model.layers[il].wqkv, model.layers[il].wqkv_gate, model.layers[il].ssm_in,
             head_k_dim, num_k_heads, head_v_dim, num_v_heads, cur, il, cb, gf);
@@ -595,41 +602,32 @@ ggml_tensor * delta_net::build_layer_attn_linear_core(ggml_context * ctx0, ggml_
     // Get per-step checkpoint tensor if available
     ggml_tensor * per_step_ckpt = nullptr;
     if (save_per_step_states && il < (int)kv_self.ckpt.per_step_ssm.size()) {
-        per_step_ckpt = kv_self.ckpt.per_step_ssm[il];
+        per_step_ckpt = kv_self.ckpt.per_step_ssm[il].front();
     }
 
-    // Save qkv_mixed features for per-step conv state reconstruction
-    if (save_per_step_states && il < (int)kv_self.ckpt.per_step_qkv.size() && kv_self.ckpt.per_step_qkv[il] != nullptr) {
-        const int64_t conv_dim = qkv_mixed->ne[0];
-        const int64_t n_tok_qkv = qkv_mixed->ne[1] * qkv_mixed->ne[2];
-        ggml_tensor * qkv_flat = ggml_reshape_2d(ctx0, qkv_mixed, conv_dim, n_tok_qkv);
-        ggml_tensor * qkv_dst = ggml_view_2d(ctx0, kv_self.ckpt.per_step_qkv[il],
-                conv_dim, n_tok_qkv, conv_dim * sizeof(float), 0);
-        auto qkv_cpy = ggml_cpy(ctx0, qkv_flat, qkv_dst);
-        ggml_build_forward_expand(gf, qkv_cpy);
-    }
+    auto per_step_conv = save_per_step_states && il < (int)kv_self.ckpt.per_step_conv.size() && !kv_self.ckpt.per_step_conv[il].empty()
+                       ? kv_self.ckpt.per_step_conv[il].front() : nullptr;
 
     auto output = build_qkv(ctx0, kv_self.s_l[il], model.layers[il].ssm_conv1d,
         qkv_mixed, inp_s_seq_qnext, beta, gate,
         head_k_dim, num_k_heads, head_v_dim, num_v_heads, hparams.ssm_d_conv,
         state_seq_id_local, qnext_state_slots, reset_state_local, hparams.f_norm_rms_eps,
-        model.layers[il].ssm_beta_alpha ? 0 : 1, il, cb, gf,
-        save_per_step_states, per_step_ckpt);
+        model.layers[il].ssm_beta_alpha ? 0 : 1, il, cb, gf, per_step_ckpt, per_step_conv);
 
-    auto gated_output = build_gated_output(lctx, ctx0, model.layers[il].ssm_norm, model.layers[il].ssm_out, output, z, head_v_dim, num_v_heads, n_tok, il, cb);
+    auto gated_output = build_gated_output(lctx, ctx0, model.layers[il].ssm_norm, model.layers[il].ssm_out, output, z, head_v_dim, num_v_heads, n_tok, il, cb, gate_op);
     if (inp_out_ids) {
         gated_output = ggml_get_rows(ctx0, gated_output, inp_out_ids);
         input        = ggml_get_rows(ctx0, input, inp_out_ids);
     }
-    output = ggml_add(ctx0, gated_output, input);
+    output = external_residual ? gated_output : ggml_add(ctx0, gated_output, input);
     cb(output, "ssm_output", il);
     return output;
-    //return build_gated_output(lctx, ctx0, model.layers[il].ssm_norm, model.layers[il].ssm_out, output, z, head_v_dim, num_v_heads, n_tok, il, cb);
 
 }
 
 ggml_tensor * delta_net::build_layer_attn_linear(ggml_context * ctx0, ggml_cgraph * gf,
-        ggml_tensor * cur, ggml_tensor * inp_out_ids, int il, const llm_build_cb & cb) const {
+        ggml_tensor * cur, ggml_tensor * inp_out_ids, int il, const llm_build_cb & cb,
+        bool external_residual, ggml_unary_op gate_op) const {
     GGML_ASSERT(lctx.inp_s_seq_qnext != nullptr);
 
     auto & model = lctx.model;
@@ -647,7 +645,7 @@ ggml_tensor * delta_net::build_layer_attn_linear(ggml_context * ctx0, ggml_cgrap
 
     if (all_same_seq) {
         bool reset_state = batch.pos != nullptr && batch.pos[0] == 0;
-        return build_layer_attn_linear_core(ctx0, gf, cur, lctx.inp_s_seq_qnext, inp_out_ids, token_seq_ids.front(), reset_state, il, cb);
+        return build_layer_attn_linear_core(ctx0, gf, cur, lctx.inp_s_seq_qnext, inp_out_ids, token_seq_ids.front(), reset_state, il, cb, external_residual, gate_op);
     }
 
     GGML_ASSERT(has_unique_seq_ids && "qwen3next mixed-sequence batches require unique sequence IDs per token");
@@ -659,7 +657,7 @@ ggml_tensor * delta_net::build_layer_attn_linear(ggml_context * ctx0, ggml_cgrap
 
         const bool reset_state_i = batch.pos != nullptr && batch.pos[i] == 0;
         const uint32_t state_seq_id_i = (uint32_t) token_seq_ids[i];
-        ggml_tensor * out_i = build_layer_attn_linear_core(ctx0, gf, cur_i, inp_s_seq_qnext_i, inp_out_ids, state_seq_id_i, reset_state_i, il, cb);
+        ggml_tensor * out_i = build_layer_attn_linear_core(ctx0, gf, cur_i, inp_s_seq_qnext_i, inp_out_ids, state_seq_id_i, reset_state_i, il, cb, external_residual, gate_op);
 
         out = out == nullptr ? out_i : ggml_concat(ctx0, out, out_i, 1);
     }

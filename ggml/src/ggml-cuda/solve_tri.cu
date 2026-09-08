@@ -2,7 +2,6 @@
 #include "ggml.h"
 #include "solve_tri.cuh"
 #include "ggml-cuda.h"
-#include <cublas_v2.h>
 #include <cstdio>
 
 #define MAX_N_FAST 64
@@ -44,6 +43,7 @@ static __global__ void setup_trsm_batch_pointers(
 }
 
 // Latency-optimized kernel for n=64, k=64 (single-token generation)
+#if 0
 static __global__ void solve_tri_f32_64x64_latency(
     const float * __restrict__ A,
     const float * __restrict__ B,
@@ -54,8 +54,7 @@ static __global__ void solve_tri_f32_64x64_latency(
     const size_t nb12,
     const size_t nb13,
     const size_t nb2,
-    const size_t nb3)
-{
+    const size_t nb3) {
     const int batch_idx = blockIdx.x;
     const int lane      = threadIdx.x;
     const int warp_id   = threadIdx.y;
@@ -146,6 +145,7 @@ static __global__ void solve_tri_f32_64x64_latency(
         X_batch[i] = sX[row * 65 + col];
     }
 }
+#endif
 
 static __global__ void solve_tri_f32_64x64_opt(const float * __restrict__ A,
                                                const float * __restrict__ B,
@@ -248,6 +248,7 @@ static __global__ void solve_tri_f32_64x64_opt(const float * __restrict__ A,
     }
 }
 
+#if 0
 static __global__ void solve_tri_f32_128x128_opt(const float * __restrict__ A,
                                                   const float * __restrict__ B,
                                                   float * __restrict__ X,
@@ -360,6 +361,7 @@ static __global__ void solve_tri_f32_128x128_opt(const float * __restrict__ A,
         X_batch[row * k + col] = sXt[col * 129 + row];
     }
 }
+#endif
 
 static __global__ void solve_tri_f32_256x256_tiled(const float * __restrict__ A,
                                                     const float * __restrict__ B,
@@ -541,7 +543,7 @@ static __global__ void solve_tri_f32_256x256_tiled(const float * __restrict__ A,
 
 // When ncols_template == 0 the bounds for the loops in this function are not
 // known and can't be unrolled. As we want to keep pragma unroll for all other
-// cases we supress the clang transformation warning here.
+// cases we suppress the clang transformation warning here.
 #ifdef __clang__
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wpass-failed"

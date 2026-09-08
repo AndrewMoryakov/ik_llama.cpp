@@ -127,7 +127,16 @@ enum common_webui {
     COMMON_WEBUI_LLAMACPP,
 };
 
+enum common_checkpoint_eviction {
+    COMMON_CHECKPOINT_EVICTION_AUTO,
+    COMMON_CHECKPOINT_EVICTION_FIFO,
+    COMMON_CHECKPOINT_EVICTION_VARIANCE
+};
+
 common_webui common_webui_from_name(const std::string& format);
+
+common_checkpoint_eviction common_checkpoint_eviction_from_name(const std::string & format);
+
 
 struct thinking_tokens {
     bool exclude = true;
@@ -140,6 +149,8 @@ thinking_tokens thinking_tokens_from_string(const std::string& format);
 enum common_speculative_type {
     COMMON_SPECULATIVE_TYPE_NONE,          // no speculative decoding
     COMMON_SPECULATIVE_TYPE_DRAFT,         // draft model
+    COMMON_SPECULATIVE_TYPE_DFLASH,        // DFlash draft model
+    COMMON_SPECULATIVE_TYPE_DSPARK,
     COMMON_SPECULATIVE_TYPE_MTP,           // MTP model
     COMMON_SPECULATIVE_TYPE_EAGLE3,        // eagle draft model
     COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE,  // simple self-speculative decoding
@@ -149,6 +160,41 @@ enum common_speculative_type {
     COMMON_SPECULATIVE_TYPE_NGRAM_CACHE,   // self-speculative decoding with 3-level n-gram cache
     COMMON_SPECULATIVE_TYPE_SUFFIX,        // self-speculative suffix-decoding (arXiv:2411.04975)
     COMMON_SPECULATIVE_TYPE_COUNT          // number of types, unknown type
+};
+
+std::string common_speculative_type_name_str();
+enum common_speculative_type common_speculative_type_from_name(const std::string & name);
+std::string common_speculative_type_to_str(enum common_speculative_type type);
+bool common_speculative_type_is_dflash_family(enum common_speculative_type type);
+bool common_speculative_type_uses_target_features(enum common_speculative_type type);
+bool common_speculative_type_is_self_spec(enum common_speculative_type type);
+
+struct common_speculative_stage_params {
+    common_speculative_type type = COMMON_SPECULATIVE_TYPE_NONE;
+
+    int32_t n_max = -1;
+    int32_t n_min = -1;
+    float   p_min = -1.0f;
+    int32_t mtp_heads = -1;
+
+    uint16_t ngram_size_n = 0;
+    uint16_t ngram_size_m = 0;
+    uint16_t ngram_min_hits = 0;
+
+    int32_t suffix_min_match_len = -1;
+    int32_t suffix_max_depth = -1;
+    std::string suffix_corpus;
+
+    bool has_n_max_override() const { return n_max >= 0; }
+    bool has_n_min_override() const { return n_min >= 0; }
+    bool has_p_min_override() const { return p_min >= 0.0f; }
+    bool has_mtp_heads_override() const { return mtp_heads >= 0; }
+    bool has_ngram_size_n_override() const { return ngram_size_n > 0; }
+    bool has_ngram_size_m_override() const { return ngram_size_m > 0; }
+    bool has_ngram_min_hits_override() const { return ngram_min_hits > 0; }
+    bool has_suffix_min_match_len_override() const { return suffix_min_match_len >= 0; }
+    bool has_suffix_max_depth_override() const { return suffix_max_depth >= 0; }
+    bool has_suffix_corpus_override() const { return !suffix_corpus.empty(); }
 };
 
 struct common_params_model {
@@ -164,8 +210,8 @@ struct common_ngram_mod;
 struct common_params_speculative {
     common_speculative_type type = COMMON_SPECULATIVE_TYPE_NONE; // type of speculative decoding
 
-    // Recurrent-model checkpoint strategy for speculative decoding.
-    int recurrent_ckpt_mode = LLAMA_SPEC_CKPT_AUTO;
+    // Generic speculative checkpoint mode, recurrent spelling is a compatibility alias.
+    int spec_ckpt_mode = LLAMA_SPEC_CKPT_AUTO;
 
     std::string devices;
     std::string params;
@@ -174,6 +220,12 @@ struct common_params_speculative {
 
     int32_t n_max = 16; // number of tokens to draft during speculative decoding
     int32_t n_min = 0; // minimum number of tokens to draft during speculative decoding
+    std::vector<common_speculative_stage_params> stages; // explicit stage chain for single-spec or self-spec + model fallback
+    int32_t mtp_heads = 1; // MTP heads to use; 1 is the default, while >1 and 0 (all model heads) are experimental
+
+    // Samplers for DFlash2
+    float    draft_temperature = 0.0f;
+    uint32_t draft_seed = LLAMA_DEFAULT_SEED;
 
     float   p_split = 0.1f; // speculative decoding split probability
     float   p_min = 0.75f; // minimum speculative decoding probability (greedy)
@@ -216,7 +268,23 @@ struct common_params_speculative {
         //return !mparams_dft.path.empty() || !mparams_dft.hf_repo.empty();
     }
 
+    std::vector<common_speculative_stage_params> get_resolved_stages() const;
+    common_params_speculative with_stage_overrides(const common_speculative_stage_params & stage) const;
+    bool has_stage_chain() const;
+    bool has_stage_type(common_speculative_type stage_type) const;
+    bool has_dflash_family_stage() const;
+    bool uses_target_features() const;
+    void remove_stage_type(common_speculative_type stage_type);
+    bool has_composite_stage_chain() const;
+    bool needs_dft_model() const;
+    void clear_dft();
+    int32_t get_max_stage_n_max() const;
+    int32_t get_min_usable_stage_n_min() const;
+
 };
+
+bool common_speculative_validate_chain(const common_params_speculative & params, std::string * error = nullptr);
+std::string common_speculative_stage_chain_to_str(const common_params_speculative & params);
 
 struct gpt_params {
     std::string devices;
@@ -255,6 +323,9 @@ struct gpt_params {
     float   ban_phrases_bias      = -999.0f; // logit bias applied to ban phrases
     int32_t max_extra_alloc_MiB   =     256; // additional VRAM per GPU the scheduler may allocate for more efficient compute graph evaluation
     int32_t nrep                  =       1; // number of repetitions used in sweep bench
+    int32_t sweep_stride          =       1;
+    bool    sweep_memory          =   false;
+    bool    sweep_bench           =   false;
 
     ggml_backend_sched_eval_callback cb_eval = nullptr;
     void * cb_eval_user_data                 = nullptr;
@@ -305,7 +376,7 @@ struct gpt_params {
         ,uint32_t       // upper codepoint
         ,std::string    // unicode script name
         ,float          // bias
-    >>> allow_ruless;
+    >>> allow_rules;
     std::vector<std::string> allow_pieces;  // each token to allowlist
     std::vector<std::string> allow_kws;     // keywords
     size_t allow_kw_delay;  // minimum n_decoded before first keyword is active
@@ -313,6 +384,7 @@ struct gpt_params {
     std::vector<llama_model_kv_override> kv_overrides;
     std::vector<llama_model_tensor_buft_override> tensor_buft_overrides;
     std::vector<std::pair<int,int>> offload_policy;
+    std::vector<int> fit_margin_array;
 
     bool lora_init_without_apply = false; // only load lora to memory, but do not apply it to ctx (user can manually apply lora later using llama_lora_adapter_apply)
     std::vector<llama_lora_adapter_info> lora_adapters; // lora adapter path with user defined scale
@@ -355,13 +427,17 @@ struct gpt_params {
     bool cont_batching     = true;  // insert new sequences for decoding on-the-fly
     bool flash_attn        = true;  // flash attention
     int  mla_attn          = 3;     // MLA 0: standard, 1: MLA with K and V^T cache, 2: MLA with just K cache, 3: the best of both worlds
-    int  attn_max_batch    = 0;     // Max batch size to use when computing attention (only applicable if flash_attn = false)
+    int  attn_max_batch    = 256;   // Max batch size to use when computing attention (only applicable if flash_attn = false)
     bool fused_moe_up_gate = true;  // fused up*unary(gate) op for MoE models
     bool fused_up_gate     = true;  // fused up*unary(gate) op
     bool fused_mmad        = true;  // fused mul+multi_add op
     bool grouped_expert_routing = false; // if to use grouped expert routing (BailingMoeV2 arch)
     bool rope_cache        = false; // if to use RoPE cache (for supported models)
     bool graph_reuse       = true;  // if to reuse compute graphs
+    bool dsa               = false; // enable GLM DSA sparse attention (off by default; opt-in via --dsa)
+    bool fused_idx_topk    = true;  // enable the fused indexer topk op (off by default; opt-in via -fidx or --fused-indexer-topk)
+    bool swa_compress      = false;
+    int  dsa_top_k         = -1;    // DSA top-k override (<0 => use the model's configured indexer_top_k)
     int  min_experts       = -1;
     float thresh_experts   = 0;
 
@@ -386,6 +462,9 @@ struct gpt_params {
     bool merge_qkv         = false; // if true, merge separate Q, K, V tensors into a single, contiguous tensor
     bool merge_up_gate_exps= false; // if true, merge ffn_up_exps and ffn_gate_exps into a single, contiguous tensor
     bool defer_experts     = false; // if true, defer expert mmap residency to speed up model loading (Linux only)
+    bool defer_ple         = false; // if true, keep the per-layer token embedding on the file (Linux only)
+    bool prefetch_experts  = false; // if true, stream mmap'd MoE expert weights into the page cache (Linux only)
+    int  prefetch_experts_threads = 0; // number of expert prefetch workers (<=0 = auto)
     bool k_cache_hadamard  = false; // if true, use Hadamard transform for the K-cache (only makes sense with quantized cache)
     bool v_cache_hadamard  = false; // if true, use Hadamard transform for the V-cache (only makes sense with quantized cache, which requires FA)
     bool split_mode_graph_scheduling = false; // if true, force split mode graph scheduling
@@ -396,8 +475,10 @@ struct gpt_params {
 
     std::string cache_type_k = "f16"; // KV cache data type for the K
     std::string cache_type_v = "f16"; // KV cache data type for the V
+    std::string indexer_cache_type_k = "f16"; // indexer K-cache data type
 
     std::string reduce_type = "f16";
+    std::string graph_attn_precision = "f16";
 
     std::string type_k_first = "f16";
     std::string type_k_last  = "f16";
@@ -408,6 +489,8 @@ struct gpt_params {
     int32_t     n_v_first    = -1;
     int32_t     n_v_last     = -1;
 
+    std::string extra_output_type = "";
+
     // multimodal models (see examples/mtmd)
     common_params_model mmproj;
     bool mmproj_use_gpu = true;     // use GPU for multimodal model
@@ -416,12 +499,13 @@ struct gpt_params {
     int image_min_tokens = -1;
     int image_max_tokens = -1;
     std::string mtmd_kq_type = "f32";
+    int32_t n_threads_mtmd = -1; // number of threads to use for multimodal processing (-1 = use n_threads_batch, then n_threads)
 
     // embedding
     bool embedding         = false; // get only sentence embedding
-    int32_t embd_normalize = 2;     // normalisation for embendings (-1=none, 0=max absolute int16, 1=taxicab, 2=euclidean, >2=p-norm)
-    std::string embd_out   = "";    // empty = default, "array" = [[],[]...], "json" = openai style, "json+" = same "json" + cosine similarity matrix
-    std::string embd_sep   = "\n";  // separator of embendings
+    int32_t embd_normalize = 2;     // normalization for embeddings (-1=none, 0=max absolute int16, 1=taxicab, 2=euclidean, >2=p-norm)
+    std::string embd_out   = "";    // empty = default, "array" = [[],[]...], "json" = OpenAI style, "json+" = same "json" + cosine similarity matrix
+    std::string embd_sep   = "\n";  // separator of embeddings
 
     // server params
     int32_t port           = 8080;         // server listens on this network port
@@ -461,6 +545,7 @@ struct gpt_params {
 
     // "advanced" endpoints are disabled by default for better security
     common_webui webui = COMMON_WEBUI_AUTO;
+    bool webui_mcp_proxy  = false;
     bool endpoint_slots   = true;
     bool endpoint_props   = false; // only control POST requests, not GET
     bool endpoint_metrics = false;
@@ -476,7 +561,8 @@ struct gpt_params {
     bool do_checkpoint = false;               // do checkpoint for recurrent models only
     int32_t ctx_checkpoints_n = 32;           // max number of context checkpoints per slot
     int32_t ctx_checkpoints_interval = 512;   // minimum number of tokens between each context checkpoints
-    int32_t ctx_checkpoints_tolerance = 5;    // the number of tokens before the full prompt to create the checkpoint 
+    int32_t ctx_checkpoints_tolerance = 5;    // the number of tokens before the full prompt to create the checkpoint
+    common_checkpoint_eviction ctx_checkpoint_eviction = COMMON_CHECKPOINT_EVICTION_VARIANCE;
     int32_t cache_ram_mib = 8192;   // -1 = no limit, 0 - disable, 1 = 1 MiB, etc.
     int32_t cache_ram_n_min = 0;     // min number of tokens required to save in the ram
     float cache_ram_similarity = 0.5f; // similarity of tokens to cached tokens
@@ -501,6 +587,7 @@ struct gpt_params {
 
     // imatrix params
     std::string out_file = "imatrix.dat"; // save the resulting imatrix to this file
+    std::string out_file_draft = "";      // optional paired draft imatrix output file
     std::string output_tensor_name = "output.weight"; // name of the output tensor
 
     int32_t n_out_freq  = 10; // output the imatrix every n_out_freq iterations
@@ -606,6 +693,11 @@ std::vector<std::string> string_split<std::string>(const std::string& input, cha
 
 bool string_parse_kv_override(const char * data, std::vector<llama_model_kv_override> & overrides);
 void string_process_escapes(std::string & input);
+std::string string_unescape(const std::string& str);
+
+std::vector<std::string> string_extract(const std::string& str, const char c, std::vector<size_t>& posi);
+
+bool string_is_found(const std::string& window, const std::string& str, size_t& pos);
 
 //
 // Filesystem utils
@@ -783,3 +875,5 @@ std::string string_format(const char* fmt, ...);
 //
 
 std::tuple<uint32_t, uint32_t, std::string, float> argparse_allowlist_unicode_rule(std::string argstr);
+
+void argparse_expiring_logit_bias(const std::string& content, common_params_sampling& sparams);

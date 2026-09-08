@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <vector>
 
 
 
@@ -22,25 +23,12 @@ enum slot_command {
     SLOT_COMMAND_RELEASE,
 };
 
-struct server_speculative_checkpoint {
-    bool valid = false;
-    bool per_step_enabled = false; // per-step SSM checkpoints active
-    llama_pos n_past = 0;
-    llama_token sampled = LLAMA_TOKEN_NULL;
-    common_sampler * sampler = nullptr; // saved sampler state
-
-    void clear();
-};
-
 struct server_slot {
     int id;
     int id_task = -1;
     int id_multi = -1;
 
     struct slot_params params;
-
-    llama_batch batch_spec = {};
-    llama_context * ctx_dft = nullptr;
 
     bool released = false;
     slot_state state = SLOT_STATE_IDLE;
@@ -64,6 +52,8 @@ struct server_slot {
 
     int32_t i_batch = -1;
     int32_t n_predict = -1; // TODO: disambiguate from params.n_predict
+    int32_t prompt_batch_i0 = -1;
+    int32_t prompt_batch_i1 = -1;
 
     int32_t n_prompt_tokens = 0;
     int32_t n_prompt_tokens_cache = 0;
@@ -115,8 +105,8 @@ struct server_slot {
 	std::map<int32_t, std::set<llama_token>> positional_bans;
 
     // allowlist
-    std::vector<std::vector<std::tuple<uint32_t, uint32_t, std::string, float>>> allow_ruless_prev;
-    std::vector<std::vector<std::tuple<uint32_t, uint32_t, std::string, float>>> allow_ruless;
+    std::vector<std::vector<std::tuple<uint32_t, uint32_t, std::string, float>>> allow_rules_prev;
+    std::vector<std::vector<std::tuple<uint32_t, uint32_t, std::string, float>>> allow_rules;
     std::vector<std::string> allow_pieces;
     std::vector<std::string> allow_kws;
     size_t allow_kw_delay = 0;
@@ -127,15 +117,17 @@ struct server_slot {
 
     void prompt_save(server_prompt_cache& prompt_cache) const;
 
-    void prompt_load(server_prompt_cache& prompt_cache, const server_tokens& tokens);
+    void prompt_load(server_prompt_cache& prompt_cache, const server_tokens& tokens, float min_reusable_fraction);
 
-    size_t checkpoint_pos = 0;
+    llama_pos checkpoint_pos = -1;
     bool do_checkpoint = false;
     bool image_just_processed = false;
 
     // sampling
     llama_token sampled; // in speculative mode, this is the last accepted token
     llama_tokens drafted;
+    std::vector<common_speculative_token_dist> draft_proposal_dists;
+    bool spec_target_only = false;
 
     json json_schema;
 
@@ -167,15 +159,15 @@ struct server_slot {
     struct common_params_sampling sparams;
     common_sampler * ctx_sampling = nullptr;
 
-    bool has_mtp = false;
-    std::vector<float> mtp_hidden_state;
+    // expiring logit bias
+    std::vector<common_sampler::elb_state> prev_elb_states;
 
-    // saves recurrent state before a speculative batch so it can be restored on rejection
-    server_speculative_checkpoint spec_ckpt;
-
+    bool spec_prompt_warmup_failed = false;
     // speculative decoding stats
     int32_t n_draft_total = 0;      // Total draft tokens generated
     int32_t n_draft_accepted = 0;   // Draft tokens actually accepted
+    std::vector<int32_t> n_draft_by_depth;
+    std::vector<int32_t> n_draft_accepted_by_depth;
 
     int32_t n_past_se = 0; // self-extend
 
@@ -192,6 +184,7 @@ struct server_slot {
     void reset();
 
     bool need_embd() const;
+    bool uses_mtp() const;
 
     bool has_budget(gpt_params& global_params);
 
@@ -207,7 +200,7 @@ struct server_slot {
 
     void release();
 
-    json get_formated_timings() const;
+    json get_formatted_timings() const;
 
     result_timings get_timings() const;
 
@@ -250,10 +243,11 @@ struct server_context {
     std::vector<control_vector_container> control_vectors;
 
     std::vector<std::string> vocab_pieces;
+    size_t max_piece_len = 0;
 
     gpt_params params_base;
 
-    llama_batch batch;
+    llama_batch batch = {};
 
     bool clean_kv_cache = true;
     bool add_bos_token = true;
@@ -261,11 +255,6 @@ struct server_context {
 
     // multimodal
     mtmd_context* mctx = nullptr;
-
-    // For speculative decoding
-    llama_model* model_draft = nullptr;
-    llama_context* ctx_draft = nullptr;
-    llama_context_params cparams_dft;
 
     int32_t n_ctx; // total context for all clients / slots
 
@@ -327,7 +316,7 @@ struct server_context {
 
     void populate_token_probs(const server_slot& slot, completion_token_output& result, bool post_sampling, bool special, int idx);
 
-    json get_formated_generation(const server_slot& slot) const;
+    json get_formatted_generation(const server_slot& slot) const;
 
     void send_error(const server_task& task, const std::string& error, const enum error_type type = ERROR_TYPE_SERVER);
 
@@ -346,7 +335,7 @@ struct server_context {
 
     void apply_server_biases(server_slot& slot);
 
-    void request_completion(int id_task, int id_multi, json data, bool infill, bool embedding, server_tokens&& inputs);
+    void request_completion(int id_task, int id_multi, json data, bool infill, bool embedding, server_tokens & inputs);
 
     void request_cancel(int id_task);
 
@@ -405,7 +394,7 @@ struct server_context {
 
     void apply_checkpoint(server_slot & slot);
 
-    void create_checkpoint_at_interval(server_slot & slot, const gpt_params & params_base);
+    void create_checkpoint_at_interval(server_slot & slot);
 
     void release_slot_after_final_response(server_slot & slot);
 };
