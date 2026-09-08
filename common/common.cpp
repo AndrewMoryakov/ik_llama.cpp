@@ -3384,6 +3384,7 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
                                                                         "repack tensors if interleaved variant is available.\n"
                                                                         "0/off = disable, 1/on = always (legacy), auto = enable with auto-disable\n"
                                                                         "when estimated peak memory exceeds safe headroom. Default: 0."});
+    options.push_back({ "*",           "-rtra, --run-time-repack-auto",  "alias for -rtr auto: run-time repack with the memory-headroom check"});
     options.push_back({ "*",           "-cmoe,  --cpu-moe",              "keep all MoE weights in CPU memory"});
     options.push_back({ "*",           "-ncmoe, --n-cpu-moe N",          "keep MoE weights of the first N layers in CPU memory"});
     options.push_back({ "*",           "-thp,   --transparent-huge-pages", "use transparent huge pages on Linux"});
