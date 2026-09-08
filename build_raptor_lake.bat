@@ -1,4 +1,7 @@
 @echo off
+REM  Set NOPAUSE=1 to skip the prompts below when running this script
+REM  non-interactively (CI, an agent over SSH, a wrapper script). Without
+REM  the guard the script blocks silently at `pause` instead of exiting.
 REM Build script for Intel Raptor Lake mobile (e.g. i7-1360p), CPU-only.
 REM
 REM Differences from build_zen4.bat / build_now.bat:
@@ -51,7 +54,7 @@ echo(
 if %CONF_EXIT% NEQ 0 (
     echo [FAILED] Configure failed with code %CONF_EXIT%
     echo(
-    pause
+    if not defined NOPAUSE pause
     exit /b %CONF_EXIT%
 )
 
@@ -70,4 +73,4 @@ echo =============================================
 echo(
 dir "%BUILD%\bin\llama-server.exe" "%BUILD%\bin\llama-cli.exe" "%BUILD%\bin\llama-quantize.exe" 2>NUL
 echo(
-pause
+if not defined NOPAUSE pause
