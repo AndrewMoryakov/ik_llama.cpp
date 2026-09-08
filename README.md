@@ -2,6 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+> [!NOTE]
+> Contributors and AI agents working in this fork should read
+> [FORK_WORKFLOW.md](FORK_WORKFLOW.md) before choosing a branch or worktree.
+
 ## TL;DR
 
 This repository started as a fork of [llama.cpp](https://github.com/ggerganov/llama.cpp) in June of 2024 and was last synced with upstream in August of 2024. Compared to mainline `llama.cpp`, it offers additional SOTA quantization types and, in many cases, better performance. Various features related to LLM inference appeared here first before becoming available in llama.cpp. MLA, quant repacking, fused delta-net (known in `llama.cpp as "Gated Delta Net" - GDN), tensor parallel, MTP, DFlash, to just name a few.
