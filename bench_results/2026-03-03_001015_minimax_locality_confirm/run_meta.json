@@ -1,0 +1,15 @@
+{
+    "branch":  "feature/runtime-generalization",
+    "model":  "D:\\ggufs\\un\\minimax2.5-m2\\MiniMax-M2.5-UD-Q5_K_XL-00001-of-00005.gguf",
+    "scenarios":  [
+                      "tg:128",
+                      "pg:512:128"
+                  ],
+    "threads":  16,
+    "flash_attn":  1,
+    "rtr":  "auto",
+    "muge":  0,
+    "reps":  3,
+    "warmup":  1,
+    "started":  "2026-03-03T00:10:15"
+}

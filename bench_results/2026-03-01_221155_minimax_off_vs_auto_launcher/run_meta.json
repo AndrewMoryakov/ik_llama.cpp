@@ -1,0 +1,24 @@
+{
+  "launcher_dir": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\bench_results\\2026-03-01_221155_minimax_off_vs_auto_launcher",
+  "pid": 5024,
+  "started": "2026-03-01T22:11:55",
+  "script": "scripts/bench-minimax-hot-budget.ps1",
+  "budgets": [
+    "default"
+  ],
+  "rtr_modes": [
+    "off",
+    "auto"
+  ],
+  "scenarios": [
+    "tg:32",
+    "pg:32:4"
+  ],
+  "threads": 16,
+  "flash_attn": 1,
+  "merge_up_gate": 0,
+  "ngl": 0,
+  "reps": 1,
+  "warmup": 1,
+  "timeout_minutes": 240
+}

@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ik_llama.cpp Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="dashboard.css">
+<link rel="stylesheet" href="dashboard-live.css">
+</head>
+<body>
+
+<!-- APP SHELL -->
+<div class="app">
+
+  <!-- ═══ TOP BAR ═══ -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <button class="workspace-menu-toggle" id="btn-workspace-menu" onclick="toggleWorkspaceNav()" title="Sections">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <h1>ik_llama<span>.cpp</span></h1>
+    </div>
+    <nav class="topbar-nav">
+      <div class="nav-group">
+        <button class="theme-toggle" id="btn-theme" onclick="toggleTheme()" title="Toggle light/dark theme">
+          <svg class="theme-icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg class="theme-icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+        <div class="lang-switch">
+          <button class="lang-btn active" id="btn-lang-ru" onclick="setLang('ru')">RU</button>
+          <button class="lang-btn" id="btn-lang-en" onclick="setLang('en')">EN</button>
+        </div>
+      </div>
+      <div class="nav-separator"></div>
+      <div class="nav-group header-controls">
+        <select id="sel-profile" class="nav-select" onchange="applyProfile(this.value)"></select>
+        <select id="sel-preset" class="nav-select" onchange="applyPreset(this.value)">
+          <option value="">-- Preset --</option>
+        </select>
+      </div>
+      <div class="nav-separator"></div>
+      <div class="nav-group">
+        <button class="btn-accent" id="btn-auto" onclick="autoConfigureFromModel()" data-i18n="btn_auto">Auto-configure</button>
+        <button class="btn-ghost glossary-btn" onclick="toggleGlossary()" data-i18n="btn_glossary">? Glossary</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="container">
+    <div class="dash-workspace-shell" id="dash-workspace-shell">
+      <div class="dash-workspace-backdrop" id="dash-workspace-backdrop" onclick="toggleWorkspaceNav(false)"></div>
+      <aside class="dash-workspace-rail" id="dash-workspace-rail">
+        <div class="dash-rail-head">
+          <div class="dash-rail-head-copy">
+            <div class="dash-rail-title" data-i18n="ws_sections">Sections</div>
+            <div class="dash-rail-subtitle" data-i18n="ws_sections_note">Workspace navigation</div>
+          </div>
+          <button type="button" class="dash-rail-collapse" id="btn-rail-collapse" onclick="toggleWorkspaceRail()" title="Collapse menu" aria-label="Collapse menu">
+            <span class="dash-rail-collapse-expand">‹</span>
+            <span class="dash-rail-collapse-collapsed">›</span>
+          </button>
+        </div>
+        <nav class="dash-rail-nav">
+          <button class="dash-rail-btn active" data-workspace-pane-btn="overview" onclick="setWorkspacePane('overview')">
+            <span class="dash-rail-btn-icon">◎</span>
+            <span data-i18n="ws_nav_overview">Overview</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="model" onclick="setWorkspacePane('model')">
+            <span class="dash-rail-btn-icon">◫</span>
+            <span data-i18n="sec_model">Model</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="performance" onclick="setWorkspacePane('performance')">
+            <span class="dash-rail-btn-icon">↯</span>
+            <span data-i18n="sec_perf">Performance</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="optimization" onclick="setWorkspacePane('optimization')">
+            <span class="dash-rail-btn-icon">⚙</span>
+            <span data-i18n="sec_opt">Optimization</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="server" onclick="setWorkspacePane('server')">
+            <span class="dash-rail-btn-icon">⛁</span>
+            <span data-i18n="sec_server">Server</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="advanced" onclick="setWorkspacePane('advanced')">
+            <span class="dash-rail-btn-icon">⋯</span>
+            <span data-i18n="sec_adv">Advanced</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="launch" onclick="setWorkspacePane('launch')">
+            <span class="dash-rail-btn-icon">▶</span>
+            <span data-i18n="ws_nav_launch">Launch</span>
+          </button>
+          <button class="dash-rail-btn" data-workspace-pane-btn="runtime" onclick="setWorkspacePane('runtime')">
+            <span class="dash-rail-btn-icon">◉</span>
+            <span data-i18n="ws_nav_runtime">Runtime</span>
+          </button>
+        </nav>
+      </aside>
+
+      <div class="dash-workspace-stage">
+        <section class="dash-workspace-pane active" id="dash-pane-overview" data-workspace-pane="overview">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_overview">Overview</h2>
+              <p data-i18n="ws_desc_overview">Hardware profile, dashboard server state, and current warnings.</p>
+            </div>
+          </div>
+
+          <div class="overview-hero-grid" id="overview-hero-grid"></div>
+          <div class="overview-quickline card" id="overview-quickline"></div>
+          <div class="overview-actions card" id="overview-actions"></div>
+
+    <!-- PROFILE EDITOR -->
+    <div class="profile-editor card" id="profile-editor">
+      <h3 id="pe-title">Custom hardware profile</h3>
+      <div class="profile-grid">
+        <div class="profile-field">
+          <label data-i18n="pe_cores">CPU cores (physical)</label>
+          <input type="number" id="pe-cores" min="1" max="256" value="16" onchange="updateCustomProfile()">
+        </div>
+        <div class="profile-field">
+          <label data-i18n="pe_threads">CPU threads (logical)</label>
+          <input type="number" id="pe-threads" min="1" max="512" value="32" onchange="updateCustomProfile()">
+        </div>
+        <div class="profile-field">
+          <label data-i18n="pe_ccds">CCD count</label>
+          <input type="number" id="pe-ccds" min="1" max="8" value="1" onchange="updateCustomProfile()">
+        </div>
+        <div class="profile-field">
+          <label data-i18n="pe_ram">RAM (GB)</label>
+          <input type="number" id="pe-ram" min="1" max="4096" value="64" onchange="updateCustomProfile()">
+        </div>
+        <div class="profile-field">
+          <label data-i18n="pe_ssd">SSD read (GB/s)</label>
+          <input type="number" id="pe-ssd" min="0.1" max="20" step="0.1" value="3.0" onchange="updateCustomProfile()">
+        </div>
+        <div class="profile-field">
+          <label data-i18n="pe_bandwidth">RAM bandwidth (GB/s)</label>
+          <input type="number" id="pe-bandwidth" min="1" max="500" value="50" onchange="updateCustomProfile()">
+        </div>
+      </div>
+    </div>
+
+    <!-- SERVER STATUS -->
+    <div class="server-bar" id="server-bar">
+      <span class="status-dot disconnected" id="server-dot"></span>
+      <span id="server-status-text">Dashboard server: offline</span>
+      <span class="sys-info" id="sys-info"></span>
+    </div>
+
+    <!-- WARNINGS -->
+    <div class="warnings" id="warnings-area"></div>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-model" data-workspace-pane="model">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_model">Model</h2>
+              <p data-i18n="ws_desc_model">Model path, size, family, and placement decisions.</p>
+            </div>
+          </div>
+
+    <!-- ═══ MODEL ═══ -->
+    <details class="card" open>
+      <summary>
+        <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+        <span data-i18n="sec_model">Model</span>
+      </summary>
+      <div class="section-body">
+        <div class="param-grid">
+          <div class="param-row full">
+            <div class="param-label">
+              <span class="cli-flag">-m</span>
+              <span data-i18n="p_model">Model path</span>
+            </div>
+            <div class="param-control" style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="p-model" placeholder="/path/to/model.gguf" oninput="onModelPathInput(this.value)">
+              <button class="btn-icon scan" id="btn-browse" onclick="browseModelFile()" title="Open file picker">&#128194;</button>
+              <button class="btn-icon scan" id="btn-scan" onclick="scanModelsFromPath()" title="Scan directory">&#128269;</button>
+            </div>
+            <div class="param-desc">
+              <span data-i18n="d_model">Path to the GGUF model file</span>
+              <span class="auto-size" id="auto-size-label"></span>
+            </div>
+            <div class="model-badges" id="model-badges"></div>
+            <div class="model-browser" id="model-browser"></div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="dot" id="dot-model_size_gb"></span>
+              <span data-i18n="p_model_size">Model size (GB)</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-model_size_gb" min="0" max="9999" step="0.1" value="0" onchange="S.model_size_gb=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_model_size">File size in GB. Used to detect swap-bound scenario (model > 90% RAM)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span data-i18n="p_model_type">Model type</span>
+            </div>
+            <div class="param-control">
+              <select id="p-model_type" onchange="S.model_type=this.value">
+                <option value="dense">Dense</option>
+                <option value="moe">MoE</option>
+              </select>
+            </div>
+            <div class="param-desc" data-i18n="d_model_type">Dense (Llama, Phi) or Mixture-of-Experts (Qwen3-MoE, MiniMax, DeepSeek)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-ngl</span>
+              <span data-i18n="p_ngl">GPU layers</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_gpu_layers" min="-1" max="999" value="-1" onchange="S.n_gpu_layers=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_ngl">Layers offloaded to GPU. -1 = auto, 0 = CPU only</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-performance" data-workspace-pane="performance">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_perf">Performance</h2>
+              <p data-i18n="ws_desc_perf">Threads, context, batching, and workload-specific performance controls.</p>
+            </div>
+          </div>
+
+    <!-- ═══ PERFORMANCE ═══ -->
+    <details class="card" open>
+      <summary>
+        <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span data-i18n="sec_perf">Performance</span>
+      </summary>
+      <div class="section-body">
+        <div class="param-grid">
+          <div class="param-row">
+            <div class="param-label">
+              <span class="dot" id="dot-workload_profile"></span>
+              <span data-i18n="p_workload">Workload</span>
+            </div>
+            <div class="param-control">
+              <select id="p-workload_profile" onchange="S.workload_profile=this.value">
+                <option value="mixed">Mixed (PG)</option>
+                <option value="tg">TG-only</option>
+                <option value="pp">Prompt / PP</option>
+              </select>
+            </div>
+            <div class="param-desc" data-i18n="d_workload">What matters most to you: real prompt+generation flow, decode-only throughput, or prompt processing. Recommendations differ.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-t</span>
+              <span class="dot" id="dot-threads"></span>
+              <span data-i18n="p_threads">Threads</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-threads" min="1" max="256" value="16" onchange="S.threads=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_threads">Inference threads. Zen4 dual-CCD: 16 is a good baseline; for in-RAM models also A/B test 24/32</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-tb</span>
+              <span data-i18n="p_threads_batch">Threads (batch)</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-threads_batch" min="-1" max="256" value="-1" onchange="S.threads_batch=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_threads_batch">Threads for prompt processing. -1 = same as -t</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-c</span>
+              <span data-i18n="p_ctx">Context size</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_ctx" min="0" max="1048576" step="256" value="0" onchange="S.n_ctx=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_ctx">Context window in tokens. 0 = auto from model metadata</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-b</span>
+              <span data-i18n="p_batch">Batch size</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_batch" min="32" max="65536" step="32" value="2048" onchange="S.n_batch=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_batch">Logical batch size for prompt processing (min 32)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-ub</span>
+              <span data-i18n="p_ubatch">Micro-batch size</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_ubatch" min="32" max="65536" step="32" value="512" onchange="S.n_ubatch=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_ubatch">Physical batch size (min 32, must be <= batch size)</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-optimization" data-workspace-pane="optimization">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_opt">Optimization</h2>
+              <p data-i18n="ws_desc_opt">ik_llama-specific runtime switches, cache formats, and MoE controls.</p>
+            </div>
+          </div>
+
+    <!-- ═══ OPTIMIZATION ═══ -->
+    <details class="card" open>
+      <summary>
+        <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+        <span data-i18n="sec_opt">Optimization</span>
+        <span class="section-badge">ik_llama fork</span>
+      </summary>
+      <div class="section-body">
+        <div class="opt-subtabs">
+          <button type="button" class="opt-subtab-btn active" data-opt-pane-btn="validated" onclick="setOptimizationPane('validated')">
+            <span class="opt-subtab-icon" aria-hidden="true">✓</span>
+            <span data-i18n="opt_tab_validated">Validated</span>
+          </button>
+          <button type="button" class="opt-subtab-btn" data-opt-pane-btn="experimental" onclick="setOptimizationPane('experimental')">
+            <span class="opt-subtab-icon" aria-hidden="true">⚗</span>
+            <span data-i18n="opt_tab_experimental">Experimental</span>
+          </button>
+        </div>
+
+        <div class="opt-subpane active" data-opt-pane="validated">
+          <div class="param-grid cols-3">
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-fa</span>
+                <span class="dot" id="dot-flash_attn"></span>
+                <span data-i18n="p_fa">Flash Attention</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('flash_attn')">
+                  <div class="toggle-track" id="tog-flash_attn"></div>
+                  <span id="tog-label-flash_attn">ON</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_fa">Optimized attention kernel. Always recommended ON</div>
+            </div>
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-rtr</span>
+                <span class="dot" id="dot-repack_tensors"></span>
+                <span data-i18n="p_rtr">Runtime Repack</span>
+              </div>
+              <div class="param-control">
+                <select id="p-repack_tensors" onchange="S.repack_tensors=this.value">
+                  <option value="off">OFF</option>
+                  <option value="on">ON</option>
+                  <option value="auto" selected>AUTO</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_rtr">Three modes: off, on, auto. AUTO is throughput-first for Qwen3MoE/gpt-oss, while MiniMax still uses OFF as the safer baseline.</div>
+            </div>
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-muge</span>
+                <span class="dot" id="dot-merge_up_gate_exps"></span>
+                <span data-i18n="p_muge">Merge Up+Gate</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('merge_up_gate_exps')">
+                  <div class="toggle-track" id="tog-merge_up_gate_exps"></div>
+                  <span id="tog-label-merge_up_gate_exps">OFF</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_muge">Merge ffn_up + ffn_gate into one tensor. MoE only. No stable win is confirmed; swap-bound regression risk is high.</div>
+            </div>
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-ctk</span>
+                <span class="dot" id="dot-cache_type_k"></span>
+                <span data-i18n="p_ctk">KV Cache K</span>
+              </div>
+              <div class="param-control">
+                <select id="p-cache_type_k" onchange="S.cache_type_k=this.value">
+                  <option value="f32">f32</option>
+                  <option value="f16" selected>f16</option>
+                  <option value="bf16">bf16</option>
+                  <option value="q8_0">q8_0</option>
+                  <option value="q4_0">q4_0</option>
+                  <option value="q4_1">q4_1</option>
+                  <option value="iq4_nl">iq4_nl</option>
+                  <option value="q5_0">q5_0</option>
+                  <option value="q5_1">q5_1</option>
+                  <option value="q6_0">q6_0</option>
+                  <option value="q8_KV">q8_KV</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_ctk">Quantization for K-cache. q8_0 is the current safe baseline and saves a lot of memory</div>
+            </div>
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-ctv</span>
+                <span data-i18n="p_ctv">KV Cache V</span>
+              </div>
+              <div class="param-control">
+                <select id="p-cache_type_v" onchange="S.cache_type_v=this.value">
+                  <option value="f32">f32</option>
+                  <option value="f16" selected>f16</option>
+                  <option value="bf16">bf16</option>
+                  <option value="q8_0">q8_0</option>
+                  <option value="q4_0">q4_0</option>
+                  <option value="q4_1">q4_1</option>
+                  <option value="iq4_nl">iq4_nl</option>
+                  <option value="q5_0">q5_0</option>
+                  <option value="q5_1">q5_1</option>
+                  <option value="q6_0">q6_0</option>
+                  <option value="q8_KV">q8_KV</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_ctv">Quantization for V-cache. Can be more aggressive than K (q4_0 for max context)</div>
+            </div>
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-mla</span>
+                <span data-i18n="p_mla">MLA Mode</span>
+              </div>
+              <div class="param-control">
+                <select id="p-mla_attn" onchange="S.mla_attn=+this.value">
+                  <option value="0">0 - Standard</option>
+                  <option value="1">1 - K + V^T cache</option>
+                  <option value="2">2 - K cache only</option>
+                  <option value="3" selected>3 - Auto (best)</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_mla">Multi-head Latent Attention mode. 3 = auto-select best for model</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="param-grid cols-3">
+            <div class="param-row compact">
+              <div class="param-label">
+                <span class="cli-flag">-gr</span>
+                <span data-i18n="p_gr">Graph Reuse</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('graph_reuse')">
+                  <div class="toggle-track on" id="tog-graph_reuse"></div>
+                  <span id="tog-label-graph_reuse">ON</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_gr">Reuse compute graph between tokens. Default ON, rarely needs changing</div>
+            </div>
+            <div class="param-row compact">
+              <div class="param-label">
+                <span class="cli-flag">-khad</span>
+                <span class="dot" id="dot-k_cache_hadamard"></span>
+                <span data-i18n="p_khad">K-Cache Hadamard</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('k_cache_hadamard')">
+                  <div class="toggle-track" id="tog-k_cache_hadamard"></div>
+                  <span id="tog-label-k_cache_hadamard">OFF</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_khad">Hadamard transform for K-cache. Only useful with quantized cache (q8_0, q4_0, etc.)</div>
+            </div>
+            <div class="param-row compact">
+              <div class="param-label">
+                <span class="cli-flag">-no-fmoe</span>
+                <span data-i18n="p_fmoe">Fused MoE</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('fused_moe_up_gate')">
+                  <div class="toggle-track on" id="tog-fused_moe_up_gate"></div>
+                  <span id="tog-label-fused_moe_up_gate">ON</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_fmoe">Fused up*gate op for MoE models. Default ON</div>
+            </div>
+            <div class="param-row compact">
+              <div class="param-label">
+                <span class="cli-flag">-no-fug</span>
+                <span data-i18n="p_fug">Fused Up*Gate</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('fused_up_gate')">
+                  <div class="toggle-track on" id="tog-fused_up_gate"></div>
+                  <span id="tog-label-fused_up_gate">ON</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_fug">Fused up*unary(gate) op. Default ON</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="opt-subpane" data-opt-pane="experimental">
+          <div class="experimental-intro card-subtle">
+            <div class="experimental-intro-title" data-i18n="opt_exp_title">Experimental knobs</div>
+            <div class="experimental-intro-body" data-i18n="opt_exp_intro">These controls stay outside the validated baseline. They are meant for targeted A/B checks and runtime research, not as default recommendations.</div>
+            <div class="experimental-meta-note" data-i18n="opt_exp_meta_note">Метки рядом с параметром показывают три разные вещи: для какого класса моделей он подходит по механике, где текущий runtime реально его поддерживает и где уже есть подтвержденный сигнал от бенчмарков.</div>
+          </div>
+
+          <div class="experimental-preset-workspace card-subtle">
+            <div class="experimental-preset-head">
+              <div class="experimental-preset-copy">
+                <div class="experimental-intro-title" data-i18n="p_exp_preset">Experimental preset</div>
+                <div class="experimental-intro-body" data-i18n="d_exp_preset">Model-aware bundles of experimental knobs. They are shortcuts for targeted A/B checks, not safe defaults.</div>
+              </div>
+              <div class="experimental-link-card">
+                <div class="param-label">
+                  <span class="cli-flag">link</span>
+                  <span data-i18n="p_exp_link">Link preset to validated settings</span>
+                </div>
+                <div class="param-control">
+                  <div class="toggle-btn" onclick="toggleParam('experimental_preset_link_validated')">
+                    <div class="toggle-track on" id="tog-experimental_preset_link_validated"></div>
+                    <span id="tog-label-experimental_preset_link_validated">ON</span>
+                  </div>
+                </div>
+                <div class="param-desc" data-i18n="d_exp_link">If ON, applying an experimental preset may also adjust validated knobs such as Flash Attention or RTR when that bundle depends on them. If OFF, only experimental controls change.</div>
+              </div>
+            </div>
+
+            <select id="p-experimental_preset" style="display:none" onchange="applyExperimentalPreset(this.value)">
+              <option value="none">manual / off</option>
+            </select>
+            <div id="experimental-preset-picker"></div>
+            <div class="experimental-preset-note" id="experimental-preset-hint"></div>
+          </div>
+
+          <div class="param-grid cols-2">
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-ser</span>
+                <span class="dot" id="dot-ser"></span>
+                <span data-i18n="p_ser">Smart Expert Reduction</span>
+              </div>
+              <div class="ser-group">
+                <label class="toggle-btn" onclick="toggleParam('ser_enabled')">
+                  <div class="toggle-track" id="tog-ser_enabled"></div>
+                  <span id="tog-label-ser_enabled">OFF</span>
+                </label>
+                <label data-i18n="ser_min">min experts:</label>
+                <input type="number" id="p-ser_min" min="1" max="64" value="4" onchange="S.ser_min=+this.value" disabled>
+                <label data-i18n="ser_thresh">threshold:</label>
+                <input type="number" id="p-ser_thresh" min="0" max="1" step="0.01" value="0.05" onchange="S.ser_thresh=+this.value" disabled>
+              </div>
+              <div class="param-desc" data-i18n="d_ser">Drop low-weight experts below threshold, keep at least min. Reduces swap I/O for MoE. May affect quality</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_budget"></span>
+                <span data-i18n="p_hot_budget">Hot Expert Budget</span>
+              </div>
+              <div class="param-control">
+                <input type="number" id="p-hot_expert_budget" min="0" max="256" value="0" onchange="S.hot_expert_budget=+this.value">
+              </div>
+              <div class="param-desc" data-i18n="d_hot_budget">Experimental env knob for huge MoE. 0 = leave runtime default. On current MiniMax, the first longer controlled run did not justify promoting a larger default, so start with 0.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_budget_mult"></span>
+                <span data-i18n="p_hot_budget_mult">Hot Expert Budget Mult</span>
+              </div>
+              <div class="param-control">
+                <input type="number" id="p-hot_expert_budget_mult" min="0" max="16" step="0.1" value="0" onchange="S.hot_expert_budget_mult=+this.value">
+              </div>
+              <div class="param-desc" data-i18n="d_hot_budget_mult">A multiplier over the runtime hot-expert baseline. 0 = leave the runtime default. Use it only for controlled MoE locality A/B when a fixed budget is too coarse.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_selection"></span>
+                <span data-i18n="p_hot_selection">Hot Expert Selection</span>
+              </div>
+              <div class="param-control">
+                <select id="p-hot_expert_selection" onchange="S.hot_expert_selection=this.value">
+                  <option value="default">default</option>
+                  <option value="full-prompt">full-prompt</option>
+                  <option value="tail-window">tail-window</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_hot_selection">How the runtime chooses hot experts after the first prompt. For MiniMax locality research, tail-window uses only the last prompt tokens instead of the full prompt.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_tail_window"></span>
+                <span data-i18n="p_hot_tail">Tail Window</span>
+              </div>
+              <div class="param-control">
+                <input type="number" id="p-hot_expert_tail_window" min="0" max="4096" value="16" onchange="S.hot_expert_tail_window=+this.value">
+              </div>
+              <div class="param-desc" data-i18n="d_hot_tail">When Hot Expert Selection = tail-window, use the last N prompt tokens to predict the first decode steps. Smaller windows are more local; larger windows behave more like full-prompt.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-hot_expert_tail_blend"></span>
+                <span data-i18n="p_hot_tail_blend">Tail Blend</span>
+              </div>
+              <div class="param-control">
+                <input type="number" id="p-hot_expert_tail_blend" min="0" max="0.99" step="0.05" value="0" onchange="S.hot_expert_tail_blend=+this.value">
+              </div>
+              <div class="param-desc" data-i18n="d_hot_tail_blend">Soft blending factor (0–0.99) for early expert hits at the tail-window boundary. 0 = hard reset (default). Values like 0.3 scale early hits by 30% before the tail window starts accumulating, preserving partial early signal.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">-mqkv</span>
+                <span class="dot" id="dot-merge_qkv"></span>
+                <span data-i18n="p_mqkv">Merge QKV</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('merge_qkv')">
+                  <div class="toggle-track" id="tog-merge_qkv"></div>
+                  <span id="tog-label-merge_qkv">OFF</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_mqkv">Merge Q, K, V into one contiguous tensor for attention</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-prompt_packed_qkv"></span>
+                <span data-i18n="p_prompt_packed">Prompt Packed QKV</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('prompt_packed_qkv')">
+                  <div class="toggle-track" id="tog-prompt_packed_qkv"></div>
+                  <span id="tog-label-prompt_packed_qkv">OFF</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_prompt_packed">Experimental prompt-only attention path that packs split Q/K/V projections into a more locality-friendly runtime layout. It can improve prompt-side work, but may cost extra RAM or load time.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-prompt_packed_qkv_preset"></span>
+                <span data-i18n="p_prompt_packed_preset">Prompt Packed preset</span>
+              </div>
+              <div class="param-control">
+                <select id="p-prompt_packed_qkv_preset" onchange="S.prompt_packed_qkv_preset=this.value">
+                  <option value="auto">auto</option>
+                  <option value="full">full</option>
+                  <option value="front-half">front-half</option>
+                  <option value="back-half">back-half</option>
+                </select>
+              </div>
+              <div class="param-desc" data-i18n="d_prompt_packed_preset">Predefined layer ranges for Prompt Packed QKV. On current research data, Qwen tends to prefer front-half, while gpt-oss tends to prefer back-half.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">--experimental</span>
+                <span class="dot" id="dot-prompt_packed_qkv_range"></span>
+                <span data-i18n="p_prompt_packed_range">Prompt Packed range</span>
+              </div>
+              <div class="param-control">
+                <input type="text" id="p-prompt_packed_qkv_range" placeholder="start:end" oninput="S.prompt_packed_qkv_range=this.value.trim()">
+              </div>
+              <div class="param-desc" data-i18n="d_prompt_packed_range">Optional explicit layer range such as 0:24 or 12:24. If set, it overrides the preset and is meant for advanced A/B checks only.</div>
+            </div>
+
+            <div class="param-row">
+              <div class="param-label">
+                <span class="cli-flag">ui</span>
+                <span data-i18n="p_live_obs">Live Observability</span>
+              </div>
+              <div class="param-control">
+                <div class="toggle-btn" onclick="toggleParam('live_observability')">
+                  <div class="toggle-track on" id="tog-live_observability"></div>
+                  <span id="tog-label-live_observability">ON</span>
+                </div>
+              </div>
+              <div class="param-desc" data-i18n="d_live_obs">Dashboard-only traces for live phase flow and MoE experts activity. Useful for learning and debugging; disable for the cleanest benchmark runs.</div>
+            </div>
+          </div>
+
+          <div class="experimental-learning card-subtle">
+            <div class="experimental-intro-title" data-i18n="opt_exp_learn_title">How these change execution</div>
+            <div class="experimental-intro-body" data-i18n="opt_exp_learn_body">These knobs do not change model weights. They change runtime behavior: which experts are kept hot, how much of the prompt is trusted as a predictor of early decode, and whether the router is allowed to drop very weak experts. Start with one knob at a time and compare against the validated baseline.</div>
+          </div>
+
+          <div class="advanced-inline-note" id="advanced-hints"></div>
+        </div>
+      </div>
+    </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-server" data-workspace-pane="server">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_server">Server</h2>
+              <p data-i18n="ws_desc_server">llama-server network settings and concurrency controls.</p>
+            </div>
+          </div>
+
+    <!-- ═══ SERVER ═══ -->
+    <details class="card" open>
+      <summary>
+        <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+        <span data-i18n="sec_server">Server</span>
+        <span class="section-badge">llama-server</span>
+      </summary>
+      <div class="section-body">
+        <div class="param-grid">
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--host</span>
+              <span data-i18n="p_host">Host</span>
+            </div>
+            <div class="param-control">
+              <input type="text" id="p-hostname" value="127.0.0.1" style="width:160px" oninput="S.hostname=this.value">
+            </div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--port</span>
+              <span data-i18n="p_port">Port</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-port" min="1" max="65535" value="8080" onchange="S.port=+this.value">
+            </div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-np</span>
+              <span data-i18n="p_np">Parallel sequences</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_parallel" min="1" max="256" value="1" onchange="S.n_parallel=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_np">Number of concurrent request slots</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--api-key</span>
+              <span data-i18n="p_apikey">API Key</span>
+            </div>
+            <div class="param-control">
+              <input type="text" id="p-api_key" placeholder="" style="width:200px" oninput="S.api_key=this.value">
+            </div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--threads-http</span>
+              <span data-i18n="p_thttp">HTTP threads</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_threads_http" min="-1" max="256" value="-1" onchange="S.n_threads_http=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_thttp">HTTP request processing threads. -1 = auto</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-advanced" data-workspace-pane="advanced">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="sec_adv">Advanced</h2>
+              <p data-i18n="ws_desc_adv">Advanced runtime and memory controls that usually stay out of the critical path.</p>
+            </div>
+          </div>
+
+    <!-- ═══ ADVANCED ═══ -->
+    <details class="card" open>
+      <summary>
+        <svg class="section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span data-i18n="sec_adv">Advanced</span>
+      </summary>
+      <div class="section-body">
+        <div class="param-grid">
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-s</span>
+              <span data-i18n="p_seed">Seed</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-seed" min="-1" value="-1" onchange="S.seed=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_seed">RNG seed. -1 = random</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-n</span>
+              <span data-i18n="p_predict">Predict tokens</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-n_predict" min="-1" value="-1" onchange="S.n_predict=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_predict">Max tokens to generate. -1 = unlimited</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="dot" id="dot-use_mmap"></span>
+              <span data-i18n="p_mmap">Memory-mapped I/O (mmap)</span>
+            </div>
+            <div class="param-control">
+              <div class="toggle-btn" onclick="toggleParam('use_mmap')">
+                <div class="toggle-track on" id="tog-use_mmap"></div>
+                <span id="tog-label-use_mmap">ON</span>
+              </div>
+            </div>
+            <div class="param-desc" data-i18n="d_mmap">Use mmap for model loading. Forced OFF by -rtr</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--mlock</span>
+              <span data-i18n="p_mlock">mlock</span>
+            </div>
+            <div class="param-control">
+              <div class="toggle-btn" onclick="toggleParam('use_mlock')">
+                <div class="toggle-track" id="tog-use_mlock"></div>
+                <span id="tog-label-use_mlock">OFF</span>
+              </div>
+            </div>
+            <div class="param-desc" data-i18n="d_mlock">Lock model in RAM (prevent swap). Needs privileges on Windows</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">--numa</span>
+              <span data-i18n="p_numa">NUMA strategy</span>
+            </div>
+            <div class="param-control">
+              <select id="p-numa" onchange="S.numa=this.value">
+                <option value="disabled" selected>disabled</option>
+                <option value="distribute">distribute</option>
+                <option value="isolate">isolate</option>
+                <option value="numactl">numactl</option>
+              </select>
+            </div>
+            <div class="param-desc" data-i18n="d_numa">NUMA memory placement. Usually 'disabled' is optimal for single-socket</div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">
+              <span class="cli-flag">-dt</span>
+              <span data-i18n="p_defrag">Defrag threshold</span>
+            </div>
+            <div class="param-control">
+              <input type="number" id="p-defrag_thold" min="-1" max="1" step="0.05" value="-1" onchange="S.defrag_thold=+this.value">
+            </div>
+            <div class="param-desc" data-i18n="d_defrag">KV cache defragmentation threshold. -1 = disabled</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-launch" data-workspace-pane="launch">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_launch">Launch</h2>
+              <p data-i18n="ws_desc_launch">Generated command, export/import, and launch controls.</p>
+            </div>
+          </div>
+
+    <!-- ═══ COMMAND OUTPUT — Terminal style ═══ -->
+    <div class="command-section terminal-card">
+      <div class="terminal-chrome">
+        <div class="terminal-dots">
+          <span class="tdot red"></span>
+          <span class="tdot yellow"></span>
+          <span class="tdot green"></span>
+        </div>
+        <div class="command-header">
+          <span data-i18n="cmd_title">Generated Command</span>
+          <select id="sel-target" onchange="S.target=this.value">
+            <option value="llama-cli">llama-cli</option>
+            <option value="llama-server">llama-server</option>
+          </select>
+          <select id="sel-shell" onchange="S.shell=this.value">
+            <option value="bash">Bash / CMD</option>
+            <option value="powershell">PowerShell</option>
+          </select>
+        </div>
+      </div>
+      <div class="command-output" id="command-output"></div>
+      <!-- Chat handles interaction — see chat panel below -->
+      <div class="command-actions">
+        <button class="btn-accent" onclick="copyCommand()" data-i18n="btn_copy">Copy</button>
+        <button class="btn-success launch" id="btn-launch" onclick="launchProcess()" data-i18n="btn_launch">Launch</button>
+        <button class="btn-danger stop hidden" id="btn-stop" onclick="stopProcess()" data-i18n="btn_stop">Stop</button>
+        <div class="actions-spacer"></div>
+        <button class="btn-ghost" onclick="exportConfig()" data-i18n="btn_export">Export JSON</button>
+        <button class="btn-ghost" onclick="document.getElementById('import-file').click()" data-i18n="btn_import">Import JSON</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importConfig(event)">
+        <button class="btn-ghost btn-muted" onclick="resetAll()" data-i18n="btn_reset">Reset</button>
+      </div>
+    </div>
+
+        </section>
+
+        <section class="dash-workspace-pane" id="dash-pane-runtime" data-workspace-pane="runtime">
+          <div class="dash-pane-header">
+            <div>
+              <h2 data-i18n="ws_title_runtime">Runtime</h2>
+              <p data-i18n="ws_desc_runtime">Interactive terminals, process logs, and live observability for the active run.</p>
+            </div>
+          </div>
+          <div class="dash-runtime-grid">
+            <div class="dash-runtime-main">
+    <div class="runtime-main-bar card" id="runtime-main-bar">
+      <div class="runtime-main-bar-title" data-i18n="runtime_main_bar_title">Side panels hidden</div>
+      <div class="runtime-main-bar-note" data-i18n="runtime_main_bar_note">Restore terminal, chat, and logs when you need them.</div>
+      <div class="runtime-main-bar-actions">
+        <button type="button" class="btn-ghost" onclick="toggleRuntimeSide(false)" data-i18n="runtime_dock_show_side">Show side panels</button>
+      </div>
+    </div>
+    <div class="card live-metrics-card" id="live-metrics-card">
+      <div class="live-metrics-head">
+        <div>
+          <div class="live-metrics-title" data-i18n="live_title">Live Inference View</div>
+          <div class="live-metrics-subtitle" data-i18n="live_subtitle">Phase flow and MoE expert activity for the current run</div>
+        </div>
+        <div class="live-metrics-status" id="live-metrics-status"></div>
+      </div>
+      <div class="live-toolbar" id="live-metrics-toolbar"></div>
+      <div id="live-metrics-root"></div>
+    </div>
+            </div>
+
+            <div class="dash-runtime-side">
+    <div class="runtime-dock card" id="runtime-dock">
+      <div class="runtime-dock-head">
+        <div>
+          <div class="runtime-dock-title" data-i18n="runtime_dock_title">Runtime panels</div>
+          <div class="runtime-dock-note" data-i18n="runtime_dock_note">Collapse side panels to free space for the live scene</div>
+        </div>
+        <button type="button" class="runtime-dock-collapse" id="runtime-dock-collapse" onclick="toggleRuntimeSide()" data-i18n="runtime_dock_hide_side">Hide side panels</button>
+      </div>
+      <div class="runtime-dock-row">
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-cli" onclick="toggleRuntimePanel('cli')">CLI</button>
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-chat" onclick="toggleRuntimePanel('chat')">Chat</button>
+        <button type="button" class="runtime-dock-btn" id="runtime-dock-process" onclick="toggleRuntimePanel('process')">Logs</button>
+      </div>
+    </div>
+    <!-- ═══ CLI TERMINAL (llama-cli mode) ═══ -->
+    <div class="cli-terminal terminal-card" id="cli-terminal">
+      <div class="terminal-chrome">
+        <div class="terminal-dots">
+          <span class="tdot red"></span>
+          <span class="tdot yellow"></span>
+          <span class="tdot green"></span>
+        </div>
+        <span class="terminal-label">llama-cli &mdash; interactive</span>
+        <div style="flex:1"></div>
+        <button class="btn-ghost btn-muted" onclick="clearCliTerminal()" data-i18n="btn_clear">Clear</button>
+      </div>
+      <div class="cli-output" id="cli-output">
+        <span class="cli-line system" id="cli-welcome" data-i18n="cli_welcome">Launch a model to start the terminal session</span>
+      </div>
+      <div class="cli-input-line">
+        <span class="cli-prompt">&gt;</span>
+        <input type="text" id="cli-input" autocomplete="off" spellcheck="false"
+               onkeydown="cliKeyDown(event)" disabled>
+      </div>
+    </div>
+
+    <!-- ═══ CHAT PANEL (llama-server mode) ═══ -->
+    <div class="chat-panel card" id="chat-panel">
+      <div class="chat-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span data-i18n="chat_title">Chat</span>
+        <div style="flex:1"></div>
+        <button class="btn-ghost btn-muted" onclick="clearChat()" data-i18n="btn_clear">Clear</button>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-empty" id="chat-empty" data-i18n="chat_empty">Launch a model to start chatting</div>
+      </div>
+      <div class="chat-input-area">
+        <textarea id="chat-input" rows="2" placeholder="Type a message..." onkeydown="chatKeyDown(event)"></textarea>
+        <button class="btn-accent chat-send" id="chat-send" onclick="sendChatMessage()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- PROCESS OUTPUT PANEL -->
+    <div class="process-panel terminal-card" id="process-panel">
+      <div class="terminal-chrome">
+        <div class="terminal-dots">
+          <span class="tdot red"></span>
+          <span class="tdot yellow"></span>
+          <span class="tdot green"></span>
+        </div>
+        <div class="process-header">
+          <span class="proc-title" data-i18n="proc_title">Process Output</span>
+          <span class="proc-status idle" id="proc-status" data-i18n="proc_idle">idle</span>
+          <span style="margin-left:auto;font-size:0.75rem;color:var(--text-muted)" id="proc-uptime"></span>
+        </div>
+      </div>
+      <!-- Loading progress bar -->
+      <div class="load-progress" id="load-progress">
+        <div class="load-progress-info">
+          <span class="load-phase" id="load-phase"></span>
+          <span class="load-pct" id="load-pct"></span>
+        </div>
+        <div class="load-bar">
+          <div class="load-bar-fill" id="load-bar-fill"></div>
+        </div>
+        <div class="load-detail" id="load-detail"></div>
+      </div>
+      <div class="process-output-log" id="proc-output"></div>
+      <div class="process-actions">
+        <button class="btn-ghost" onclick="clearProcOutput()" data-i18n="btn_clear">Clear</button>
+        <button class="btn-danger stop" id="btn-stop2" onclick="stopProcess()" data-i18n="btn_stop">Stop</button>
+      </div>
+    </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+<!-- GLOSSARY MODAL -->
+<div class="glossary-overlay" id="glossary-overlay" onclick="if(event.target===this)toggleGlossary()">
+  <div class="glossary-modal">
+    <div class="glossary-header">
+      <h2 id="glossary-title">Glossary</h2>
+      <button class="glossary-close" onclick="toggleGlossary()">&times;</button>
+    </div>
+    <div class="glossary-search">
+      <input type="text" id="glossary-filter" placeholder="Search..." oninput="filterGlossary(this.value)">
+    </div>
+    <div class="glossary-body" id="glossary-body"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="evidence-layer.js"></script>
+<script src="dashboard-i18n.js"></script>
+<script src="dashboard-help.js"></script>
+<script src="dashboard-data.js"></script>
+<script src="dashboard-rules.js"></script>
+<script src="dashboard-command.js"></script>
+<script src="dashboard-autoconfig.js"></script>
+<script src="dashboard.js"></script>
+<script src="dashboard-live.js"></script>
+
+</body>
+</html>
+

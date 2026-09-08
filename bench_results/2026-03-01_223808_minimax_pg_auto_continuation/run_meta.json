@@ -1,0 +1,21 @@
+{
+  "continuation_dir": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\bench_results\\2026-03-01_223808_minimax_pg_auto_continuation",
+  "pid": 7388,
+  "started": "2026-03-01T22:38:08",
+  "waits_for_pid": 22012,
+  "script": "scripts/bench-minimax-policy-closeout.ps1",
+  "rtr_modes": [
+    "auto"
+  ],
+  "scenarios": [
+    "pg:32:4"
+  ],
+  "threads": 16,
+  "flash_attn": 1,
+  "merge_up_gate": 0,
+  "ngl": 0,
+  "reps": 1,
+  "warmup": 1,
+  "timeout_minutes": 240,
+  "command": "Wait-Process -Id 22012; & 'Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\scripts\\bench-minimax-policy-closeout.ps1' -RtrModes 'auto' -Scenarios 'pg:32:4' -Threads 16 -FlashAttn 1 -MergeUpGate 0 -Ngl 0 -Reps 1 -Warmup 1 -TimeoutMinutes 240"
+}

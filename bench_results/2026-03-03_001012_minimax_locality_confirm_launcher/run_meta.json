@@ -1,0 +1,16 @@
+{
+  "started": "2026-03-03T00:10:12",
+  "script": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\scripts\\bench-minimax-locality-confirm.ps1",
+  "cwd": "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp",
+  "model": "D:\\ggufs\\un\\minimax2.5-m2\\MiniMax-M2.5-UD-Q5_K_XL-00001-of-00005.gguf",
+  "scenarios": [
+    "tg:128",
+    "pg:512:128"
+  ],
+  "reps": 3,
+  "rtr": "auto",
+  "selection_compare": [
+    "baseline_default",
+    "tail_window_16"
+  ]
+}

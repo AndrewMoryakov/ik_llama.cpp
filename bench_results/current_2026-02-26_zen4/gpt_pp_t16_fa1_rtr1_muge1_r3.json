@@ -1,0 +1,114 @@
+ggml_large_pages_available: large pages enabled (page size: 2048 KB)
+ggml_backend_cpu_buffer_type_alloc_buffer: 12.73 GiB with large pages
+ggml_backend_cpu_buffer_type_alloc_buffer: 0.02 GiB with large pages
+ggml_backend_cpu_buffer_type_alloc_buffer: 0.39 GiB with large pages
+[
+============ Repacked 97 tensors
+===================================== llama_init_from_model: f16
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 0
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 0
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 1
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 1
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 2
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 2
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 3
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 3
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 4
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 4
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 5
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 5
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 6
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 6
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 7
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 7
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 8
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 8
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 9
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 9
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 10
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 10
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 11
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 11
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 12
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 12
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 13
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 13
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 14
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 14
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 15
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 15
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 16
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 16
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 17
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 17
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 18
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 18
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 19
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 19
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 20
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 20
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 21
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 21
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 22
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 22
+llama_repack_up_gate_exps: repacking up/gate experts weight in layer 23
+llama_repack_up_gate_exps: repacking up/gate experts bias in layer 23
+======================================= HAVE_FANCY_SIMD is defined
+  {
+    "build_commit": "1ee50255a",
+    "build_number": 62,
+    "cuda": false,
+    "vulkan": false,
+    "kompute": false,
+    "metal": false,
+    "sycl": false,
+    "rpc": "0",
+    "gpu_blas": false,
+    "blas": false,
+    "cpu_info": "AMD Ryzen 9 7950X 16-Core Processor            \u0000",
+    "gpu_info": "",
+    "model_filename": "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+    "model_type": "gpt-oss ?B MXFP4 - 4.25 bpw",
+    "model_size": 20457313536,
+    "model_n_params": 34053086784,
+    "n_batch": 2048,
+    "n_ubatch": 512,
+    "n_threads": 16,
+    "type_k": "f16",
+    "type_v": "f16",
+    "n_gpu_layers": 999,
+    "split_mode": "layer",
+    "main_gpu": 0,
+    "no_kv_offload": false,
+    "flash_attn": true,
+    "mla_attn": 3,
+    "attn_max_batch": 0,
+    "ser": "-1,0",
+    "reuse": true,
+    "tensor_split": "0.00",
+    "use_mmap": true,
+    "embeddings": false,
+    "repack": true,
+    "mqkv": false,
+    "muge": true,
+    "fused_moe": true,
+    "grouped_er": false,
+    "no_fused_up_gate": false,
+    "use_thp": false,
+    "no_ooae": false,
+    "rcache": false,
+    "sas": false,
+    "cuda_params": "",
+    "override_tensor": "",
+    "n_prompt": 512,
+    "n_gen": 0,
+    "test_time": "2026-02-26T09:55:31Z",
+    "avg_ns": 1947150766,
+    "stddev_ns": 342614785,
+    "avg_ts": 267.969415,
+    "stddev_ts": 42.804120,
+    "test": "pp512",
+    "samples_ns": [ 2342757500, 1746823100, 1751871700 ],
+    "samples_ts": [ 218.546, 293.104, 292.259 ]
+  }
+]

@@ -1,0 +1,24 @@
+﻿{
+    "muge":  [
+                 0
+             ],
+    "ram_gb":  95.1,
+    "models":  [
+                   "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf"
+               ],
+    "timestamp":  "2026-02-21T23:33:04.1215595+03:00",
+    "threads":  [
+                    8
+                ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "rtr":  [
+                0
+            ],
+    "os":  "Microsoft Windows NT 10.0.22631.0",
+    "timeout_min":  30,
+    "reps":  1,
+    "llama_bench":  "Z:\\files\\projects\\ik_llama.cpp\\build\\bin\\llama-bench.exe",
+    "commit":  "bd387a279",
+    "pp":  512,
+    "tg":  128
+}

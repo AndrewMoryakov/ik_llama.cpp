@@ -1,0 +1,23 @@
+﻿{
+    "timeout_min":  30,
+    "test_count":  42,
+    "models":  [
+                   "gpt-oss-20b",
+                   "Qwen3-30B-A3B",
+                   "Llama-3.1-8B"
+               ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "thread_counts":  [
+                          8,
+                          16,
+                          32,
+                          42,
+                          52,
+                          64,
+                          96
+                      ],
+    "commit":  "bd387a279",
+    "timestamp":  "2026-02-23T12:47:05.3259390+03:00",
+    "reps":  2,
+    "ram_gb":  95.1
+}

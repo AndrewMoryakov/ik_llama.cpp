@@ -1,0 +1,16 @@
+{
+    "model":  "Z:\\files\\gguf\\lmstudio-community\\gpt-oss-20b-GGUF\\gpt-oss-20b-MXFP4.gguf",
+    "scenarios":  [
+                      "tg:128",
+                      "pg:512:128"
+                  ],
+    "rtr_modes":  [
+                      "auto"
+                  ],
+    "threads":  16,
+    "flash_attn":  1,
+    "muge":  0,
+    "reps":  3,
+    "warmup":  1,
+    "started":  "2026-03-03T06:09:28"
+}

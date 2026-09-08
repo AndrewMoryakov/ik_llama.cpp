@@ -1,0 +1,30 @@
+﻿{
+    "muge":  [
+                 0,
+                 1
+             ],
+    "ram_gb":  95.1,
+    "models":  [
+                   "D:\\ggufs\\un\\minimax2.5-m2\\MiniMax-M2.5-UD-Q5_K_XL-00001-of-00005.gguf"
+               ],
+    "timestamp":  "2026-02-23T00:30:21.7721057+03:00",
+    "threads":  [
+                    8,
+                    16
+                ],
+    "cpu":  "AMD Ryzen 9 7950X 16-Core Processor",
+    "rtr":  [
+                0,
+                1
+            ],
+    "fa":  [
+               1
+           ],
+    "os":  "Microsoft Windows NT 10.0.22631.0",
+    "timeout_min":  60,
+    "reps":  1,
+    "llama_bench":  "Z:\\files\\projects\\ik_llama_proj\\ik_llama.cpp\\build\\bin\\llama-bench.exe",
+    "commit":  "bd387a279",
+    "pp":  512,
+    "tg":  128
+}
