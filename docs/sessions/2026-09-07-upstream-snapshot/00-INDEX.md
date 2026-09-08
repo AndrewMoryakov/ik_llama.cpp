@@ -33,7 +33,7 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 | 6 | `analysis-6-fork-branch-opportunities.md` | Аудит других веток форка | Hot Experts/paging, SER, CPU-кандидаты |
 | 7 | `analysis-7-branch-solution-projection.md` | Карта решений из сторонних веток | что переносить, что отложить, какие гейты |
 | 8 | `analysis-8-upstream-snapshot-2026-08-31.md` | Снапшот `upstream/main` от 2026-08-31 (134 коммитов на дату; сейчас 141) | судьба PR #1738, `--defer-ple`, DFlash 2, IQ4_KS/KT |
-| 9 | `analysis-9-upstream-merge-recipe-2026-09-03.md` | Готовый рецепт слияния upstream в форк | rebase rtr-pr → merge minimax, конфликты, gates, rollback |
+| 9 | `analysis-9-upstream-merge-recipe-2026-09-03.md` | ⚠️ **ОТМЕНЁН 2026-09-08** — рецепт не выполнять; §1/§5/§10/§12 остаются полезными | рабочая процедура: `FORK_WORKFLOW.md` → `upstream-sync` |
 | 10 | `analysis-10-upstream-deep-dive-2026-09-03.md` | Углублённая верификация в коде upstream | `--defer-ple` Linux-only, RTR auto полное удаление, IQ4_KS/KT в iqk/ (4 файла), risk classification 141 коммит |
 | 11 | `analysis-11-second-review-findings-2026-09-07.md` | Находки 2-го review-прохода (3 verifier-агента) | 8 CRITICAL + 10 MAJOR + 5 MINOR; F1-F5 recipe-level не исправлены |
 | 12 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
@@ -129,3 +129,11 @@ resident-модели рабочая проекция ниже — ~5–8 t/s; A
 полезный estimator, но ещё не ground truth: следующий шаг — явные timestamps
 начала/конца decode, sensitivity transient fraction и ETW cross-check. Реальные
 числа ждут целевой машины Ryzen9/96 ГБ + MiniMax-M2 (>RAM).
+
+---
+
+## Продолжение: сессия 2026-09-08
+
+Слияние выполнено, собрано и проверено. См.
+[`../2026-09-08-upstream-merge/00-INDEX.md`](../2026-09-08-upstream-merge/00-INDEX.md):
+что и как слито, результаты гейтов, и статус находок F1–F5 по факту.
