@@ -108,9 +108,32 @@ So cut from upstream:
 git fetch ik-upstream
 git switch -c up/<topic> ik-upstream/main    # the base is theirs, not ours
 git cherry-pick <1-3 commits>                # or write the change fresh
-git push origin up/<topic>
+git push prfork up/<topic>     # NOT origin - see below
 # PR: base ikawrakow:main  <-  head AndrewMoryakov:up/<topic>
 ```
+
+**Push `up/*` to `AndrewMoryakov/ik_llama-pr`, not to `origin`.** This
+repository is not a GitHub fork:
+
+```console
+$ gh api repos/AndrewMoryakov/ik_llama.cpp --jq '{fork, parent}'
+{"fork": false, "parent": null}
+$ gh api repos/AndrewMoryakov/ik_llama-pr  --jq '{fork, parent}'
+{"fork": true, "parent": "ikawrakow/ik_llama.cpp"}
+```
+
+It holds the same history but was never created through GitHub's fork button,
+so it is outside the upstream fork network. A cross-repository pull request
+whose head lives here is rejected — `404` on compare, `422 head invalid` on
+create. Add the fork as a remote once:
+
+```bash
+git remote add prfork https://github.com/AndrewMoryakov/ik_llama-pr.git
+```
+
+Do not leave a copy of an `up/*` branch in `origin` as well. Two branches of
+one name in two repositories is exactly the confusion the PR #1738 section
+below warns about.
 
 **`up/*` is never merged back.** It is an extract, not a development branch:
 the change already exists in `dev`, which is where it came from. If upstream
@@ -148,10 +171,26 @@ safety/*               1   ours
 main, dev              2   ours
 ```
 
-The 730 inherited branches came with the GitHub fork. They are not yours,
-never a merge source, and always retrievable from upstream. Leaving them
-is harmless; deleting them from this fork is safe and cuts the noise that makes
+The 730 inherited branches came with the copy of upstream's history. They are
+not yours and never a merge source. Deleting them cuts the noise that makes
 "tidy up the branches" look impossible when it is in fact a 12-item task.
+
+**How to get one back, corrected 2026-09-08.** An earlier version of this file
+claimed the objects survive deletion because forks share storage with their
+parent. That is true of real GitHub forks and **not true here** — this
+repository is not one (see the `up/*` section). Once the last ref to a commit
+is gone, GitHub may garbage-collect it. The recovery path is therefore through
+upstream, which still has every one of those branches:
+
+```bash
+git fetch ik-upstream '+refs/heads/*:refs/remotes/ik-upstream/*'
+git push origin <sha>:refs/heads/<name>     # sha and name from the manifest
+```
+
+`docs/branch-manifest-2026-09-08.tsv` records the name and SHA of all 742 refs
+as they stood before the prune. Restoring `ik/mla` this way was verified
+immediately after the prune; that test proves the mechanism, not that the
+objects will still be in *this* repository months later.
 
 ## Where the fork's content actually lives
 
@@ -223,19 +262,21 @@ head branch:     pr/rtr-auto-mode
 base:            ikawrakow/ik_llama.cpp:main
 ```
 
-The PR is served from a **different repository**. A branch of the same name
-exists here and GitHub does not read it. Before any push aimed at that PR,
-verify `pull.head.repo.full_name` and `pull.head.ref` with `gh`.
+**Closed 2026-09-08.** The branch had not tracked `main` for a while — upstream
+was 143 commits past the PR head `843de95f` and the PR showed as conflicting.
+Upstream never took the feature: `-rtr` there is still a plain boolean and none
+of the PR's files exist in `ikawrakow/main`. The fork-side branches
+`pr/rtr-auto-mode` and `pr/rtr-auto-mode-v2` are archived as tags.
 
-Once `up/*` branches are cut from `ik-upstream/main`, a separate repository is
-no longer necessary for future contributions — but do not disturb
-`ik_llama-pr` while #1738 is open.
+The routing note above is **not** a special case — it is the general rule,
+and the reason is now understood: `ik_llama-pr` is the only repository of the
+two that GitHub recognises as a fork, so every upstream PR must be served from
+it. See the `up/*` section. Before any push aimed at an open PR, still verify
+`pull.head.repo.full_name` and `pull.head.ref` with `gh`.
 
-Open decision, inherited from
-`docs/sessions/2026-09-07-upstream-snapshot/analysis-9` §2: close #1738 or
-reformulate it as an auto mode layered on `--run-time-repack`. Upstream has
-since removed the RTR auto files, so this decision precedes any new `up/*` work
-on that feature.
+First contribution under this rule: PR
+[#2425](https://github.com/ikawrakow/ik_llama.cpp/pull/2425), one commit and
+one file, served from `ik_llama-pr`.
 
 ## The gates
 
