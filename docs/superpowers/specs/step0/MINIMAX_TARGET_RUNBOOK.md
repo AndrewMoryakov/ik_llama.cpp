@@ -31,8 +31,20 @@ if ($LASTEXITCODE -ne 0) { throw 'Required MiniMax metrics package is not in HEA
 
 # Configure a clean CPU build with tests. This uses the default installed
 # Windows generator; adapt -G/-A explicitly if the machine has several toolchains.
+#
+# CORRECTED 2026-09-09. Do NOT rely on -DGGML_NATIVE=ON alone under MSVC.
+# GGML_NATIVE runs ggml/cmake/FindSIMD.cmake, which sets only the base
+# GGML_AVX512 (adding /arch:AVX512) and never GGML_AVX512_VBMI/_VNNI/_BF16.
+# MSVC does not define __AVX512VNNI__ by itself, so HAVE_FANCY_SIMD
+# (ggml/src/iqk/iqk_config.h:45) stays undefined and the IQK Zen4 GEMM kernels
+# are not compiled at all - 273 code sites across 13 files in ggml/src/iqk/.
+# The build succeeds silently: no error, no warning, and CMakeCache.txt still
+# reports GGML_AVX512:BOOL=OFF while /arch:AVX512 is in the flags.
+# The flags below match scripts/build-zen.bat (upstream PR #1734).
+# Evidence: docs/sessions/2026-09-08-upstream-merge/evidence-5-zen4-build-2026-09-08.md
 cmake -S . -B build -DLLAMA_BUILD_TESTS=ON -DGGML_CUDA=OFF `
-  -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release
+  -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release `
+  -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_BF16=ON
 
 # Build the actual Release path used below.
 cmake --build build --config Release --target llama-cli test-moe-trace-writer test-token-timing-writer
@@ -41,6 +53,14 @@ cmake --build build --config Release --target llama-cli test-moe-trace-writer te
 $llamaCli = (Resolve-Path '.\build\bin\Release\llama-cli.exe').Path
 $traceWriterTest = (Resolve-Path '.\build\bin\Release\test-moe-trace-writer.exe').Path
 $tokenTimingTest = (Resolve-Path '.\build\bin\Release\test-token-timing-writer.exe').Path
+
+# GATE: confirm the Zen4 IQK kernels were actually compiled. The banner comes
+# from src/llama.cpp and is printed on model load, so --version will NOT show
+# it; the tiny in-repo vocab GGUF is enough and takes ~0.2 s. If this prints
+# "is NOT defined", stop and reconfigure: every number measured on such a
+# build describes generic AVX-512, not this machine.
+& $llamaCli -m .\models\ggml-vocab-gpt-2.gguf -p x -n 1 --no-warmup 2>&1 |
+    Select-String -Pattern 'HAVE_FANCY_SIMD'
 & $traceWriterTest
 & $tokenTimingTest
 
