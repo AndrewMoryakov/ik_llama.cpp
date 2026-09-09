@@ -1,0 +1,5 @@
+# Скрипты для bash должны иметь LF в рабочей копии на любой ОС.
+# Без этого правила при core.autocrlf=true checkout на Windows даёт CRLF,
+# и bash читает файл как незакрытую конструкцию ("unexpected end of file").
+# Обнаружено при переносе scripts/quant_minimax_m25/ (PR #2).
+*.sh text eol=lf
