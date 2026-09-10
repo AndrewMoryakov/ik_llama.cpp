@@ -24,23 +24,23 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 
 | # | Файл | О чём | Ключевой рычаг |
 |---|------|-------|----------------|
-| 0 | `2025-moe-ssd-inference-speedup.md` | Головной спек + блок ПОПРАВОК | обзор + что устарело |
-| 1 | `analysis-3-step0-measurements.md` | **Измерительный плейбук — начать здесь** | PowerShell-скрипты, disk/RAM/GGUF замеры |
-| 2 | `analysis-5-creative-disk-bound.md` | **Творческие решения при неустранимой disk-bound** | 8 решений, от №1 «сегодня» до прунинга |
-| 3 | `analysis-2-bytes-per-token.md` | Обрезка bytes/token | прунинг экспертов, `-ser`, tiered-quant |
-| 4 | `analysis-1-prefetch-design.md` | Асинхронный префетч экспертов с SSD | спрятать I/O-латентность |
-| 5 | `analysis-4-adjacent-kv-cpu.md` | Смежные направления | KV-cache, CPU-специфика |
-| 6 | `analysis-6-fork-branch-opportunities.md` | Аудит других веток форка | Hot Experts/paging, SER, CPU-кандидаты |
-| 7 | `analysis-7-branch-solution-projection.md` | Карта решений из сторонних веток | что переносить, что отложить, какие гейты |
-| 8 | `analysis-8-upstream-snapshot-2026-08-31.md` | Снапшот `upstream/main` от 2026-08-31 (134 коммитов на дату; сейчас 141) | судьба PR #1738, `--defer-ple`, DFlash 2, IQ4_KS/KT |
-| 9 | `analysis-9-upstream-merge-recipe-2026-09-03.md` | ⚠️ **ОТМЕНЁН 2026-09-08** — рецепт не выполнять; §1/§5/§10/§12 остаются полезными | рабочая процедура: `FORK_WORKFLOW.md` → `upstream-sync` |
-| 10 | `analysis-10-upstream-deep-dive-2026-09-03.md` | Углублённая верификация в коде upstream | `--defer-ple` Linux-only, RTR auto полное удаление, IQ4_KS/KT в iqk/ (4 файла), risk classification 141 коммит |
-| 11 | `analysis-11-second-review-findings-2026-09-07.md` | Находки 2-го review-прохода (3 verifier-агента) | 8 CRITICAL + 10 MAJOR + 5 MINOR; F1-F5 recipe-level не исправлены |
-| 12 | `step0/MINIMAX_TARGET_RUNBOOK.md` | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
-| 13 | `step0/NEXT_AGENT_PROMPT.md` | Copy/paste handoff для другой машины | безопасный старт без истории чата |
-| 14 | `step0/MINIMAX_READINESS_REVIEW_2026-07-21.md` | Финальное ревью готовности | найденные фиксы, тесты и границы GO |
-| 15 | `step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md` | Расширенный пакет метрик | authoritative, token timing, ETW, routing locality |
-| 16 | `step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md` | Ревью реализации метрик | сделанное, проверки, target-only gates |
+| 0 | [`2025-moe-ssd-inference-speedup.md`](../../superpowers/specs/2025-moe-ssd-inference-speedup.md) | Головной спек + блок ПОПРАВОК | обзор + что устарело |
+| 1 | [`analysis-3-step0-measurements.md`](../../superpowers/specs/analysis-3-step0-measurements.md) | **Измерительный плейбук — начать здесь** | PowerShell-скрипты, disk/RAM/GGUF замеры |
+| 2 | [`analysis-5-creative-disk-bound.md`](../../superpowers/specs/analysis-5-creative-disk-bound.md) | **Творческие решения при неустранимой disk-bound** | 8 решений, от №1 «сегодня» до прунинга |
+| 3 | [`analysis-2-bytes-per-token.md`](../../superpowers/specs/analysis-2-bytes-per-token.md) | Обрезка bytes/token | прунинг экспертов, `-ser`, tiered-quant |
+| 4 | [`analysis-1-prefetch-design.md`](../../superpowers/specs/analysis-1-prefetch-design.md) | **Исторический проект, отвергнут Step0** | префетч не реализовывать без новой гипотезы |
+| 5 | [`analysis-4-adjacent-kv-cpu.md`](../../superpowers/specs/analysis-4-adjacent-kv-cpu.md) | Смежные направления | KV-cache, CPU-специфика |
+| 6 | [`analysis-6-fork-branch-opportunities.md`](../../superpowers/specs/analysis-6-fork-branch-opportunities.md) | Аудит других веток форка | Hot Experts/paging, SER, CPU-кандидаты |
+| 7 | [`analysis-7-branch-solution-projection.md`](../../superpowers/specs/analysis-7-branch-solution-projection.md) | Карта решений из сторонних веток | что переносить, что отложить, какие гейты |
+| 8 | [`analysis-8-upstream-snapshot-2026-08-31.md`](analysis-8-upstream-snapshot-2026-08-31.md) | Снапшот `upstream/main` от 2026-08-31 (134 коммитов на дату; сейчас 141) | судьба PR #1738, `--defer-ple`, DFlash 2, IQ4_KS/KT |
+| 9 | [`analysis-9-upstream-merge-recipe-2026-09-03.md`](analysis-9-upstream-merge-recipe-2026-09-03.md) | ⚠️ **ОТМЕНЁН 2026-09-08** — рецепт не выполнять; §1/§5/§10/§12 остаются полезными | рабочая процедура: [`FORK_WORKFLOW.md`](../../../FORK_WORKFLOW.md) → `upstream-sync` |
+| 10 | [`analysis-10-upstream-deep-dive-2026-09-03.md`](analysis-10-upstream-deep-dive-2026-09-03.md) | Углублённая верификация в коде upstream | `--defer-ple` Linux-only, RTR auto полное удаление, IQ4_KS/KT в iqk/ (4 файла), risk classification 141 коммит |
+| 11 | [`analysis-11-second-review-findings-2026-09-07.md`](analysis-11-second-review-findings-2026-09-07.md) | Находки 2-го review-прохода (3 verifier-агента) | 8 CRITICAL + 10 MAJOR + 5 MINOR; F1-F5 recipe-level не исправлены |
+| 12 | [`step0/MINIMAX_TARGET_RUNBOOK.md`](../../superpowers/specs/step0/MINIMAX_TARGET_RUNBOOK.md) | Исполняемый runbook целевой машины | baseline → trace → simulator → decision gate |
+| 13 | [`step0/NEXT_AGENT_PROMPT.md`](../../superpowers/specs/step0/NEXT_AGENT_PROMPT.md) | Copy/paste handoff для другой машины | безопасный старт без истории чата |
+| 14 | [`step0/MINIMAX_READINESS_REVIEW_2026-07-21.md`](../../superpowers/specs/step0/MINIMAX_READINESS_REVIEW_2026-07-21.md) | Финальное ревью готовности | найденные фиксы, тесты и границы GO |
+| 15 | [`step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md`](../../superpowers/specs/step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md) | Расширенный пакет метрик | authoritative, token timing, ETW, routing locality |
+| 16 | [`step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md`](../../superpowers/specs/step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md) | Ревью реализации метрик | сделанное, проверки, target-only gates |
 
 ## Подтверждённые факты (grounded в дереве форка)
 1. **`-ser` неактивен в HEAD** — `ggml_top_k_thresh` только объявление + определение + один закомментированный вызов; безопасное возвращение требует отдельной ветки, correctness-тестов и benchmark, а не простого uncomment.
@@ -66,7 +66,7 @@ raw samples, sensitivity 20/30/40%, тихий диск/pagefile и по воз�
 1. **ШАГ 0 с контролями** (`analysis-3`) — baseline, physical I/O estimator,
    RAM BW, повторы и error bars.
 2. **Routing trace + offline cache simulator — v1 реализован**
-   (`tools/moe_cache_sim/README.md`): механический end-to-end smoke пройден на
+   ([`tools/moe_cache_sim/README.md`](../../../tools/moe_cache_sim/README.md)): механический end-to-end smoke пройден на
    Qwen3-Coder-30B-A3B; следующий содержательный прогон — MiniMax. Это инструмент
    приоритизации, не обещание post-intervention скорости.
 3. **Previous-token prefetch prototype** — сначала измерить Jaccard/byte recall,
