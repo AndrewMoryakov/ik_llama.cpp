@@ -494,9 +494,13 @@ llama-gguf-split --split --split-max-size 1G --no-tensor-first-split /models/mod
 
 Build with `cmake`.
 
-In general, use as few build flags as possible.
-The building process automatically detects the available hardware features and enables them.
-Also, `ik_llama.cpp` have safe default options.
+Use the backend flags required by the target machine. `GGML_NATIVE=ON` detects
+many compiler features, but MSVC does not reliably enable the AVX-512 extension
+macros needed by the IQK Zen4 kernels. On an AVX-512-capable Windows target,
+pass `GGML_AVX512`, `GGML_AVX512_VBMI`, `GGML_AVX512_VNNI`, and
+`GGML_AVX512_BF16` explicitly. See [Build](build.md) for the full command and
+verify that `llama-cli` prints `HAVE_FANCY_SIMD is defined` while loading a
+model.
 
 ```
 cmake -B build -DGGML_NATIVE=ON

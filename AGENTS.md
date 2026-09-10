@@ -15,6 +15,8 @@
 > - any build instruction here that omits `GGML_AVX512_VNNI` and its siblings:
 >   on MSVC that silently produces a build without `HAVE_FANCY_SIMD`, i.e.
 >   without the IQK Zen4 kernels. See `FORK_WORKFLOW.md` gate 1.
+> - the "Current Best Next Work" section below: Step0 has since made MiniMax
+>   bytes per token the active direction. See the 2026-09-08 session index.
 >
 > **Где текущее состояние (обновлено 2026-09-10).**
 >
