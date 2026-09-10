@@ -16,6 +16,21 @@
 >   on MSVC that silently produces a build without `HAVE_FANCY_SIMD`, i.e.
 >   without the IQK Zen4 kernels. See `FORK_WORKFLOW.md` gate 1.
 >
+> **Где текущее состояние (обновлено 2026-09-10).**
+>
+> - `FORK_WORKFLOW.md` — модель ветвления, гейты, итог по PR в upstream;
+> - `docs/sessions/2026-09-08-upstream-merge/00-INDEX.md` — результаты слияния
+>   с upstream и пройденного рунбука Step0, шестнадцать документов доказательств
+>   с измерениями и границами;
+> - `docs/sessions/2026-09-08-upstream-merge/HANDOFF-doc-review-2026-09-10.md` —
+>   ревью документации: что устарело, где точки входа ведут не туда, и что уже
+>   исправлено, чтобы не делать работу дважды.
+>
+> Направление работ выбрано измерениями, а не предположениями: нагрузка упирается
+> в объём чтения, три направления оптимизации отвергнуты прогонами. Прежде чем
+> предлагать префетч по маршруту, закрепление горячих экспертов или ускорение
+> вычислений, прочитайте `evidence-8` §6.
+>
 > Dates inside the text are left as written. Treat every status claim as of
 > 2026-05-05 unless verified against live state.
 
