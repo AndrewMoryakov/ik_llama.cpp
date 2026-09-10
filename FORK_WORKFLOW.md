@@ -217,7 +217,9 @@ costs a decision every time it is read, and preserves nothing.
 
 ## Migration from the current layout
 
-Pending; none of it is done yet, and every step below touches `origin`.
+**ВЫПОЛНЕНО 2026-09-08.** Таблица ниже оставлена как исходный план; фактический
+результат и отклонения от него описаны сразу после неё. Ход и проверки записаны
+в `docs/sessions/2026-09-08-upstream-merge/evidence-3-cleanup-2026-09-08.md`.
 
 | Now | Action | Why |
 |---|---|---|
@@ -233,6 +235,36 @@ Pending; none of it is done yet, and every step below touches `origin`.
 | `pr/rtr-auto-mode-v2` | archive tag | 2 commits, superseded |
 | `pr/docs-zen-cpu-build` | → `up/docs-zen-build` | upstream candidate |
 | `ik/*`, `s6/*`, `fcp/*`, `ikawrakow-patch-*` | leave, or delete from the fork | not ours |
+
+### Что получилось на самом деле
+
+Проверено 2026-09-10 через `gh api`: на GitHub осталось **пять веток** и
+**четырнадцать тегов-архивов**.
+
+```
+dev                              рабочая линия
+main                             через PR из dev, сейчас ca0c4472 (PR #4)
+upstream-sync                    лента слияний с upstream
+exp/raptor-runtime               бывшая feature/raptor-lake-laptop
+feature/minimax-step0-readiness  подлежит удалению, см. ниже
+```
+
+Три отклонения от плана в таблице, все осознанные:
+
+- raptor не разделялся на `exp/hot-experts` и `exp/rtr-auto-v2`. Ветка
+  переименована целиком в `exp/raptor-runtime`, а перенос содержимого разобран
+  послойно в `docs/sessions/2026-09-08-upstream-merge/RAPTOR_MERGE_ANALYSIS_AND_PLAN.md`.
+  Слои L0 (рецепт квантования) и правило eol перенесены, L1 отложен.
+- `pr/rtr-auto-mode` и `pr/docs-zen-cpu-build` не стали ветками `up/*`. Оба
+  архивированы тегами: upstream не взял rtr-auto (PR #1738 закрыт), а правки по
+  сборке Zen4 уже слиты отдельными PR #1729, #1733, #1734, #1735.
+- `ik/*`, `s6/*`, `fcp/*` удалены из форка, а не оставлены. Каждая была
+  побайтовой копией одноимённой ветки upstream, что проверялось по SHA.
+
+**`feature/minimax-step0-readiness` пора удалять.** Условие в таблице выше —
+«delete once the Step0 baseline is captured» — выполнено 2026-09-09,
+см. `evidence-7-step0-baseline-2026-09-09.md`. Ветка содержится в `dev`
+и уникальных коммитов не имеет.
 
 ### Folding `raptor-lake-laptop` into `dev`
 
@@ -274,16 +306,49 @@ two that GitHub recognises as a fork, so every upstream PR must be served from
 it. See the `up/*` section. Before any push aimed at an open PR, still verify
 `pull.head.repo.full_name` and `pull.head.ref` with `gh`.
 
-First contribution under this rule: PR
-[#2425](https://github.com/ikawrakow/ik_llama.cpp/pull/2425), one commit and
-one file, served from `ik_llama-pr`.
+Итог по PR в upstream на 2026-09-10, проверено через `gh pr list`:
+
+```
+#1729  MERGED  docs: справка по флагам AVX-512 для Zen4 / Sapphire Rapids+
+#1733  MERGED  docs: рекомендовать GGML_AVX512_*=ON первым вариантом
+#1734  MERGED  scripts: build-zen.{sh,bat}
+#1735  MERGED  readme: ссылка из "Build for CPU"
+#1738  CLOSED  runtime: --run-time-repack auto (upstream не взял)
+#2425  MERGED  chat template: перевод строки в ChatGLM4
+#2426  MERGED  test-jinja: сырые UTF-8 байты
+#2427  OPEN    chat template: порт GLMEdge
+#2428  CLOSED  заменён на #2429
+#2429  MERGED  cmake: предупреждение про AVX-512 под MSVC
+#2430  OPEN    cmake: детекция расширений AVX-512
+```
+
+Все обслужены из `ik_llama-pr`, как требует правило выше.
+
+**Раскрытие использования ИИ.** `CONTRIBUTING.md` у ikawrakow требует его при
+подготовке PR с помощью ИИ и отклоняет PR, где автором указан Claude. Автор
+должен быть человеком, а раскрытие идти в теле PR. У #1729-#2429 раскрытия нет:
+правила прочитаны только 2026-09-09. Начиная с #2430 оно есть.
 
 ## The gates
 
 Every merge into `dev`, and every `upstream-sync` cycle, passes:
 
 1. **Build** — clean CPU-only Release build.
-   `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF`
+   ```
+   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF \
+     -DGGML_NATIVE=ON \
+     -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_BF16=ON
+   ```
+
+   **Флаги AVX-512 обязательны на AVX-512-способных процессорах.** Исправлено
+   2026-09-10: строка здесь раньше не содержала их, и это давало сборку без
+   `HAVE_FANCY_SIMD`, то есть без Zen4-ядер IQK. MSVC не определяет макросы
+   расширений сам, а `GGML_NATIVE` через `FindSIMD.cmake` выставляет только
+   базовый `GGML_AVX512`. Ни ошибки, ни предупреждения при этом нет, а
+   `CMakeCache.txt` показывает `GGML_AVX512:BOOL=OFF` при `/arch:AVX512` в
+   флагах. Проверка: `llama-cli` печатает `HAVE_FANCY_SIMD is defined` при
+   загрузке модели. Подробности в `evidence-5-zen4-build-2026-09-08.md`,
+   измеренная цена в `evidence-10-zen4-cost-2026-09-10.md`.
 2. **Tests** — `ctest`. Four failures are known and pre-existing on upstream
    itself: `test-tokenizer-0-bert-bge`, `test-jinja-py`, `test-chat-template`
    (`0xc0000409`) and `test-eval-callback` (needs libcurl). The reference logs

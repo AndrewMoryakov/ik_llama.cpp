@@ -7,9 +7,14 @@
 > Superseded below:
 > - the "local-only, do not push" rule for `feature/raptor-lake-laptop` - its
 >   assets are now in `dev`, and the branch model says where the rest belongs;
-> - the PR #1738 timing ("silence threshold ~2026-05-12") - the PR is still
->   open and upstream has since removed the RTR auto files;
-> - the memory-directory path, which is specific to one machine.
+> - the PR #1738 timing ("silence threshold ~2026-05-12") - **the PR was closed
+>   on 2026-09-08**; upstream never took the feature and has since removed the
+>   RTR auto files. The fork keeps its own implementation, which is the promoted
+>   v2 without the environment gate;
+> - the memory-directory path, which is specific to one machine;
+> - any build instruction here that omits `GGML_AVX512_VNNI` and its siblings:
+>   on MSVC that silently produces a build without `HAVE_FANCY_SIMD`, i.e.
+>   without the IQK Zen4 kernels. See `FORK_WORKFLOW.md` gate 1.
 >
 > Dates inside the text are left as written. Treat every status claim as of
 > 2026-05-05 unless verified against live state.
