@@ -34,6 +34,7 @@ Step0 пройден целиком, кроме одного диагности�
 | 14 | [evidence-14-review-round-2-2026-09-10.md](evidence-14-review-round-2-2026-09-10.md) | Второй раунд ревью: Fast-QC, CI/eval, RTR, Vulkan-инструкция и Raptor-скрипт |
 | 15 | [evidence-15-final-review-and-plan-2026-09-10.md](evidence-15-final-review-and-plan-2026-09-10.md) | Финальное ревью и план исправлений с критериями завершения |
 | 16 | [evidence-16-final-plan-review-2026-09-10.md](evidence-16-final-plan-review-2026-09-10.md) | Финальное ревью плана: подтверждения, поправки и исполнимый порядок работ |
+| — | [HANDOFF-doc-review-2026-09-10.md](HANDOFF-doc-review-2026-09-10.md) | Ревью 307 Markdown-файлов, найденные устаревшие точки входа и статус их исправления |
 | — | `RAPTOR_TRANSFER_STRATEGY.md` | Послойная стратегия переноса `exp/raptor-runtime` |
 | — | `RAPTOR_MERGE_ANALYSIS_AND_PLAN.md` | Анализ слияния raptor через merge-tree; §10 закрывает вопрос rtr-auto |
 
