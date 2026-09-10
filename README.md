@@ -101,10 +101,22 @@ Check [Step by step guide](./docker/README.md) for image customization and other
 
 ### [Common parameters and options](./docs/parameters.md)
 
+### [2026-09-08 upstream merge and Step0 session](./docs/sessions/2026-09-08-upstream-merge/00-INDEX.md)
+
+Merge with upstream executed and gated, branch layout reduced to five, and the
+MiniMax Step0 runbook carried through to a measured conclusion on
+Ryzen 9 7950X / 96 GB. Eleven evidence documents: baseline (3.02 tok/s,
+163.6 MB per token, 7.97% process CPU), routing trace, locality simulations,
+ETW attribution, and the measured cost of a build without the Zen4 IQK kernels.
+
+The workload is bound by I/O volume. Three optimisation directions were ruled
+out by measurement; the remaining one is reducing bytes per token.
+
 ### [2026-09-07 upstream snapshot analysis session](./docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md)
 
-Work-in-progress analysis for MiniMax-M2.7 Step0 readiness on Ryzen 9 7950X / 96 GB.
-Includes upstream snapshot, merge recipe, deep-dive verification, and second-review findings.
+Superseded by the session above, kept for its upstream snapshot and merge
+recipe. Its Step0 readiness analysis and its ranking of optimisation directions
+predate the measurements and should not be used to choose work.
 
 ## Latest News
 
@@ -320,4 +332,9 @@ $ echo "source ~/.llama-completion.bash" >> ~/.bashrc
 disk-bound пейджинг экспертов с SSD). Разбор bottleneck'а, измерительный плейбук и
 восемь направлений оптимизации (от runtime top-k override до прунинга экспертов):
 
-- [docs/superpowers/specs/00-INDEX.md](./docs/superpowers/specs/00-INDEX.md) — точка входа
+- [docs/sessions/2026-09-08-upstream-merge/00-INDEX.md](./docs/sessions/2026-09-08-upstream-merge/00-INDEX.md)
+  — точка входа: измеренные результаты и выбранное направление работ
+- [docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md](./docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md)
+  — более ранний разбор; его список направлений оптимизации предшествует
+  измерениям, три из них измерением отвергнуты
+- сами спеки и разборы лежат в `docs/superpowers/specs/`
