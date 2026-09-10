@@ -187,3 +187,57 @@ Git не изолирует сессии внутри одного рабоче�
 **Замечено, не проверено:** `docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md`
 строки 27–43 перечисляют двенадцать файлов по путям, которых в том каталоге нет —
 они лежат в `docs/superpowers/specs/`. Разрешаются только `analysis-8..11`.
+
+---
+
+## 7. Дополнение 2026-09-10: открытый пункт §6 проверен
+
+В §6 индекс сессии `2026-09-07` был помечен как «замечено, не проверено».
+Проверено. Разрешение всех ссылок посчитано скриптом по выгрузке дерева `dev`.
+
+**Из двадцати ссылок битых пятнадцать, разрешается пять.**
+
+Разрешаются: `analysis-8`, `analysis-9`, `analysis-10`, `analysis-11` и
+`../2026-09-08-upstream-merge/00-INDEX.md`.
+
+Битые тринадцать указывают на файлы, фактически лежащие в
+`docs/superpowers/specs/`:
+
+```
+2025-moe-ssd-inference-speedup.md
+analysis-1-prefetch-design.md
+analysis-2-bytes-per-token.md
+analysis-3-step0-measurements.md
+analysis-4-adjacent-kv-cpu.md
+analysis-5-creative-disk-bound.md
+analysis-6-fork-branch-opportunities.md
+analysis-7-branch-solution-projection.md
+step0/MINIMAX_METRICS_IMPLEMENTATION_REVIEW_2026-07-22.md
+step0/MINIMAX_METRICS_PACKAGE_SPEC_2026-07-22.md
+step0/MINIMAX_READINESS_REVIEW_2026-07-21.md
+step0/MINIMAX_TARGET_RUNBOOK.md
+step0/NEXT_AGENT_PROMPT.md
+```
+
+Индекс лежит в `docs/sessions/2026-09-07-upstream-snapshot/`, а писался так,
+будто находится в `docs/superpowers/specs/`. Починка для этих тринадцати
+механическая: префикс `../../superpowers/specs/`.
+
+Оставшиеся две ссылки требуют своих путей: `FORK_WORKFLOW.md` лежит в корне
+репозитория (`../../../FORK_WORKFLOW.md`), `tools/moe_cache_sim/README.md`
+тоже считается от корня (`../../../tools/moe_cache_sim/README.md`).
+
+**Оговорка о методе.** Поиск фактического расположения шёл по имени файла, и
+для `README.md` это дало ложное совпадение с `README.md` в корне выгрузки.
+Настоящий адресат `tools/moe_cache_sim/README.md`. Для остальных четырнадцати
+имена уникальны, ложных совпадений быть не могло.
+
+Само по себе это ломает не только навигацию. `analysis-3` несёт шапку
+**STATUS: HISTORICAL ANALYSIS**, а `analysis-1` (проект префетча, отвергнутого
+Step0) такой шапки не имеет — и оба недостижимы из индекса, который на них
+ссылается. Читатель, дошедший до них другим путём, увидит только один из двух
+предупреждающих знаков.
+
+Правку не делал намеренно: окончательное исправление документации остаётся за
+сессией, ведущей `evidence-12` … `evidence-16`, чтобы не столкнуться в общем
+рабочем дереве второй раз.
