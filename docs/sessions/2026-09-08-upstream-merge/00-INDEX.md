@@ -29,6 +29,7 @@ Step0 пройден целиком, кроме одного диагности�
 | 9 | `evidence-9-step0-diagnostics-2026-09-09.md` | §1a не пройден и почему; ETW: 99.86% отказов это модель |
 | 10 | `evidence-10-zen4-cost-2026-09-10.md` | Цена сборки без Zen4-ядер: +19.9% на промпте в памяти, 0% на генерации |
 | 11 | `evidence-11-phase-regimes-2026-09-10.md` | Промпт и генерация суть один режим, оба упираются в чтение |
+| 12 | `evidence-12-review-findings-2026-09-10.md` | Read-only ревью: Raptor handoff, качество метрики Step0, модель ветвления и сохранность trace |
 | — | `RAPTOR_TRANSFER_STRATEGY.md` | Послойная стратегия переноса `exp/raptor-runtime` |
 | — | `RAPTOR_MERGE_ANALYSIS_AND_PLAN.md` | Анализ слияния raptor через merge-tree; §10 закрывает вопрос rtr-auto |
 
