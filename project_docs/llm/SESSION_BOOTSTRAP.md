@@ -1,5 +1,9 @@
 # Session Bootstrap
 
+> **HISTORICAL BOOTSTRAP (2026-03). DO NOT USE AS CURRENT STATE.** Start with
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) and the
+> [2026-09-08 session index](../../docs/sessions/2026-09-08-upstream-merge/00-INDEX.md).
+
 ## Objective
 
 Bring a new LLM agent to useful project context fast, with minimal re-reading.

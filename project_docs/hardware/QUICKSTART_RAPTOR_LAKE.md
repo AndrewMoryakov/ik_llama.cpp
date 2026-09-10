@@ -1,5 +1,10 @@
 # Quick-start guide — i7-1360p / 16 GB laptop
 
+> **HISTORICAL QUICK START.** The current branch is `exp/raptor-runtime`, and
+> the current upstream option is `GGML_AVXVNNI`. Use
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) and `build_raptor_lake.bat` for
+> the current procedure.
+
 Tested configuration: Intel Core i7-1360p (4P+8E cores, AVX-VNNI, no AVX-512),
 16 GB DDR5, NVMe SSD, CPU-only (no discrete GPU).
 Build branch: `feature/raptor-lake-laptop`.

@@ -1,5 +1,11 @@
 ## Expert Selection Research
 
+> **STATUS UPDATE (2026-09-10).** Weighted Hot Experts is no longer the first
+> implementation target. Step0 found high routing entropy and no small stable
+> hot set. The current direction is reducing bytes per token. See
+> [`evidence-8`](../../../docs/sessions/2026-09-08-upstream-merge/evidence-8-step0-locality-2026-09-09.md)
+> §4 and §6.
+
 This directory is the canonical place for research lines around expert choice, hot-expert locality, and prompt-to-expert prediction.
 
 Use these documents in this order:
