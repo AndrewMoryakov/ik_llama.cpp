@@ -105,12 +105,17 @@ Check [Step by step guide](./docker/README.md) for image customization and other
 
 Merge with upstream executed and gated, branch layout reduced to five, and the
 MiniMax Step0 runbook carried through to a measured conclusion on
-Ryzen 9 7950X / 96 GB. Eleven evidence documents: baseline (3.02 tok/s,
-163.6 MB per token, 7.97% process CPU), routing trace, locality simulations,
-ETW attribution, and the measured cost of a build without the Zen4 IQK kernels.
+Ryzen 9 7950X / 96 GB. Seventeen evidence documents: baseline (2.98 tok/s,
+161.2 MB per token, 7.97% process CPU — corrected medians; the summaries first
+carried the maxima), routing trace, locality simulations, ETW attribution, the
+measured cost of a build without the Zen4 IQK kernels, and the requantisation
+that acted on the finding.
 
-The workload is bound by I/O volume. Three optimisation directions were ruled
-out by measurement; the remaining one is reducing bytes per token.
+The workload is bound by I/O volume, and the chosen direction — fewer bytes per
+token — was carried out. A 91 GiB tapered-RAM requant moved the hot expert set
+inside RAM: 2.98 to 6.86 tok/s and 161 to 14 MB per token, with process CPU
+rising from 8% to 34% as the bound shifted from reading to compute
+(evidence-17). Perplexity against the prior recipe is being measured.
 
 ### [2026-09-07 upstream snapshot analysis session](./docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md)
 
