@@ -74,3 +74,7 @@ echo(
 dir "%BUILD%\bin\llama-server.exe" "%BUILD%\bin\llama-cli.exe" "%BUILD%\bin\llama-quantize.exe" 2>NUL
 echo(
 if not defined NOPAUSE pause
+
+rem Without this the script ends on pause and returns its code, so a failed
+rem build reported success to whoever called the script.
+exit /b %BUILD_EXIT%
