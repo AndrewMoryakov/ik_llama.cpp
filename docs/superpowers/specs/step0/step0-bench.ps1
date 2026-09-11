@@ -463,7 +463,10 @@ function Get-TokenTimingStats($timing) {
 function Get-Median([double[]]$values) {
     if ($values.Count -eq 0) { return $null }
     $sorted = @($values | Sort-Object)
-    $middle = [int]($sorted.Count / 2)
+    # [int] in PowerShell rounds half to even, so [int](3/2) is 2 and not 1, and
+    # the "median" of a three-run set came back as its maximum. Same for any
+    # count of the form 4k+3.
+    $middle = [int][math]::Floor($sorted.Count / 2)
     if (($sorted.Count % 2) -eq 1) { return $sorted[$middle] }
     return ($sorted[$middle - 1] + $sorted[$middle]) / 2.0
 }
