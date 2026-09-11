@@ -227,7 +227,7 @@ costs a decision every time it is read, and preserves nothing.
 | `dev` (old tip `b226021f`) | tag `archive/dev-2026-05-06` (done), delete branch | 0 unique |
 | `feature/rtr-auto-v2` | archive tag, delete | 0 unique |
 | `feature/rtr-auto-review-fixes` | delete | already in `dev` |
-| `feature/minimax-step0-readiness` | delete once the Step0 baseline is captured | already in `dev` |
+| `feature/minimax-step0-readiness` | deleted 2026-09-11, baseline captured in evidence-7 | was already in `dev`, 0 unique commits |
 | `milestone/*`, `safety/*` | convert to tags, delete branches | these are snapshots |
 | `feature/raptor-lake-laptop` | merge into `dev` in three portions (below) | hardware work belongs in `dev` |
 | raptor's experimental runtime | split into `exp/hot-experts`, `exp/rtr-auto-v2` | unproven behaviour |
@@ -246,7 +246,6 @@ dev                              рабочая линия
 main                             через PR из dev, сейчас ca0c4472 (PR #4)
 upstream-sync                    лента слияний с upstream
 exp/raptor-runtime               бывшая feature/raptor-lake-laptop
-feature/minimax-step0-readiness  подлежит удалению, см. ниже
 ```
 
 Три отклонения от плана в таблице, все осознанные:
