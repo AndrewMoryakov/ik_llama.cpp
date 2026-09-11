@@ -712,6 +712,31 @@ static void common_speculative_finalize_stages(gpt_params & params) {
     params.has_mtp = spec.has_stage_type(COMMON_SPECULATIVE_TYPE_MTP);
 }
 
+// Tolerant-args opt-in for embedding as another tool's backend. Enabled by the
+// env var IK_LLAMA_IGNORE_UNKNOWN_ARGS, or by a marker file named
+// "IK_IGNORE_UNKNOWN_ARGS" placed next to the executable — the file makes the
+// choice travel with the deployment, independent of how the parent's
+// environment was set up (e.g. Unsloth Studio launched before the env var
+// existed).
+static bool ik_tolerate_unknown_args() {
+    if (std::getenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS") != nullptr) {
+        return true;
+    }
+#ifdef _WIN32
+    char * pgm = nullptr;
+    if (_get_pgmptr(&pgm) == 0 && pgm != nullptr) {
+        std::string exe(pgm);
+        size_t slash = exe.find_last_of("\\/");
+        std::string dir = (slash == std::string::npos) ? std::string() : exe.substr(0, slash + 1);
+        std::ifstream marker(dir + "IK_IGNORE_UNKNOWN_ARGS");
+        if (marker.good()) {
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
 bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
     bool invalid_param = false;
     std::string arg;
@@ -729,8 +754,7 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
             // --spec-default). Gated by an env var so normal CLI use still rejects
             // typos. Skip the unknown flag and, if the next token is not itself an
             // option, its value too.
-            static const bool ignore_unknown_args =
-                std::getenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS") != nullptr;
+            static const bool ignore_unknown_args = ik_tolerate_unknown_args();
             if (ignore_unknown_args) {
                 fprintf(stderr, "warning: ignoring unknown argument: %s\n", arg.c_str());
                 if (i + 1 < argc && argv[i + 1][0] != '-') { ++i; }
