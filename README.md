@@ -115,7 +115,8 @@ The workload is bound by I/O volume, and the chosen direction — fewer bytes pe
 token — was carried out. A 91 GiB tapered-RAM requant moved the hot expert set
 inside RAM: 2.98 to 6.86 tok/s and 161 to 14 MB per token, with process CPU
 rising from 8% to 34% as the bound shifted from reading to compute
-(evidence-17). Perplexity against the prior recipe is being measured.
+(evidence-17). Perplexity on full wikitext-2 is 9.95 vs 9.70 for the prior
+recipe built from Q8_0 — the measured cost of the weaker source, not the recipe.
 
 ### [2026-09-07 upstream snapshot analysis session](./docs/sessions/2026-09-07-upstream-snapshot/00-INDEX.md)
 
