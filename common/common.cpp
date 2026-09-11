@@ -1116,6 +1116,19 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
 
     common_params_sampling & sparams = params.sparams;
 
+    // Unsloth launches llama-server from its own llama.cpp fork and passes a few
+    // flags this fork does not define: --fit <mode> (GPU layer auto-offload),
+    // --no-webui and --props. Accept and ignore them so ik_llama can serve as
+    // Unsloth's CPU/Zen4 inference backend instead of the stock server. --fit
+    // takes a value; the other two are boolean.
+    if (arg == "--fit") {
+        CHECK_ARG            // consume and ignore its value (e.g. "on")
+        return true;
+    }
+    if (arg == "--no-webui" || arg == "--props") {
+        return true;
+    }
+
     if (arg == "-s" || arg == "--seed") {
         CHECK_ARG
         // TODO: this is temporary, in the future the sampling state will be moved fully to llama_sampling_context.
