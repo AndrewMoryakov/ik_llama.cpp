@@ -27,6 +27,7 @@ from eval_common import (
     count_sentences,
     ensure_dir,
     extract_code,
+    CodeExecutionDisabled,
     safe_exec_python,
     split_paragraphs,
     strict_json_loads,
@@ -160,6 +161,10 @@ def score_de_02(answer: str) -> Tuple[int, Dict[str, Any], Dict[str, int]]:
     details: Dict[str, Any] = {"code_preview": code[:800]}
     try:
         ns = safe_exec_python(code)
+    except CodeExecutionDisabled as exc:
+        details["executed"] = False
+        details["error"] = str(exc)
+        return 0, details, dims
     except Exception as exc:  # noqa: BLE001
         details["error"] = str(exc)
         return 0, details, dims
@@ -737,10 +742,16 @@ def run_suite() -> Dict[str, Any]:
         if error:
             print(f"error: {error}")
 
+    not_executed = [
+        r["test_id"] for r in results
+        if isinstance(r.get("details"), dict) and r["details"].get("executed") is False
+    ]
     summary = {
         **metadata.to_dict(),
         "suite": SUITE_NAME,
         "run_dir": RUN_DIR,
+        "complete": not not_executed,
+        "not_executed": not_executed,
         "total_score": total_score,
         "total_max": total_max,
         "pct": round(100 * total_score / total_max, 2) if total_max else 0.0,
@@ -777,6 +788,8 @@ if __name__ == "__main__":
     summary = run_suite()
     print("\n" + "=" * 72)
     print(f"DEEP EVAL COMPLETE: {summary['total_score']}/{summary['total_max']} ({summary['pct']}%)")
+    if summary.get("not_executed"):
+        print(f"INCOMPLETE: code not run for {', '.join(summary['not_executed'])}; scored 0 because the evaluator does not execute model code")
     print(f"Dimension totals: {summary['dimension_totals']}")
     print(f"Results: {summary['results_jsonl']}")
     print(f"Summary: {SUMMARY_JSON}")

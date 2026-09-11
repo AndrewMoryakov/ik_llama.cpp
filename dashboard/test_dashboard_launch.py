@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Checks that /api/launch refuses what it is supposed to refuse.
+"""Checks that /api/launch refuses what it must, and that a valid launch
+reaches the launcher without this test ever spawning a real process.
 
 Run: python3 dashboard/test_dashboard_launch.py
 
-These cases are the ones that used to get through. os.path.join drops its
-first argument when the second is absolute, so args[0] = "/usr/bin/id" ran
-that binary; ".." walked out of the build directory the same way; and a
+The refusal cases are the ones that used to get through: os.path.join drops
+its first argument when the second is absolute, so args[0] = "/usr/bin/id"
+ran that binary; ".." walked out of the build directory the same way; and a
 wildcard CORS header let any page in the browser POST here.
+
+Isolation: BUILD_BIN is redirected to a temp directory and pm.launch is
+stubbed. So "allowed name, no file" reliably returns 404 regardless of what
+is built on the host, and the one valid-launch case cannot start a process.
 """
 
 import http.server
 import json
 import os
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -41,7 +47,19 @@ def post(port, path, body, origin=None):
 
 
 def main():
+    tmp = tempfile.mkdtemp(prefix="ik_dash_test_")
+    ds.BUILD_BIN = tmp  # empty: no launchable binary exists here
+
+    # Stub the launcher so a valid request cannot spawn a real process.
+    launch_calls = []
+    def fake_launch(args, terminal=False, env_overrides=None, **kw):
+        launch_calls.append(args)
+        return True, "stubbed launch (no process spawned)"
+    ds.pm.launch = fake_launch
+
     srv, port = start_server()
+    ext = ".exe" if sys.platform == "win32" else ""
+
     cases = [
         ("absolute path",        {"args": ["/usr/bin/id"]},                 400, None),
         ("parent traversal",     {"args": ["../../../usr/bin/id"]},         400, None),
@@ -64,11 +82,28 @@ def main():
         if not ok:
             failures.append(name)
 
+    # Positive path: a real (fake) binary present -> request reaches the launcher.
+    # It must hit the stub, never a real process.
+    with open(os.path.join(tmp, "llama-cli" + ext), "w") as f:
+        f.write("not a real binary")
+    got, payload = post(port, "/api/launch", {"args": ["llama-cli", "-m", "x.gguf"]}, None)
+    reached = got == 200 and len(launch_calls) == 1 and payload.get("ok") is True
+    print(f"  {'ok  ' if reached else 'FAIL'} {'valid launch reaches stub':<22} "
+          f"expected 200 + 1 stubbed call, got {got} + {len(launch_calls)} call(s)")
+    if not reached:
+        failures.append("valid launch reaches stub")
+
     srv.shutdown()
+    try:
+        os.remove(os.path.join(tmp, "llama-cli" + ext)); os.rmdir(tmp)
+    except OSError:
+        pass
+
+    total = len(cases) + 1
     if failures:
         print(f"\n{len(failures)} case(s) failed: {failures}")
         return 1
-    print(f"\nall {len(cases)} cases behaved as expected")
+    print(f"\nall {total} cases behaved as expected; no real process was spawned")
     return 0
 
 
