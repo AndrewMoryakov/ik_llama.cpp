@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from eval_common import (
     OUT_DIR,
     RUN_ID,
+    CodeExecutionDisabled,
     CodeTestResult,
     EvalClient,
     RunMetadata,
@@ -172,6 +173,11 @@ def score_de_02(answer: str) -> Tuple[int, Dict[str, Any], Dict[str, int]]:
     details: Dict[str, Any] = {"code_preview": code[:800]}
     try:
         ns = safe_exec_python(code)
+    except CodeExecutionDisabled as exc:
+        # Not the same as a wrong answer: we declined to run it.
+        details["executed"] = False
+        details["error"] = str(exc)
+        return 0, details, dims
     except Exception as exc:  # noqa: BLE001
         details["error"] = str(exc)
         return 0, details, dims

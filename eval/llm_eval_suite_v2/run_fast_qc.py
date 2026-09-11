@@ -22,6 +22,7 @@ from eval_common import (
     API_BASE,
     OUT_DIR,
     RUN_ID,
+    CodeExecutionDisabled,
     CodeTestResult,
     EvalClient,
     RunMetadata,
@@ -290,6 +291,11 @@ def score_fqc_06(answer: str) -> Tuple[int, Dict[str, Any]]:
     details: Dict[str, Any] = {"code_preview": code[:500]}
     try:
         ns = safe_exec_python(code)
+    except CodeExecutionDisabled as exc:
+        # Not the same as a wrong answer: we declined to run it.
+        details["executed"] = False
+        details["error"] = str(exc)
+        return 0, details
     except Exception as exc:  # noqa: BLE001
         details["error"] = str(exc)
         return 0, details
@@ -346,6 +352,11 @@ def score_fqc_07(answer: str) -> Tuple[int, Dict[str, Any]]:
     details: Dict[str, Any] = {"code_preview": code[:500]}
     try:
         ns = safe_exec_python(code)
+    except CodeExecutionDisabled as exc:
+        # Not the same as a wrong answer: we declined to run it.
+        details["executed"] = False
+        details["error"] = str(exc)
+        return 0, details
     except Exception as exc:  # noqa: BLE001
         details["error"] = str(exc)
         return 0, details
@@ -668,6 +679,11 @@ def build_fast_qc_summary_text(summary: Dict[str, Any]) -> str:
         lines.append(f"{r['test_id']} {r['test_name']}: {r['score']}/{r['weight']} [{r['status']}]")
     lines.append("")
     lines.append(f"TOTAL: {summary['total_score']}/{summary['total_max']} ({summary['pct']}%)")
+    if summary.get("not_executed"):
+        lines.append(
+            "INCOMPLETE: code not run for " + ", ".join(summary["not_executed"])
+            + "; those tasks scored 0 because the evaluator does not execute model code"
+        )
     lines.append(f"SECTION TOTALS: {json.dumps(summary.get('section_totals', {}), ensure_ascii=False)}")
     gate = summary.get("gate", {})
     if gate:
@@ -751,10 +767,20 @@ def run_suite() -> Dict[str, Any]:
         if section:
             section_totals[section] += r["score"]
 
+    # A task whose code we declined to run scored zero, which on its own is
+    # indistinguishable from a wrong answer. Name those tasks so the total is
+    # not read as a complete result.
+    not_executed = [
+        r["test_id"] for r in results
+        if isinstance(r.get("details"), dict) and r["details"].get("executed") is False
+    ]
+
     summary = {
         **metadata.to_dict(),
         "suite": SUITE_NAME,
         "run_dir": RUN_DIR,
+        "complete": not not_executed,
+        "not_executed": not_executed,
         "total_score": total_score,
         "total_max": total_max,
         "pct": round(100 * total_score / total_max, 2) if total_max else 0.0,

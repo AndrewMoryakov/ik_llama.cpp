@@ -197,11 +197,27 @@ def validate_python_code(code: str) -> ast.Module:
     return tree
 
 
+class CodeExecutionDisabled(Exception):
+    """Raised instead of running a model answer inside the evaluator."""
+
+
 def safe_exec_python(code: str) -> Dict[str, Any]:
-    validate_python_code(code)
-    namespace: Dict[str, Any] = {"__builtins__": SAFE_BUILTINS}
-    exec(compile(code, "<model_code>", "exec"), namespace, namespace)
-    return namespace
+    """Refuses to run the model's code. Kept so callers stay unchanged.
+
+    This used to validate_python_code() and then exec() the answer in this
+    process. validate_python_code only inspects a list of names, so anything
+    reached through an attribute, getattr or a built-up string walks straight
+    past it. It is a lint, not a boundary, and the evaluator holds the same
+    filesystem, network and credentials as whoever started it.
+
+    Until there is a runner with real filesystem, network, time and memory
+    limits, code tasks are reported as not executed rather than scored on the
+    strength of an AST filter.
+    """
+    raise CodeExecutionDisabled(
+        "running model code in the evaluator process is disabled; "
+        "this task is reported as not executed"
+    )
 
 
 @dataclass
