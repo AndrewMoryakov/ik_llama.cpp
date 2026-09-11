@@ -35,6 +35,8 @@ Step0 пройден целиком, кроме одного диагности�
 | 15 | [evidence-15-final-review-and-plan-2026-09-10.md](evidence-15-final-review-and-plan-2026-09-10.md) | Финальное ревью и план исправлений с критериями завершения |
 | 16 | [evidence-16-final-plan-review-2026-09-10.md](evidence-16-final-plan-review-2026-09-10.md) | Финальное ревью плана: подтверждения, поправки и исполнимый порядок работ |
 | 17 | [evidence-17-taperedram-requant-2026-09-11.md](evidence-17-taperedram-requant-2026-09-11.md) | **Режим сменился**: 91 ГиБ вместо 123.6 дали 2.31× скорости и 11.3× по чтению; найден дефект медианы |
+| — | [NEXT-2026-09-11.md](NEXT-2026-09-11.md) | **Точка входа**: состояние, что в полёте, открытая работа, риски, порядок чтения |
+| 18 | [evidence-18-current-fix-review-2026-09-11.md](evidence-18-current-fix-review-2026-09-11.md) | Ревью Codex текущих правок: закрытое и открытое (проброс not_executed, хрупкость dashboard-теста, RTR, provenance) |
 | — | [HANDOFF-doc-review-2026-09-10.md](HANDOFF-doc-review-2026-09-10.md) | Ревью 307 Markdown-файлов, найденные устаревшие точки входа и статус их исправления |
 | — | `RAPTOR_TRANSFER_STRATEGY.md` | Послойная стратегия переноса `exp/raptor-runtime` |
 | — | `RAPTOR_MERGE_ANALYSIS_AND_PLAN.md` | Анализ слияния raptor через merge-tree; §10 закрывает вопрос rtr-auto |

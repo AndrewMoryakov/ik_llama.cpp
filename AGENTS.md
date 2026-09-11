@@ -164,13 +164,16 @@ Read:
 
 ## Current Best Next Work
 
-The current mainline priority is no longer broad MiniMax policy benchmarking.
+**Обновлено 2026-09-11.** Актуальное состояние и следующая работа —
+`docs/sessions/2026-09-08-upstream-merge/NEXT-2026-09-11.md`: что в полёте, что
+открыто, риски и порядок чтения. Прочитать его первым.
 
-Current recommended order:
+Кратко: направление «меньше байт на токен» для MiniMax выполнено
+(переквантование сменило режим, evidence-17); дальше — закрыть хвосты правок
+этой сессии (evidence-18), затем группы 2–4 плана исправлений (evidence-15/16).
 
-1. `gpt-oss-120b prompt-packed productization`
-2. `gpt-oss-20b decode-side optimization`
-3. return to `MiniMax` only with a new smarter locality hypothesis or a dedicated large benchmark window
+Прежний указатель на `gpt-oss-120b`/`gpt-oss-20b` снят: он предшествовал
+измерениям Step0 и не отражает, чем сессия занималась.
 
 ## Do Not Re-Discover
 
