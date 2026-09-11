@@ -724,6 +724,18 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
             std::replace(arg.begin(), arg.end(), '_', '-');
         }
         if (!gpt_params_find_arg(argc, argv, arg, params, i, invalid_param)) {
+            // Tolerant mode for embedding as another tool's backend (e.g. Unsloth
+            // launches this server with flags from its own llama.cpp fork such as
+            // --spec-default). Gated by an env var so normal CLI use still rejects
+            // typos. Skip the unknown flag and, if the next token is not itself an
+            // option, its value too.
+            static const bool ignore_unknown_args =
+                std::getenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS") != nullptr;
+            if (ignore_unknown_args) {
+                fprintf(stderr, "warning: ignoring unknown argument: %s\n", arg.c_str());
+                if (i + 1 < argc && argv[i + 1][0] != '-') { ++i; }
+                continue;
+            }
             throw std::invalid_argument("error: unknown argument: " + arg);
         }
         if (invalid_param) {
