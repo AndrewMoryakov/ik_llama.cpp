@@ -5911,6 +5911,13 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
                             __func__);
                     break;
             }
+        } else if (params.repack_tensors) {
+            // Explicit -rtr 1: apply the legacy repack => no-mmap coupling here,
+            // where upstream's parser used to. The loader forces mmap off for
+            // repack anyway; doing it on params too keeps the later checks that
+            // read params.use_mmap (--defer-experts, --defer-ple) consistent
+            // with the mmap state the loader will actually use.
+            params.use_mmap = false;
         }
 
         llama_model_loader ml(fname, params.ncmoe, params.use_mmap, params.check_tensors,
