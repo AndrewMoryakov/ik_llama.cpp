@@ -335,24 +335,27 @@ Every merge into `dev`, and every `upstream-sync` cycle, passes:
 1. **Build** — clean CPU-only Release build.
    ```
    cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF \
-     -DGGML_NATIVE=ON \
-     -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_BF16=ON
+     -DGGML_NATIVE=ON
    ```
 
-   **Флаги AVX-512 обязательны на AVX-512-способных процессорах.** Исправлено
-   2026-09-10: строка здесь раньше не содержала их, и это давало сборку без
-   `HAVE_FANCY_SIMD`, то есть без Zen4-ядер IQK. MSVC не определяет макросы
-   расширений сам, а `GGML_NATIVE` через `FindSIMD.cmake` выставляет только
-   базовый `GGML_AVX512`. Ни ошибки, ни предупреждения при этом нет, а
-   `CMakeCache.txt` показывает `GGML_AVX512:BOOL=OFF` при `/arch:AVX512` в
-   флагах. Проверка: `llama-cli` печатает `HAVE_FANCY_SIMD is defined` при
-   загрузке модели. Подробности в `evidence-5-zen4-build-2026-09-08.md`,
-   измеренная цена в `evidence-10-zen4-cost-2026-09-10.md`.
-2. **Tests** — `ctest`. Four failures are known and pre-existing on upstream
-   itself: `test-tokenizer-0-bert-bge`, `test-jinja-py`, `test-chat-template`
-   (`0xc0000409`) and `test-eval-callback` (needs libcurl). The reference logs
-   are committed at `docs/rtr-handoff/upstream-four-tests.log` and
-   `pr-four-tests.log` — compare against them rather than re-diagnosing.
+   **Флаги AVX-512 вручную больше не нужны.** С upstream `ac7f1feb` (#2430)
+   `FindSIMD.cmake` под MSVC проверяет VNNI, VBMI и BF16 запуском пробы и сам
+   включает `GGML_AVX512_*`; на GCC/Clang это делает `-march=native`. Явно
+   передавать их не стоит: на GCC `-DGGML_AVX512_VNNI=ON` добавляет
+   `-mavx512vnni` без проверки, и на CPU без VNNI получится бинарник, падающий
+   на первой IQK-инструкции. Гейт остаётся: `llama-cli` должен печатать
+   `HAVE_FANCY_SIMD is defined` при загрузке модели на Zen4. До #2430 без
+   ручных флагов под MSVC молча собиралось без Zen4-ядер: см.
+   `evidence-5-zen4-build-2026-09-08.md`, цена в
+   `evidence-10-zen4-cost-2026-09-10.md`.
+2. **Tests** — `ctest`. Known failures, all reproduced on clean upstream:
+   `test-tokenizer-0-bert-bge` (upstream #1098), `test-chat-template` (the
+   IBM Granite expected output in the test lacks the trailing `\n` that
+   `src/llama.cpp` emits since upstream `ab1d7407`; the failed `assert` aborts,
+   which Windows reports as `0xc0000409`) and `test-eval-callback` (needs
+   libcurl). `test-jinja-py` fails on Windows only; it passes on Linux. The
+   reference logs are committed at `docs/rtr-handoff/upstream-four-tests.log`
+   and `pr-four-tests.log` — compare against them rather than re-diagnosing.
 3. **`--help` audit** — the fork's flags and the new upstream flags are both
    listed. This is the only check that catches a flag whose parser survived a
    merge while its help entry did not; it has already caught one (`-rtra`).

@@ -42,6 +42,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Required MiniMax metrics package is not in HEA
 # reports GGML_AVX512:BOOL=OFF while /arch:AVX512 is in the flags.
 # The flags below match scripts/build-zen.bat (upstream PR #1734).
 # Evidence: docs/sessions/2026-09-08-upstream-merge/evidence-5-zen4-build-2026-09-08.md
+#
+# SUPERSEDED for new builds: since upstream ac7f1feb (#2430) FindSIMD.cmake
+# probes VNNI/VBMI/BF16 on MSVC, so -DGGML_NATIVE=ON alone is enough. The
+# explicit flags are kept here so the recorded Step0 measurements stay
+# reproducible with the exact command that produced them.
 cmake -S . -B build -DLLAMA_BUILD_TESTS=ON -DGGML_CUDA=OFF `
   -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release `
   -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_BF16=ON

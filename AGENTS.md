@@ -12,9 +12,10 @@
 >   RTR auto files. The fork keeps its own implementation, which is the promoted
 >   v2 without the environment gate;
 > - the memory-directory path, which is specific to one machine;
-> - any build instruction here that omits `GGML_AVX512_VNNI` and its siblings:
->   on MSVC that silently produces a build without `HAVE_FANCY_SIMD`, i.e.
->   without the IQK Zen4 kernels. See `FORK_WORKFLOW.md` gate 1.
+> - any statement that `GGML_AVX512_VNNI` and its siblings must be passed by
+>   hand: since upstream `ac7f1feb` (#2430) `-DGGML_NATIVE=ON` detects them on
+>   MSVC too. What still matters is the check that `llama-cli` prints
+>   `HAVE_FANCY_SIMD is defined`. See `FORK_WORKFLOW.md` gate 1.
 > - the "Current Best Next Work" section below: Step0 has since made MiniMax
 >   bytes per token the active direction. See the 2026-09-08 session index.
 >

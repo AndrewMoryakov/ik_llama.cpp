@@ -6,6 +6,11 @@
 # Usage:
 #   ./scripts/build-zen.sh [build-dir]
 #
+# GGML_NATIVE=ON (-march=native) enables every AVX-512 extension the CPU
+# has. Do not add -DGGML_AVX512_VNNI=ON and friends: on GCC/Clang they add
+# -mavx512vnni etc. unchecked, which on a CPU without them builds a binary
+# that faults on the first IQK kernel.
+#
 # Default build directory is "build". A subsequent
 #
 #   objdump -d <build-dir>/bin/llama-cli | grep -c vpdpbusd
@@ -20,10 +25,6 @@ BUILD_DIR=${1:-build}
 
 cmake -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DGGML_NATIVE=ON \
-    -DGGML_AVX512=ON \
-    -DGGML_AVX512_VBMI=ON \
-    -DGGML_AVX512_VNNI=ON \
-    -DGGML_AVX512_BF16=ON
+    -DGGML_NATIVE=ON
 
 cmake --build "$BUILD_DIR" --config Release -j
