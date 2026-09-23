@@ -2,7 +2,7 @@
 # MiniMax M2.7 recipe-driven quantization runner.
 #
 # Usage:
-#   .\run_recipe.ps1 -Source <bf16.gguf> -Output <out.gguf> [-Recipe .\recipes\tapered_ram_legacy_bf16.json] [-Imatrix <path>] [-DryRun]
+#   .\run_recipe.ps1 -Source <bf16.gguf> -Output <out.gguf> [-Recipe .\recipes\ram_81_bf16.json] [-Imatrix <path>] [-DryRun]
 #
 
 param(
@@ -12,7 +12,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Output,
 
-    [string]$Recipe = (Join-Path $PSScriptRoot "recipes\tapered_ram_legacy_bf16.json"),
+    [string]$Recipe = (Join-Path $PSScriptRoot "recipes\ram_81_bf16.json"),
 
     [string]$Imatrix = "",
 

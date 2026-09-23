@@ -35,18 +35,23 @@ The first high-quality M2.7 attempt, `ram_88_bf16.json`, produced a 94.58 GB
 (88.09 GiB) GGUF. A `--no-mmap` load on this 95.09 GiB RAM machine reduced
 available memory to about 0.4 GiB and the process working set was trimmed.
 That file is retained as a research variant, not the recommended RAM profile.
+It is in `E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-88-Research\`.
+The interrupted Balanced 74 `.partial` file remains in `E:\Lm Models\` and
+must not be loaded as a completed model.
 The revised `ram_81_bf16.json` lowers only central expert gate/up tensors,
 while preserving the higher precision of the expert down tensors.
 
-| Selected output in `E:\Lm Models` | Bytes | GB decimal | GiB | Expert tensor check |
+Selected outputs are under `E:\Lm Models\AndrewM\`, one model per folder.
+
+| Folder / GGUF | Bytes | GB decimal | GiB | Expert tensor check |
 |---|---:|---:|---:|---|
-| `MiniMax-M2.7-Compact-50-BF16-imatrix.gguf` | 51,457,564,576 | 51.46 | 47.92 | 186/186 match |
-| `MiniMax-M2.7-Balanced-74-BF16-imatrix.gguf` | 79,788,654,496 | 79.79 | 74.31 | 186/186 match |
-| `MiniMax-M2.7-RAM-81-BF16-imatrix.gguf` | 86,882,271,136 | 86.88 | 80.92 | 186/186 match |
+| `MiniMax-M2.7-Compact-50/MiniMax-M2.7-Compact-50-BF16-imatrix.gguf` | 51,457,564,576 | 51.46 | 47.92 | 186/186 match |
+| `MiniMax-M2.7-Balanced-74/MiniMax-M2.7-Balanced-74-BF16-imatrix.gguf` | 79,788,654,496 | 79.79 | 74.31 | 186/186 match |
+| `MiniMax-M2.7-RAM-81/MiniMax-M2.7-RAM-81-BF16-imatrix.gguf` | 86,882,271,136 | 86.88 | 80.92 | 186/186 match |
 
 Run run_recipe.ps1 with Source, Output, Imatrix and Recipe parameters. For
-example, set Recipe to recipes\ram_88_bf16.json and Output to
-E:\Lm Models\MiniMax-M2.7-RAM-88-BF16-imatrix.gguf. The default quantizer is
+example, set Recipe to recipes\ram_81_bf16.json and Output to
+E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-81\MiniMax-M2.7-RAM-81-BF16-imatrix.gguf. The default quantizer is
 D:\build-zen4\bin\llama-quantize.exe. DryRun prints the command without
 loading the model. Estimate invokes the quantizer's dry-run mode and scans
 the whole source without writing GGUF output.

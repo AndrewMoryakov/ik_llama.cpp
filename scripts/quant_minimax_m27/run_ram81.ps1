@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $source = "E:\Lm Models\unsloth\MiniMax-M2,7-BF16\MiniMax-M2.7-BF16-00001-of-00010.gguf"
 $imatrix = "E:\Lm Models\unsloth\MiniMax-M2,7-BF16\imatrix_minimax_m27_unsloth.dat"
 $recipe = Join-Path $PSScriptRoot "recipes\ram_81_bf16.json"
-$output = "E:\Lm Models\MiniMax-M2.7-RAM-81-BF16-imatrix.gguf"
+$output = "E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-81\MiniMax-M2.7-RAM-81-BF16-imatrix.gguf"
 $state = "$output.state.json"
 if (Test-Path -LiteralPath $output) { throw "Refusing to overwrite $output" }
 $started = (Get-Date).ToString("o")
