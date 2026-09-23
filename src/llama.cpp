@@ -5875,6 +5875,17 @@ static llama_rtr_auto_decision llama_rtr_auto_should_disable(
 // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
 static int llama_model_load(const std::string & fname, llama_model & model, llama_model_params & params) {
     try {
+#if !defined(GGML_USE_CUDA) && !defined(GGML_USE_SYCL) && !defined(GGML_USE_VULKAN) && !defined(GGML_USE_CANN) && !defined(GGML_USE_RPC)
+        // A build without any offload backend still reports one "device" (the
+        // CPU buffer type) with no free memory, and the fit logic then tries to
+        // place layers on it and corrupts the heap. There is nothing to fit to,
+        // so --fit is a no-op here. Launchers such as Unsloth pass "--fit on"
+        // unconditionally.
+        if (params.fit) {
+            LLAMA_LOG_INFO("%s: --fit ignored: this build has no GPU/offload backend\n", __func__);
+            params.fit = false;
+        }
+#endif
         model.use_mmap_requested = params.use_mmap;
         model.rtr_status = params.repack_tensors ?
                 LLAMA_RTR_STATUS_ENABLED : LLAMA_RTR_STATUS_DISABLED;
