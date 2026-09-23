@@ -22,7 +22,7 @@
     "ffn_gate_inp_type": "f32"
   },
   "id": "minimax_m27_balanced_74_bf16",
-  "label": "M2.7 balanced 74 GiB",
+  "label": "MiniMax M2.7 core down IQ2_S, gate/up IQ2_XS, 74 GiB (r1)",
   "expected_output_gib": 74,
   "expected_bpw": 2.8,
   "zones": [
