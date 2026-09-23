@@ -1,0 +1,65 @@
+{
+  "status": "verified",
+  "architecture_basis": "MiniMax M2.7 GGUF: 62 layers, 256 experts, top-8",
+  "layers": 62,
+  "source_types": [
+    "bf16"
+  ],
+  "default_source_type": "bf16",
+  "imatrix": {
+    "required": true,
+    "recommended": true,
+    "notes": "Use the MiniMax M2.7 imatrix produced from this BF16 source."
+  },
+  "base_ftype": "IQ1_S",
+  "fixed_args": {
+    "output_tensor_type": "iq4_xs",
+    "token_embedding_type": "iq4_xs",
+    "attn_q_type": "q4_k",
+    "attn_k_type": "q4_k",
+    "attn_v_type": "iq4_k",
+    "attn_output_type": "iq4_xs",
+    "ffn_gate_inp_type": "f32"
+  },
+  "id": "minimax_m27_compact_50_bf16",
+  "label": "M2.7 compact 50 GiB",
+  "expected_output_gib": 48,
+  "expected_bpw": 1.85,
+  "zones": [
+    {
+      "name": "edge",
+      "layers": [
+        0,
+        1,
+        60,
+        61
+      ],
+      "ffn_down_exps": "iq3_ks",
+      "ffn_gate_exps": "iq2_s",
+      "ffn_up_exps": "iq2_s"
+    },
+    {
+      "name": "bridge",
+      "layers": [
+        2,
+        3,
+        4,
+        5,
+        56,
+        57,
+        58,
+        59
+      ],
+      "ffn_down_exps": "iq2_s",
+      "ffn_gate_exps": "iq2_xs",
+      "ffn_up_exps": "iq2_xs"
+    },
+    {
+      "name": "core",
+      "layers": "6-55",
+      "ffn_down_exps": "iq1_s",
+      "ffn_gate_exps": "iq1_s",
+      "ffn_up_exps": "iq1_s"
+    }
+  ]
+}

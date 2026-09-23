@@ -1,0 +1,70 @@
+{
+  "status": "research; quantized but too large for no-mmap on this machine",
+  "architecture_basis": "MiniMax M2.7 GGUF: 62 layers, 256 experts, top-8",
+  "layers": 62,
+  "source_types": [
+    "bf16"
+  ],
+  "default_source_type": "bf16",
+  "imatrix": {
+    "required": true,
+    "recommended": true,
+    "notes": "Use the MiniMax M2.7 imatrix produced from this BF16 source."
+  },
+  "base_ftype": "IQ3_KS",
+  "fixed_args": {
+    "output_tensor_type": "q8_0",
+    "token_embedding_type": "q8_0",
+    "attn_q_type": "iq5_k",
+    "attn_k_type": "q8_0",
+    "attn_v_type": "q8_0",
+    "attn_output_type": "q5_K",
+    "ffn_gate_inp_type": "f32"
+  },
+  "id": "minimax_m27_ram_88_bf16",
+  "label": "M2.7 RAM 88 GiB",
+  "expected_output_gib": 88,
+  "expected_bpw": 3.3,
+  "zones": [
+    {
+      "name": "edge",
+      "layers": [
+        0,
+        1,
+        60,
+        61
+      ],
+      "ffn_down_exps": "iq5_k",
+      "ffn_gate_exps": "iq4_xs",
+      "ffn_up_exps": "iq4_xs"
+    },
+    {
+      "name": "bridge",
+      "layers": [
+        2,
+        3,
+        4,
+        57,
+        58,
+        59
+      ],
+      "ffn_down_exps": "iq3_ks",
+      "ffn_gate_exps": "iq3_ks",
+      "ffn_up_exps": "iq3_ks"
+    },
+    {
+      "name": "sensitive",
+      "layers": "5-13,48-56",
+      "ffn_down_exps": "iq3_ks",
+      "ffn_gate_exps": "iq3_ks",
+      "ffn_up_exps": "iq3_ks"
+    },
+    {
+      "name": "core",
+      "layers": "14-47",
+      "ffn_down_exps": "iq3_ks",
+      "ffn_gate_exps": "iq3_xxs",
+      "ffn_up_exps": "iq3_xxs"
+    }
+  ]
+}
