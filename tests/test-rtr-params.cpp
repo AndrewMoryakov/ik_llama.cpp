@@ -6,6 +6,7 @@
 #endif
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -52,6 +53,16 @@ static bool parse_moe_trace(
 }
 
 int main() {
+    // The parser has a tolerant-args mode for embedding as another tool's
+    // backend. Machines set up for that export IK_LLAMA_IGNORE_UNKNOWN_ARGS
+    // user-wide, which would make every "must be rejected" case below pass
+    // an unknown option. Test the strict parser regardless of the environment.
+    // The mode is latched on first use, so this has to run before any parse.
+#ifdef _WIN32
+    _putenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS=");
+#else
+    unsetenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS");
+#endif
     {
         gpt_params params;
         assert(!parse_moe_trace({ "--moe-trace", "trace.ndjson" }, false, params));
