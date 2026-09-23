@@ -131,6 +131,35 @@ int main() {
         assert(params.use_mmap);
     }
 
+    // --fit: upstream bare flag, plus the optional on/off value that mainline
+    // llama.cpp launchers (Unsloth) pass. A following option must not be eaten.
+    {
+        const gpt_params params = parse({});
+        assert(!params.fit);
+    }
+    {
+        const gpt_params params = parse({ "--fit" });
+        assert(params.fit);
+    }
+    {
+        const gpt_params params = parse({ "--fit", "-c", "128" });
+        assert(params.fit);
+        assert(params.n_ctx == 128);
+    }
+    {
+        const gpt_params params = parse({ "--fit", "on", "-c", "128" });
+        assert(params.fit);
+        assert(params.n_ctx == 128);
+    }
+    {
+        const gpt_params params = parse({ "--fit", "off" });
+        assert(!params.fit);
+    }
+    {
+        const gpt_params params = parse({ "--no-webui", "--props", "-c", "256" });
+        assert(params.n_ctx == 256);
+    }
+
     assert(!llama_model_loader_mmap_enabled(nullptr));
     assert(!llama_model_mmap_requested(nullptr));
     assert(!llama_model_has_mmap_buffers(nullptr));

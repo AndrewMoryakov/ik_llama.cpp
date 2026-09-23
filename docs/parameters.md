@@ -68,7 +68,7 @@ Some often used terms.
 | Parameter | Description | Default | Notes/Examples |
 | - | - | - | - |
 | `-h, --help, --usage` | Print usage and exit | - | - |
-| `--fit` | Automatically fit to available VRAM | off | Loads as many tensors to the GPU(s) as available VRAM will permit. [PR 1501](https://github.com/ikawrakow/ik_llama.cpp/pull/1501) [PR 1504](https://github.com/ikawrakow/ik_llama.cpp/pull/1504) |
+| `--fit [on\|off]` | Automatically fit to available VRAM | off | Loads as many tensors to the GPU(s) as available VRAM will permit. The optional `on`/`off` value (as passed by mainline llama.cpp launchers) is accepted; bare `--fit` means `on`. [PR 1501](https://github.com/ikawrakow/ik_llama.cpp/pull/1501) [PR 1504](https://github.com/ikawrakow/ik_llama.cpp/pull/1504) |
 | `--fit-margin N` | Safety VRAM margin in MiB when using `--fit` | 1024 | Increase this value in case of CUDA OOM when loading the model. Decrease to less than 1024 if the model loads successfully and you feel that too much VRAM has been left unused |
 | `--gpu-fit-margin GPU1,M1,...` | Per GPU fit margin | - |  Set the fit margin per GPU when auto-fitting the model. [PR 1872](https://github.com/ikawrakow/ik_llama.cpp/pull/1872) |
 | `-wgt, --worst-graph-tokens N` | Number of tokens to use for worst-case graph | - | Control compute buffer sizes for large batches. Provided "as is" for users that understand the limitations, please don't open issues when using this. [PR 1560](https://github.com/ikawrakow/ik_llama.cpp/pull/1560) |

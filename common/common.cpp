@@ -1153,14 +1153,10 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     common_params_sampling & sparams = params.sparams;
 
     // Unsloth launches llama-server from its own llama.cpp fork and passes a few
-    // flags this fork does not define: --fit <mode> (GPU layer auto-offload),
-    // --no-webui and --props. Accept and ignore them so ik_llama can serve as
-    // Unsloth's CPU/Zen4 inference backend instead of the stock server. --fit
-    // takes a value; the other two are boolean.
-    if (arg == "--fit") {
-        CHECK_ARG            // consume and ignore its value (e.g. "on")
-        return true;
-    }
+    // flags this fork does not define: --no-webui and --props. Accept and ignore
+    // them so ik_llama can serve as Unsloth's CPU/Zen4 inference backend instead
+    // of the stock server. Unsloth's "--fit <on|off>" is handled by the regular
+    // --fit option below, which accepts an optional on/off value.
     if (arg == "--no-webui" || arg == "--props") {
         return true;
     }
@@ -2253,7 +2249,22 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         return true;
     }
     if (arg == "--fit") {
+        // Bare --fit enables fitting (upstream form). An optional on/off value
+        // is accepted for launchers that pass mainline llama.cpp's "--fit on".
+        // Only a recognised mode token is consumed, so "--fit -m model" still
+        // parses -m normally.
         params.fit = true;
+        if (i + 1 < argc) {
+            std::string v = argv[i + 1];
+            std::transform(v.begin(), v.end(), v.begin(),
+                    [](unsigned char c) { return (char)std::tolower(c); });
+            if (v == "on" || v == "1" || v == "true") {
+                ++i;
+            } else if (v == "off" || v == "0" || v == "false") {
+                ++i;
+                params.fit = false;
+            }
+        }
         return true;
     }
     if (arg == "--defer-experts") {
@@ -3462,7 +3473,7 @@ void gpt_params_print_usage(int /*argc*/, char ** argv, const gpt_params & param
     options.push_back({ "*",           "       --fit-margin N",         "safety margin in MiB when auto-fitting model offloading"});
     options.push_back({ "*",           "-gfm,  --gpu-fit-margin N",     "per-layer GPU fit margin as layer_id,margin pairs, comma-separated" });
     options.push_back({ "*",           "-wgt, --worst-graph-tokens N",  "number of tokens to use for worst-case graph"});
-    options.push_back({ "*",           "       --fit",                  "automatically determine which tensors to offload to the GPU(s)"});
+    options.push_back({ "*",           "       --fit [on|off]",         "automatically determine which tensors to offload to the GPU(s)"});
     options.push_back({ "*",           "       --numa TYPE",            "attempt optimizations that help on some NUMA systems\n"
                                                                         "  - distribute: spread execution evenly over all nodes\n"
                                                                         "  - isolate: only spawn threads on CPUs on the node that execution started on\n"
