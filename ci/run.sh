@@ -25,9 +25,11 @@ mkdir -p "$2"
 OUT=$(realpath "$1")
 MNT=$(realpath "$2")
 
-rm -f "$OUT/*.log"
-rm -f "$OUT/*.exit"
-rm -f "$OUT/*.md"
+# Quoted, the pattern is passed to rm literally and nothing is removed, so a
+# fresh run kept the previous logs and tee -a appended to them.
+rm -f "$OUT"/*.log
+rm -f "$OUT"/*.exit
+rm -f "$OUT"/*.md
 
 sd=`dirname $0`
 cd $sd/../

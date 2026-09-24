@@ -1,5 +1,12 @@
 # Analysis 1 — Variant B: Cross-Layer Expert Prefetch (engineering design)
 
+> **STATUS: HISTORICAL DESIGN, DO NOT IMPLEMENT.** Step0 rejected the premise
+> required by this proposal: adjacent tokens share too few experts for the
+> previous-token prefetch to recover enough physical traffic. See
+> [`evidence-8-step0-locality-2026-09-09.md`](../../sessions/2026-09-08-upstream-merge/evidence-8-step0-locality-2026-09-09.md)
+> §4 and §6. Keep this file as the design that was tested. Reopen it only after
+> a new predictor demonstrates useful byte recall on a real routing trace.
+
 Grounded in the actual ik_llama.cpp fork at `O:\user files\Projects\ik_llama.cpp`. Companion to `docs/superpowers/specs/2025-moe-ssd-inference-speedup.md` (Variant B). Target: MiniMax M2.7, 230B/~10B active, 62 layers, 256 experts top-8, **no shared experts**, sigmoid routing + learnable bias. ~115 GB quant on a 96 GB box → the model **cannot** fully reside in RAM.
 
 ## 0. Governing reality: this is a demand-paging problem, not a copy problem

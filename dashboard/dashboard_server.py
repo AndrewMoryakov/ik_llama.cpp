@@ -128,6 +128,12 @@ DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(DASHBOARD_DIR)
 DASHBOARD_HTML = os.path.join(DASHBOARD_DIR, "dashboard.html")
 BUILD_BIN = os.path.join(REPO_ROOT, "build", "bin")
+
+# The only names /api/launch will start. The UI offers the first two and the
+# system report probes all three. Comparing against this list rather than
+# sanitising a path is what keeps an absolute path or ".." out: neither can
+# equal one of these strings.
+LAUNCHABLE = ("llama-cli", "llama-server", "llama-bench")
 BENCH_RESULTS_DIR = os.path.join(REPO_ROOT, "bench_results")
 
 # Static files allowed to be served (whitelist for security)
@@ -208,22 +214,20 @@ class ProcessManager:
                     self._stderr_path = stderr_path
 
                     if os.name == "nt":
-                        # Windows: create a .bat wrapper that redirects stderr to file.
-                        # The .bat runs in a new console with fully real stdin/stdout.
-                        fd2, bat_path = tempfile.mkstemp(prefix='ik_dash_', suffix='.bat')
-                        with os.fdopen(fd2, 'w') as bf:
-                            cmd_line = subprocess.list2cmdline(args)
-                            bf.write(f'@echo off\n')
-                            bf.write(f'title llama-cli interactive\n')
-                            for key, value in env_overrides.items():
-                                bf.write(f'set "{key}={value}"\n')
-                            bf.write(f'{cmd_line} 2>"{stderr_path}"\n')
-                        self._bat_path = bat_path
-
+                        # This used to write the command into a temporary .bat.
+                        # Everything in a .bat goes through the cmd parser, so an
+                        # argument or an environment value carrying & or " ran as
+                        # a command of its own. Popen hands the argument vector to
+                        # CreateProcess directly, and merged_env already carries
+                        # the overrides, so the batch file is not needed at all.
+                        # stderr still goes to a file rather than a pipe: a pipe
+                        # is what breaks console stdin, a file does not.
+                        self._stderr_file = open(stderr_path, "wb")
                         self.proc = subprocess.Popen(
-                            [bat_path],
+                            args,
                             cwd=work_dir,
                             env=merged_env,
+                            stderr=self._stderr_file,
                             creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
                         )
                     else:
@@ -323,6 +327,13 @@ class ProcessManager:
 
     def _cleanup_temp_files(self):
         """Clean up temporary files created for terminal mode."""
+        handle = getattr(self, '_stderr_file', None)
+        if handle:
+            try:
+                handle.close()
+            except Exception:
+                pass
+            self._stderr_file = None
         for attr in ('_stderr_path', '_bat_path'):
             path = getattr(self, attr, None)
             if path:
@@ -495,7 +506,7 @@ def get_system_info():
 
     # Check available executables
     info["executables"] = {}
-    for name in ["llama-cli", "llama-server", "llama-bench"]:
+    for name in LAUNCHABLE:
         ext = ".exe" if platform.system() == "Windows" else ""
         path = os.path.join(BUILD_BIN, name + ext)
         info["executables"][name] = os.path.isfile(path)
@@ -849,8 +860,25 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # Cleaner logging
         sys.stderr.write(f"[dashboard] {args[0]} {args[1]}\n")
 
+    def _allowed_origins(self):
+        port = self.server.server_address[1]
+        return {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+    def _origin_ok(self):
+        # A browser always sends Origin on a cross-origin request, so a missing
+        # Origin means a local client such as curl, which we still allow.
+        origin = self.headers.get("Origin")
+        return origin is None or origin in self._allowed_origins()
+
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # This used to answer every origin with "*". The server listens on
+        # 127.0.0.1, but that does not make it private: any page open in the
+        # browser could POST to /api/launch and start a process. Only the
+        # dashboard's own origin is answered now.
+        origin = self.headers.get("Origin")
+        if origin and origin in self._allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
@@ -946,6 +974,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if not self._origin_ok():
+            self._json_response({"error": "cross-origin request rejected"}, 403)
+            return
         path = urlparse(self.path).path
 
         if path == "/api/file-info":
@@ -1015,17 +1046,30 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             args = body.get("args", [])
             env = body.get("env", {})
             terminal = body.get("terminal", False)
-            if not args:
-                self._json_response({"error": "No args provided"}, 400)
+            if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args):
+                self._json_response({"error": "args must be a non-empty array of strings"}, 400)
                 return
             if not isinstance(env, dict):
                 self._json_response({"error": "env must be an object"}, 400)
                 return
             env = {str(k): str(v) for k, v in env.items() if str(k)}
-            # Resolve executable path
+            bad_keys = [k for k in env if not k.isidentifier()]
+            if bad_keys:
+                self._json_response({"error": f"bad environment names: {bad_keys[:5]}"}, 400)
+                return
+            # The name is matched against a fixed list rather than sanitised.
+            # os.path.join drops BUILD_BIN entirely when given an absolute path,
+            # so the old code would run whatever the client named.
             exe_name = args[0]
+            if exe_name not in LAUNCHABLE:
+                self._json_response(
+                    {"error": f"not launchable: {exe_name!r}; allowed: {list(LAUNCHABLE)}"}, 400)
+                return
             ext = ".exe" if platform.system() == "Windows" else ""
             exe_path = os.path.join(BUILD_BIN, exe_name + ext)
+            if os.path.dirname(os.path.realpath(exe_path)) != os.path.realpath(BUILD_BIN):
+                self._json_response({"error": "resolved outside the build directory"}, 400)
+                return
             if not os.path.isfile(exe_path):
                 self._json_response({"error": f"Executable not found: {exe_path}"}, 404)
                 return

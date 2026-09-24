@@ -300,8 +300,18 @@ function Parse-Timings([string[]]$lines) {
         if ($ln -match 'prompt eval time\s*=\s*[\d.]+\s*ms\s*/\s*(\d+)\s*tokens.*?([\d.]+)\s*tokens per second') {
             $r.PromptTok = [int]$Matches[1]; $r.PromptTps = [double]$Matches[2]
         }
-        elseif ($ln -match '(^|\s)eval time\s*=\s*[\d.]+\s*ms\s*/\s*(\d+)\s*(?:runs|tokens).*?([\d.]+)\s*tokens per second') {
-            $r.EvalRuns = [int]$Matches[2]; $r.GenTps = [double]$Matches[3]
+        elseif ($ln -match '(^|\s)eval time\s*=\s*[\d.]+\s*ms\s*/\s*(\d+)\s*(runs|tokens).*?([\d.]+)\s*tokens per second') {
+            # Two different lines can match here, and they count different things.
+            #   "runs"   - llama_print_timings, prints ctx->n_eval directly.
+            #   "tokens" - main.cpp own summary (upstream 0a415bde, 2026-07-06),
+            #              prints n_decoded. The first generated token comes out
+            #              of the prompt batch, which increments n_p_eval and not
+            #              n_eval, so n_eval = n_decoded - 1.
+            # That commit also made llama_print_timings conditional, so on a
+            # normal generation the "runs" line is not emitted at all.
+            $parsed = [int]$Matches[2]
+            $r.EvalRuns = if ($Matches[3] -eq 'runs') { $parsed } else { [math]::Max(0, $parsed - 1) }
+            $r.GenTps = [double]$Matches[4]
         }
     }
     return [pscustomobject]$r
@@ -453,7 +463,10 @@ function Get-TokenTimingStats($timing) {
 function Get-Median([double[]]$values) {
     if ($values.Count -eq 0) { return $null }
     $sorted = @($values | Sort-Object)
-    $middle = [int]($sorted.Count / 2)
+    # [int] in PowerShell rounds half to even, so [int](3/2) is 2 and not 1, and
+    # the "median" of a three-run set came back as its maximum. Same for any
+    # count of the form 4k+3.
+    $middle = [int][math]::Floor($sorted.Count / 2)
     if (($sorted.Count % 2) -eq 1) { return $sorted[$middle] }
     return ($sorted[$middle - 1] + $sorted[$middle]) / 2.0
 }

@@ -7,9 +7,32 @@
 > Superseded below:
 > - the "local-only, do not push" rule for `feature/raptor-lake-laptop` - its
 >   assets are now in `dev`, and the branch model says where the rest belongs;
-> - the PR #1738 timing ("silence threshold ~2026-05-12") - the PR is still
->   open and upstream has since removed the RTR auto files;
-> - the memory-directory path, which is specific to one machine.
+> - the PR #1738 timing ("silence threshold ~2026-05-12") - **the PR was closed
+>   on 2026-09-08**; upstream never took the feature and has since removed the
+>   RTR auto files. The fork keeps its own implementation, which is the promoted
+>   v2 without the environment gate;
+> - the memory-directory path, which is specific to one machine;
+> - any build instruction here that omits `GGML_AVX512_VNNI` and its siblings:
+>   on MSVC that silently produces a build without `HAVE_FANCY_SIMD`, i.e.
+>   without the IQK Zen4 kernels. See `FORK_WORKFLOW.md` gate 1.
+> - the "Current Best Next Work" section below: Step0 has since made MiniMax
+>   bytes per token the active direction. See the 2026-09-08 session index.
+>
+> **Где текущее состояние (обновлено 2026-09-11).**
+>
+> - `FORK_WORKFLOW.md` — модель ветвления, гейты, итог по PR в upstream;
+> - `docs/sessions/2026-09-08-upstream-merge/00-INDEX.md` — результаты слияния
+>   с upstream и пройденного рунбука Step0, семнадцать документов доказательств
+>   с измерениями и границами; последний (evidence-17) — переквантование в
+>   Tapered-RAM, сменившее режим с упора в чтение на упор в счёт;
+> - `docs/sessions/2026-09-08-upstream-merge/HANDOFF-doc-review-2026-09-10.md` —
+>   ревью документации: что устарело, где точки входа ведут не туда, и что уже
+>   исправлено, чтобы не делать работу дважды.
+>
+> Направление работ выбрано измерениями, а не предположениями: нагрузка упирается
+> в объём чтения, три направления оптимизации отвергнуты прогонами. Прежде чем
+> предлагать префетч по маршруту, закрепление горячих экспертов или ускорение
+> вычислений, прочитайте `evidence-8` §6.
 >
 > Dates inside the text are left as written. Treat every status claim as of
 > 2026-05-05 unless verified against live state.
@@ -141,13 +164,16 @@ Read:
 
 ## Current Best Next Work
 
-The current mainline priority is no longer broad MiniMax policy benchmarking.
+**Обновлено 2026-09-11.** Актуальное состояние и следующая работа —
+`docs/sessions/2026-09-08-upstream-merge/NEXT-2026-09-11.md`: что в полёте, что
+открыто, риски и порядок чтения. Прочитать его первым.
 
-Current recommended order:
+Кратко: направление «меньше байт на токен» для MiniMax выполнено
+(переквантование сменило режим, evidence-17); дальше — закрыть хвосты правок
+этой сессии (evidence-18), затем группы 2–4 плана исправлений (evidence-15/16).
 
-1. `gpt-oss-120b prompt-packed productization`
-2. `gpt-oss-20b decode-side optimization`
-3. return to `MiniMax` only with a new smarter locality hypothesis or a dedicated large benchmark window
+Прежний указатель на `gpt-oss-120b`/`gpt-oss-20b` снят: он предшествовал
+измерениям Step0 и не отражает, чем сессия занималась.
 
 ## Do Not Re-Discover
 

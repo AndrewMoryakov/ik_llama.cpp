@@ -1,5 +1,10 @@
 # Raptor Lake mobile laptop profile (i7-1360p, 16 GB)
 
+> **HISTORICAL PROFILE NOTES (2026-05).** Branch and build instructions below
+> are superseded. The current branch is `exp/raptor-runtime`, and the current
+> upstream option is `GGML_AVXVNNI`. Start with
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md).
+
 Hardware profile and tuning notes for a CPU-only laptop build of
 `ik_llama.cpp`. Captures what is different from the main 7950X / 96 GiB
 workstation profile and where the actual numbers from the laptop will go

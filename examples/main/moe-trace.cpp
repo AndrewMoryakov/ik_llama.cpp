@@ -254,6 +254,15 @@ bool moe_trace_writer::open_and_write_header(
         fail("cannot determine model file size for trace identity: " + canonical_model.string());
         return false;
     }
+    // A capture is expensive evidence: a 512-token MiniMax trace costs several
+    // minutes of a swap-bound run and is the basis of the locality analysis.
+    // Refuse to overwrite an existing file rather than truncating it silently.
+    // Removing or renaming the previous trace has to be a deliberate act.
+    std::error_code exists_error;
+    if (fs::exists(fs::path(path), exists_error) && !exists_error) {
+        fail("trace output already exists, refusing to overwrite: " + path);
+        return false;
+    }
     out_.open(path.c_str(), std::ios::out | std::ios::trunc);
     if (!out_) {
         fail("cannot open trace file: " + path);

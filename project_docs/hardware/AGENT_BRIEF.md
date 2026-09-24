@@ -1,5 +1,10 @@
 # Agent brief — `feature/raptor-lake-laptop` (i7-1360p / 16 GB CPU-only profile)
 
+> **HISTORICAL SNAPSHOT (2026-05). DO NOT FOLLOW THE BRANCH OR BUILD COMMANDS
+> BELOW.** The current branch is `exp/raptor-runtime`; the upstream option is
+> `GGML_AVXVNNI`. PR #1738 was closed without the feature. Start with
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) and `build_raptor_lake.bat`.
+
 Bootstrap for LLM agents (and for the human after `/compact`) who need
 to pick up the laptop adaptation work. Copy the relevant sections at
 the start of a new session.

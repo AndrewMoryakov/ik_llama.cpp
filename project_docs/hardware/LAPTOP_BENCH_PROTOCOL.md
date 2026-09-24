@@ -1,5 +1,10 @@
 # Laptop bench protocol — i7-1360p / 16 GB
 
+> **HISTORICAL PROCEDURE. DO NOT RUN STEP 0 BELOW.** The current branch is
+> `exp/raptor-runtime`, and the current build option is `GGML_AVXVNNI`. Start
+> with [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) and
+> `build_raptor_lake.bat`.
+
 Step-by-step procedure to follow on the laptop on first contact, plus
 workstation reference numbers for cross-machine context. Lives in this
 branch (`feature/raptor-lake-laptop`); pull it on the laptop, follow

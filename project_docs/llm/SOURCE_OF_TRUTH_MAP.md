@@ -1,5 +1,10 @@
 # Source Of Truth Map
 
+> **HISTORICAL MAP (2026-03).** The `CURRENT` labels below describe the March
+> snapshot. Current workflow and evidence live in
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) and the
+> [2026-09-08 session index](../../docs/sessions/2026-09-08-upstream-merge/00-INDEX.md).
+
 Use this map to jump to the right document without reopening the whole tree.
 
 ## If You Need One Consolidated State Transfer First

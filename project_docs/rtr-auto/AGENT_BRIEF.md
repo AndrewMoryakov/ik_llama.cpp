@@ -1,3 +1,22 @@
+> # STOP — этот бриф устарел 2026-09-10
+>
+> **Не выполняйте инструкции ниже.** Раздел «Threshold для autonomous proceed»
+> велит при молчании мейнтейнера force-push`ить патч из `pr/rtr-auto-mode-v2`
+> в `pr/rtr-auto-mode`. Условие сработало 2026-05-12, но:
+>
+> - PR #1738 **закрыт 2026-09-08**, upstream функцию не взял;
+> - обе ветки `pr/rtr-auto-mode*` удалены, сохранены тегами `archive/pr/*`;
+> - реализация в форке живёт на `dev` и это уже продвинутая v2 **без**
+>   env-гейта: `llama_rtr_status` с AUTO_KEEP / AUTO_DISABLE / AUTO_UNKNOWN,
+>   `llama_rtr_auto_should_disable` возвращает решение, а не bool.
+>
+> Ничего не «held», никто не ждёт ответа мейнтейнера, ветки для push нет.
+>
+> Текущее устройство работы: `FORK_WORKFLOW.md`.
+> Разбор состояния rtr-auto: `docs/sessions/2026-09-08-upstream-merge/RAPTOR_MERGE_ANALYSIS_AND_PLAN.md` §10.
+
+---
+
 # Agent brief — `-rtr auto` PR review
 
 Этот документ — bootstrap для LLM-агента в новой сессии, продолжающего

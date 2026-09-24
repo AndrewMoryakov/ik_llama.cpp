@@ -1,5 +1,9 @@
 # Краткое руководство — i7-1360p / 16 GB ноутбук
 
+> **ИСТОРИЧЕСКАЯ ИНСТРУКЦИЯ.** Текущая ветка: `exp/raptor-runtime`; актуальная
+> upstream-опция: `GGML_AVXVNNI`. Текущая процедура находится в
+> [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md) и `build_raptor_lake.bat`.
+
 Протестированная конфигурация: Intel Core i7-1360p (4P+8E ядер, AVX-VNNI, без AVX-512),
 16 ГБ DDR5, NVMe SSD, только CPU (без дискретной видеокарты).
 Ветка сборки: `feature/raptor-lake-laptop`.

@@ -1,5 +1,10 @@
 # LLM Docs
 
+> **HISTORICAL NAVIGATION SNAPSHOT (2026-03).** This directory is not the
+> current agent entry point. Start with [`FORK_WORKFLOW.md`](../../FORK_WORKFLOW.md)
+> and the [2026-09-08 session index](../../docs/sessions/2026-09-08-upstream-merge/00-INDEX.md).
+> The read order below preserves the March state only.
+
 This section is for future LLM agents, not for end users.
 
 Goal:
