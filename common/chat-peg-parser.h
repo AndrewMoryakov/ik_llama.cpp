@@ -199,5 +199,15 @@ struct tagged_peg_parser {
     tagged_parse_result parse_anywhere_and_extract(const std::string & input) const;
 };
 
+// Tool parameters declared as a top-level anyOf/oneOf of object schemas, with no
+// top-level "properties", name their arguments only inside the variants. The
+// tag-based tool-call parsers build one rule per top-level property, so such a
+// tool got no argument rules at all and its call failed to parse. This returns
+// the parameters with the variants merged into one object schema: every
+// property of any variant, required only where all variants agree. Anything
+// else is returned unchanged. The tool itself still has to reject argument
+// combinations that no single variant allowed.
+nlohmann::ordered_json common_chat_tool_parameters_merged(const nlohmann::ordered_json & params);
+
 tagged_peg_parser build_tagged_peg_parser(
     const std::function<common_peg_parser(common_peg_parser_builder & builder)> & fn);
