@@ -87,6 +87,7 @@ static void test_normalize_quotes_with_embedded_quotes(testing & t);
 // TAG_WITH_TAGGED argument parsing tests
 static void test_tagged_args_with_embedded_quotes(testing & t);
 static void test_tagged_args_closer_newline_optional(testing & t);
+static void test_tagged_args_union_schema_and_leading_space(testing & t);
 
 int main(int argc, char * argv[]) {
     testing t(std::cout);
@@ -113,6 +114,7 @@ int main(int argc, char * argv[]) {
     t.test("normalize_quotes_to_json", test_normalize_quotes_to_json);
     t.test("tagged_args_embedded_quotes", test_tagged_args_with_embedded_quotes);
     t.test("tagged_args_closer_newline_optional", test_tagged_args_closer_newline_optional);
+    t.test("tagged_args_union_schema_and_leading_space", test_tagged_args_union_schema_and_leading_space);
 
     return t.summary();
 }
@@ -2372,4 +2374,90 @@ static void test_tagged_args_closer_newline_optional(testing & t) {
     check("closer without newline",
         "<tool_call>search\n<arg_key>file</arg_key>\n<arg_value>app.log</arg_value>"
         "<arg_key>pattern</arg_key>\n<arg_value>error</arg_value>\n</tool_call>");
+}
+
+// Tool-call arguments through the generated tag-tagged parser (Qwen3-Coder
+// `<parameter=name>` format), end to end: template apply -> generated PEG
+// parser -> common_chat_parse.
+//
+// Two faults seen with a pi coding agent against llama-server --jinja:
+//  - a tool whose parameters are a top-level anyOf of objects, with no
+//    top-level "properties", got arguments {} although the model wrote every
+//    <parameter=...>; pi-lean-edit's edit tool has that schema;
+//  - a string value lost one leading space, so "    timeout = 60" arrived as
+//    "   timeout = 60" and indentation in code edits was corrupted.
+static void test_tagged_args_union_schema_and_leading_space(testing & t) {
+    std::ifstream fin("models/templates/Qwen3-Coder.jinja", std::ios::binary);
+    std::ostringstream buf;
+    buf << fin.rdbuf();
+    const std::string template_str = buf.str();
+    if (!t.assert_true("Qwen3-Coder template loaded", !template_str.empty())) {
+        return;
+    }
+
+    const std::string line_range =
+        R"({"type":"object","required":["path","startLine","newText"],"properties":{)"
+        R"("path":{"type":"string"},"startLine":{"type":"integer","minimum":1},)"
+        R"("endLine":{"type":"integer","minimum":1},"newText":{"type":"string"}},"additionalProperties":false})";
+    const std::string column_range =
+        R"({"type":"object","required":["path","startLine","startColumn","endColumn","newText"],"properties":{)"
+        R"("path":{"type":"string"},"startLine":{"type":"integer","minimum":1},)"
+        R"("startColumn":{"type":"integer","minimum":1},"endColumn":{"type":"integer","minimum":1},)"
+        R"("newText":{"type":"string"}},"additionalProperties":false})";
+    const std::string union_schema = R"({"type":"object","anyOf":[)" + line_range + "," + column_range + "]}";
+
+    const std::string model_output =
+        "<tool_call>\n"
+        "<function=line_edit>\n"
+        "<parameter=path>\n"
+        "app/config.py\n"
+        "</parameter>\n"
+        "<parameter=startLine>\n"
+        "7\n"
+        "</parameter>\n"
+        "<parameter=newText>\n"
+        "    timeout = 60\n"
+        "</parameter>\n"
+        "</function>\n"
+        "</tool_call>";
+
+    common_chat_templates_ptr tmpls(common_chat_templates_init(/* model = */ nullptr, template_str));
+
+    for (const auto & [label, schema] : std::vector<std::pair<std::string, std::string>>{
+             { "union schema", union_schema },
+             { "flat schema", line_range },
+         }) {
+        common_chat_msg user;
+        user.role    = "user";
+        user.content = "Replace line 7 of app/config.py.";
+
+        common_chat_templates_inputs inputs;
+        inputs.messages              = { user };
+        inputs.add_generation_prompt = true;
+        inputs.tools                 = { common_chat_tool{ "line_edit", "Edit a line range.", schema } };
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+        common_peg_arena arena;
+        if (!params.parser.empty()) {
+            arena.load(params.parser);
+        }
+        common_chat_parser_params parser_params(params);
+        parser_params.parser = arena;
+
+        common_chat_msg msg;
+        try {
+            msg = common_chat_parse(model_output, /* is_partial = */ false, parser_params);
+        } catch (const std::exception & e) {
+            t.assert_true(label + ": parses (" + e.what() + ")", false);
+            continue;
+        }
+        if (!t.assert_equal(label + ": one tool call", 1u, msg.tool_calls.size())) {
+            continue;
+        }
+        json args = json::parse(msg.tool_calls[0].arguments);
+        t.assert_equal(label + ": path", std::string("app/config.py"), args.value("path", std::string()));
+        t.assert_equal(label + ": startLine", 7, args.value("startLine", 0));
+        t.assert_equal(label + ": newText keeps its indentation", std::string("    timeout = 60"),
+                       args.value("newText", std::string()));
+    }
 }
