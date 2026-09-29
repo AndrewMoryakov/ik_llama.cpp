@@ -88,6 +88,7 @@ static void test_normalize_quotes_with_embedded_quotes(testing & t);
 static void test_tagged_args_with_embedded_quotes(testing & t);
 static void test_tagged_args_closer_newline_optional(testing & t);
 static void test_tagged_args_union_schema_and_leading_space(testing & t);
+static void test_tool_parameters_merged_union_rules(testing & t);
 
 int main(int argc, char * argv[]) {
     testing t(std::cout);
@@ -115,6 +116,7 @@ int main(int argc, char * argv[]) {
     t.test("tagged_args_embedded_quotes", test_tagged_args_with_embedded_quotes);
     t.test("tagged_args_closer_newline_optional", test_tagged_args_closer_newline_optional);
     t.test("tagged_args_union_schema_and_leading_space", test_tagged_args_union_schema_and_leading_space);
+    t.test("tool_parameters_merged_union_rules", test_tool_parameters_merged_union_rules);
 
     return t.summary();
 }
@@ -2459,5 +2461,120 @@ static void test_tagged_args_union_schema_and_leading_space(testing & t) {
         t.assert_equal(label + ": startLine", 7, args.value("startLine", 0));
         t.assert_equal(label + ": newText keeps its indentation", std::string("    timeout = 60"),
                        args.value("newText", std::string()));
+    }
+}
+
+// common_chat_tool_parameters_merged: what a top-level anyOf/oneOf of object
+// schemas becomes, and what the generated tag-tagged parser then accepts.
+//  - a property that two variants declare differently must accept a value valid
+//    for either declaration, not only for the first one seen;
+//  - "required" on the outer schema constrains every variant, so it must survive
+//    the merge, extended by the names that every variant requires;
+//  - a string value keeps trailing spaces, as it keeps leading ones.
+static void test_tool_parameters_merged_union_rules(testing & t) {
+    const json int_value = json::parse(R"({"type":"integer"})");
+    const json str_value = json::parse(R"({"type":"string"})");
+
+    const std::string conflict =
+        R"({"type":"object","anyOf":[)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}},)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"string"}}}]})";
+    const std::string outer_required =
+        R"({"type":"object","required":["path"],"anyOf":[)"
+        R"({"type":"object","required":["a"],"properties":{"path":{"type":"string"},"a":{"type":"string"}}},)"
+        R"({"type":"object","required":["b"],"properties":{"path":{"type":"string"},"b":{"type":"string"}}}]})";
+
+    // Schema level.
+    {
+        json merged         = common_chat_tool_parameters_merged(json::parse(conflict));
+        json expected_value = json::object();
+        expected_value["anyOf"] = json::array({ int_value, str_value });
+        t.assert_equal("conflicting declarations become an anyOf", expected_value.dump(),
+                       merged["properties"]["value"].dump());
+        t.assert_equal("requirement shared by all variants kept", std::string(R"(["value"])"),
+                       merged["required"].dump());
+    }
+    {
+        json merged = common_chat_tool_parameters_merged(json::parse(
+            R"({"anyOf":[)"
+            R"({"properties":{"path":{"type":"string"},"a":{"type":"integer"}}},)"
+            R"({"properties":{"path":{"type":"string"},"b":{"type":"integer"}}}]})"));
+        t.assert_equal("identical declarations stay unwrapped", str_value.dump(), merged["properties"]["path"].dump());
+    }
+    {
+        json merged = common_chat_tool_parameters_merged(json::parse(outer_required));
+        t.assert_equal("outer required kept", std::string(R"(["path"])"), merged["required"].dump());
+
+        json both = common_chat_tool_parameters_merged(json::parse(
+            R"({"type":"object","required":["path"],"oneOf":[)"
+            R"({"type":"object","required":["mode","a"],"properties":{"path":{"type":"string"},"mode":{"type":"string"},"a":{"type":"string"}}},)"
+            R"({"type":"object","required":["b","mode"],"properties":{"path":{"type":"string"},"mode":{"type":"string"},"b":{"type":"string"}}}]})"));
+        t.assert_equal("outer required first, then the variants' common ones", std::string(R"(["path","mode"])"),
+                       both["required"].dump());
+    }
+
+    // Parser level, through the Qwen3-Coder template.
+    std::ifstream fin("models/templates/Qwen3-Coder.jinja", std::ios::binary);
+    std::ostringstream buf;
+    buf << fin.rdbuf();
+    const std::string template_str = buf.str();
+    if (!t.assert_true("Qwen3-Coder template loaded", !template_str.empty())) {
+        return;
+    }
+    common_chat_templates_ptr tmpls(common_chat_templates_init(/* model = */ nullptr, template_str));
+
+    // True when the output parses into exactly one tool call; its arguments go to args.
+    auto parse_call = [&](const std::string & schema, const std::string & parameters, json & args) {
+        common_chat_msg user;
+        user.role    = "user";
+        user.content = "Run the tool.";
+
+        common_chat_templates_inputs inputs;
+        inputs.messages              = { user };
+        inputs.add_generation_prompt = true;
+        inputs.tools                 = { common_chat_tool{ "probe", "A probe tool.", schema } };
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+        common_peg_arena arena;
+        if (!params.parser.empty()) {
+            arena.load(params.parser);
+        }
+        common_chat_parser_params parser_params(params);
+        parser_params.parser = arena;
+
+        const std::string model_output = "<tool_call>\n<function=probe>\n" + parameters + "</function>\n</tool_call>";
+        try {
+            common_chat_msg msg = common_chat_parse(model_output, /* is_partial = */ false, parser_params);
+            if (msg.tool_calls.size() != 1) {
+                return false;
+            }
+            args = json::parse(msg.tool_calls[0].arguments);
+            return true;
+        } catch (const std::exception &) {
+            return false;
+        }
+    };
+    auto parameter = [](const std::string & name, const std::string & value) {
+        return "<parameter=" + name + ">\n" + value + "\n</parameter>\n";
+    };
+
+    json args;
+    if (t.assert_true("value valid for the second variant parses", parse_call(conflict, parameter("value", "abc"), args))) {
+        t.assert_equal("second-variant value", std::string("abc"), args.value("value", std::string()));
+    }
+    if (t.assert_true("value valid for the first variant parses", parse_call(conflict, parameter("value", "42"), args))) {
+        t.assert_true("first-variant value present", args.contains("value"));
+    }
+
+    t.assert_true("call without an outer-required argument is rejected",
+                  !parse_call(outer_required, parameter("a", "x"), args));
+    if (t.assert_true("call with the outer-required argument parses",
+                      parse_call(outer_required, parameter("path", "p") + parameter("a", "x"), args))) {
+        t.assert_equal("outer-required value", std::string("p"), args.value("path", std::string()));
+    }
+
+    const std::string flat_string = R"({"type":"object","required":["s"],"properties":{"s":{"type":"string"}}})";
+    if (t.assert_true("string value with a trailing space parses", parse_call(flat_string, parameter("s", "foo "), args))) {
+        t.assert_equal("trailing space kept", std::string("foo "), args.value("s", std::string()));
     }
 }
