@@ -2,6 +2,7 @@
 
 #include "chat-auto-parser.h"
 #include "ggml.h"
+#include "json-schema-to-grammar.h"
 #include "peg-parser.h"
 
 #include <nlohmann/json.hpp>
@@ -660,6 +661,9 @@ common_peg_parser common_chat_peg_builder::python_style_tool_calls(
         ordered_json   params   = common_chat_tool_parameters_merged(
             function.contains("parameters") ? function.at("parameters") : ordered_json::object());
 
+        common_schema_info schema_info;
+        schema_info.resolve_refs(params);
+
         auto args = eps();
         if (params.contains("properties") && !params["properties"].empty()) {
             auto arg_choice = choice();
@@ -678,6 +682,13 @@ common_peg_parser common_chat_peg_builder::python_style_tool_calls(
 
                 if (is_string_type) {
                     arg_value_parser = string_value_parser;
+                } else if (schema_info.resolves_to_string(prop_def)) {
+                    // A property that may be a string without declaring it directly: a
+                    // merged anyOf, a type list such as ["string", "null"], a $ref. A
+                    // quoted value has to become a JSON string; python_value() would
+                    // pass 'abc' through verbatim, which is not JSON. Values of the
+                    // other permitted types still parse as Python values.
+                    arg_value_parser = choice({ string_value_parser, tool_arg_value(python_value()) });
                 } else {
                     arg_value_parser = tool_arg_value(python_value());
                 }

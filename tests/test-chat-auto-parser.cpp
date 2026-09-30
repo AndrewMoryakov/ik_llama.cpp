@@ -89,6 +89,7 @@ static void test_tagged_args_with_embedded_quotes(testing & t);
 static void test_tagged_args_closer_newline_optional(testing & t);
 static void test_tagged_args_union_schema_and_leading_space(testing & t);
 static void test_tool_parameters_merged_union_rules(testing & t);
+static void test_python_style_args_string_capable_union(testing & t);
 
 int main(int argc, char * argv[]) {
     testing t(std::cout);
@@ -117,6 +118,7 @@ int main(int argc, char * argv[]) {
     t.test("tagged_args_closer_newline_optional", test_tagged_args_closer_newline_optional);
     t.test("tagged_args_union_schema_and_leading_space", test_tagged_args_union_schema_and_leading_space);
     t.test("tool_parameters_merged_union_rules", test_tool_parameters_merged_union_rules);
+    t.test("python_style_args_string_capable_union", test_python_style_args_string_capable_union);
 
     return t.summary();
 }
@@ -2576,5 +2578,98 @@ static void test_tool_parameters_merged_union_rules(testing & t) {
     const std::string flat_string = R"({"type":"object","required":["s"],"properties":{"s":{"type":"string"}}})";
     if (t.assert_true("string value with a trailing space parses", parse_call(flat_string, parameter("s", "foo "), args))) {
         t.assert_equal("trailing space kept", std::string("foo "), args.value("s", std::string()));
+    }
+}
+
+// Python-style tool calls (LFM2 `[name(arg='value')]`) for properties that can be
+// a string without declaring `"type": "string"` directly: a merged anyOf of two
+// string declarations, a string-or-integer union, and a nullable string. A
+// quoted value must arrive as a JSON string, not be copied verbatim as
+// `'abc'`, which is not JSON. Values of other types keep their own type.
+static void test_python_style_args_string_capable_union(testing & t) {
+    std::ifstream fin("models/templates/LFM2-8B-A1B.jinja", std::ios::binary);
+    std::ostringstream buf;
+    buf << fin.rdbuf();
+    const std::string template_str = buf.str();
+    if (!t.assert_true("LFM2 template loaded", !template_str.empty())) {
+        return;
+    }
+    common_chat_templates_ptr tmpls(common_chat_templates_init(/* model = */ nullptr, template_str));
+
+    // True when the output parses into exactly one tool call with JSON arguments.
+    auto parse_call = [&](const std::string & schema, const std::string & call, json & args) {
+        common_chat_msg user;
+        user.role    = "user";
+        user.content = "Run the tool.";
+
+        common_chat_templates_inputs inputs;
+        inputs.messages              = { user };
+        inputs.add_generation_prompt = true;
+        inputs.tools                 = { common_chat_tool{ "probe", "A probe tool.", schema } };
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+        common_peg_arena arena;
+        if (!params.parser.empty()) {
+            arena.load(params.parser);
+        }
+        common_chat_parser_params parser_params(params);
+        parser_params.parser = arena;
+
+        const std::string model_output = "<|tool_call_start|>[probe(" + call + ")]<|tool_call_end|>";
+        try {
+            common_chat_msg msg = common_chat_parse(model_output, /* is_partial = */ false, parser_params);
+            if (msg.tool_calls.size() != 1) {
+                return false;
+            }
+            args = json::parse(msg.tool_calls[0].arguments);
+            return true;
+        } catch (const std::exception &) {
+            return false;
+        }
+    };
+
+    const std::string two_strings =
+        R"({"type":"object","anyOf":[)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"string","description":"a"}}},)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"string","description":"b"}}}]})";
+    const std::string string_or_integer =
+        R"({"type":"object","anyOf":[)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}},)"
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"string"}}}]})";
+    const std::string nullable_string =
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":["string","null"]}}})";
+    const std::string plain_string =
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"string"}}})";
+    const std::string plain_integer =
+        R"({"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}})";
+
+    struct string_case {
+        std::string label;
+        std::string schema;
+        std::string call;
+    };
+    for (const auto & c : std::vector<string_case>{
+             { "two string declarations, single quotes", two_strings, "value='abc'" },
+             { "two string declarations, double quotes", two_strings, "value=\"abc\"" },
+             { "string or integer, string value", string_or_integer, "value='abc'" },
+             { "nullable string", nullable_string, "value='abc'" },
+             { "plain string", plain_string, "value='abc'" },
+         }) {
+        json args;
+        if (t.assert_true(c.label + ": parses into JSON arguments", parse_call(c.schema, c.call, args))) {
+            t.assert_true(c.label + ": value is a JSON string", args.contains("value") && args["value"].is_string());
+            t.assert_equal(c.label + ": value", std::string("abc"), args.value("value", std::string()));
+        }
+    }
+
+    for (const auto & [label, schema] : std::vector<std::pair<std::string, std::string>>{
+             { "string or integer, integer value", string_or_integer },
+             { "plain integer", plain_integer },
+         }) {
+        json args;
+        if (t.assert_true(label + ": parses into JSON arguments", parse_call(schema, "value=42", args))) {
+            t.assert_true(label + ": value stays a number", args.contains("value") && args["value"].is_number_integer());
+            t.assert_equal(label + ": value", 42, args.value("value", 0));
+        }
     }
 }
