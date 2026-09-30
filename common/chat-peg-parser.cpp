@@ -2,6 +2,7 @@
 
 #include "chat-auto-parser.h"
 #include "ggml.h"
+#include "json-schema-to-grammar.h"
 #include "peg-parser.h"
 
 #include <nlohmann/json.hpp>
@@ -74,15 +75,23 @@ ordered_json common_chat_tool_parameters_merged(const ordered_json & params) {
     ordered_json merged = params;
     merged.erase(key);
     merged["type"] = "object";
-    ordered_json properties = ordered_json::object();
-    std::vector<std::string> required;
+    // Every distinct declaration of each property, in first-seen order. A
+    // property that two variants declare differently must accept a value valid
+    // for either of them, so keeping only one declaration would reject calls
+    // that match another variant.
+    ordered_json declarations = ordered_json::object();
+    std::vector<std::string> common;
     bool first = true;
     bool closed = true;
     for (const auto & variant : variants) {
         if (variant.contains("properties")) {
             for (const auto & el : variant.at("properties").items()) {
-                if (!properties.contains(el.key())) {
-                    properties[el.key()] = el.value();
+                auto & seen = declarations[el.key()];
+                if (seen.is_null()) {
+                    seen = ordered_json::array();
+                }
+                if (std::find(seen.begin(), seen.end(), el.value()) == seen.end()) {
+                    seen.push_back(el.value());
                 }
             }
         }
@@ -95,19 +104,50 @@ ordered_json common_chat_tool_parameters_merged(const ordered_json & params) {
             }
         }
         if (first) {
-            required = own;
+            common = own;
             first = false;
         } else {
-            std::vector<std::string> common;
-            for (const auto & name : required) {
+            std::vector<std::string> kept;
+            for (const auto & name : common) {
                 if (std::find(own.begin(), own.end(), name) != own.end()) {
-                    common.push_back(name);
+                    kept.push_back(name);
                 }
             }
-            required = common;
+            common = kept;
         }
         closed = closed && variant.contains("additionalProperties") && variant.at("additionalProperties") == false;
     }
+
+    ordered_json properties = ordered_json::object();
+    for (const auto & el : declarations.items()) {
+        if (el.value().size() == 1) {
+            properties[el.key()] = el.value().front();
+        } else {
+            ordered_json alternatives = ordered_json::object();
+            alternatives["anyOf"]     = el.value();
+            properties[el.key()]      = alternatives;
+        }
+    }
+
+    // Names the outer schema requires constrain every variant, so they stay
+    // required; the variants add the names that all of them require.
+    std::vector<std::string> required;
+    auto add_required = [&required](const std::string & name) {
+        if (std::find(required.begin(), required.end(), name) == required.end()) {
+            required.push_back(name);
+        }
+    };
+    if (params.contains("required") && params.at("required").is_array()) {
+        for (const auto & name : params.at("required")) {
+            if (name.is_string()) {
+                add_required(name.get<std::string>());
+            }
+        }
+    }
+    for (const auto & name : common) {
+        add_required(name);
+    }
+
     merged["properties"] = properties;
     merged["required"] = required;
     if (closed) {
@@ -621,6 +661,9 @@ common_peg_parser common_chat_peg_builder::python_style_tool_calls(
         ordered_json   params   = common_chat_tool_parameters_merged(
             function.contains("parameters") ? function.at("parameters") : ordered_json::object());
 
+        common_schema_info schema_info;
+        schema_info.resolve_refs(params);
+
         auto args = eps();
         if (params.contains("properties") && !params["properties"].empty()) {
             auto arg_choice = choice();
@@ -639,6 +682,13 @@ common_peg_parser common_chat_peg_builder::python_style_tool_calls(
 
                 if (is_string_type) {
                     arg_value_parser = string_value_parser;
+                } else if (schema_info.resolves_to_string(prop_def)) {
+                    // A property that may be a string without declaring it directly: a
+                    // merged anyOf, a type list such as ["string", "null"], a $ref. A
+                    // quoted value has to become a JSON string; python_value() would
+                    // pass 'abc' through verbatim, which is not JSON. Values of the
+                    // other permitted types still parse as Python values.
+                    arg_value_parser = choice({ string_value_parser, tool_arg_value(python_value()) });
                 } else {
                     arg_value_parser = tool_arg_value(python_value());
                 }
