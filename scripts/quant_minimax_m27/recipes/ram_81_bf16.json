@@ -22,7 +22,7 @@
     "ffn_gate_inp_type": "f32"
   },
   "id": "minimax_m27_ram_81_bf16",
-  "label": "M2.7 RAM 81 GiB",
+  "label": "MiniMax M2.7 core down IQ3_KS, gate/up IQ2_XS, 81 GiB (r1)",
   "expected_output_gib": 81,
   "expected_bpw": 3.05,
   "zones": [
