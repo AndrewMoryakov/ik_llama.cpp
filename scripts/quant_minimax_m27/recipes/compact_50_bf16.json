@@ -22,7 +22,7 @@
     "ffn_gate_inp_type": "f32"
   },
   "id": "minimax_m27_compact_50_bf16",
-  "label": "M2.7 compact 50 GiB",
+  "label": "MiniMax M2.7 core IQ1_S, 48 GiB (r1)",
   "expected_output_gib": 48,
   "expected_bpw": 1.85,
   "zones": [

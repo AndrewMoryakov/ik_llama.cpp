@@ -1,5 +1,63 @@
 # MiniMax M2.7 BF16 quantization on the 7950X
 
+## Unsloth-compatible r2 (2026-09-23)
+
+The r1 GGUF files below contain fork-local GGML types such as 139 and 156.
+The installed Unsloth Studio server is byte-identical to
+`D:\ik_llama-unsloth\build\bin\Release\llama-server.exe`, whose GGML type
+range ends at 66. It rejects r1 during GGUF header parsing, before loading
+weights. More RAM or changing only attention does not solve that error.
+
+`prepare_unsloth_compatible.py` converts the r1 expert zone maps to types
+accepted by that server: IQ3_KS -> IQ3_S, IQ5_K -> Q5_K; other expert types
+are already supported. It creates exact per-tensor plans for the Unsloth
+quantizer. All non-expert tensors retain their source precision: attention,
+embedding and output are BF16; routers, norms and expert-probability biases
+are F32. The `ram88` research profile keeps attention at Q8_0. Each r2 model
+is quantized directly from the original ten-part BF16 GGUF and matching M2.7
+imatrix with the **same binary family as the Unsloth server**. The installed
+quantizer accepts `--tensor-type-file` (the primary fork's `--custom-q` syntax
+is not portable to it).
+The quantizer may print `invalid magic characters: '????'` while probing the
+legacy imatrix file as GGUF; the following `loaded 496 importance matrix
+entries` line confirms that it fell back to the correct imatrix format.
+
+| r2 profile | Quantizer dry-run payload | GiB | Plan |
+|---|---:|---:|---|
+| `compact` | 54,703.72 MiB | 53.42 | compact expert map, BF16 service tensors |
+| `balanced` | 81,505.72 MiB | 79.60 | balanced expert map, BF16 service tensors |
+| `ram_safe` | 83,665.72 MiB | 81.70 | balanced map plus IQ3_XXS gate/up in layers 5–9, 52–56 |
+| `ram81` | 90,919.72 MiB | 88.79 | research; inadequate no-mmap RAM headroom |
+| `ram88` | 95,822.47 MiB | 93.58 | research; exceeds practical RAM target even with Q8_0 attention |
+
+The table reports dry-run estimates. The three selected r2 outputs were
+subsequently verified as follows (one GGUF per folder under
+`E:\Lm Models\AndrewM\`):
+
+| Profile | Actual GGUF | Unsloth server smoke test | Free physical RAM after load |
+|---|---:|---|---:|
+| `compact` | 53.43 GiB | `/health` OK, one token generated | ~30.8 GiB |
+| `balanced` | 79.60 GiB | `/health` OK, one token generated | ~4.9 GiB |
+| `ram_safe` | 81.72 GiB (87,738,154,912 bytes) | `/health` OK, one token generated | ~2.5 GiB |
+
+The `ram_safe` test used the installed Unsloth Release `llama-server.exe` with
+`-c 512 -ngl 0 -lm none --no-warmup --fit off`. Its 809 tensor headers and
+payload length matched the exact plan; no tensor type exceeded the installed
+server's supported range. The 2.5 GiB RAM margin is narrow and may change
+with other applications or a larger context. The test server was stopped.
+
+The existing 88.09 GiB r1
+GGUF left only about 0.4 GiB free on a no-mmap load, so `ram81` and `ram88`
+should not be treated as RAM-safe. Generate plans with
+`python prepare_unsloth_compatible.py`; invoke `run_unsloth_compatible.ps1`
+with `-Profile <name>` and optionally `-Estimate`. Verify completed GGUF
+headers with `python verify_unsloth_compatible.py <profile> <gguf>` and test
+loading with the Unsloth server before considering a profile complete.
+The compact r2 no-mmap load used about 53.6 GiB of server working set; that
+observation motivated reducing `ram_safe` from an initial 83.39 GiB estimate
+to 81.70 GiB. These smoke tests establish format and runtime compatibility,
+not relative model quality; r2 perplexity has not been measured.
+
 The active fork is this repository (origin is AndrewMoryakov/ik_llama.cpp).
 The parent project directory is a wrapper. The source is the ten-part BF16
 GGUF under E:\Lm Models\unsloth\MiniMax-M2,7-BF16\. Pass its first shard as
@@ -35,7 +93,7 @@ The first high-quality M2.7 attempt, `ram_88_bf16.json`, produced a 94.58 GB
 (88.09 GiB) GGUF. A `--no-mmap` load on this 95.09 GiB RAM machine reduced
 available memory to about 0.4 GiB and the process working set was trimmed.
 That file is retained as a research variant, not the recommended RAM profile.
-It is in `E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-88-Research\`.
+It is in `E:\Lm Models\AndrewM\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1\`.
 The interrupted Balanced 74 `.partial` file remains in `E:\Lm Models\` and
 must not be loaded as a completed model.
 The revised `ram_81_bf16.json` lowers only central expert gate/up tensors,
@@ -43,15 +101,43 @@ while preserving the higher precision of the expert down tensors.
 
 Selected outputs are under `E:\Lm Models\AndrewM\`, one model per folder.
 
+### Model names
+
+Use `MiniMax-M2.7-<core-expert-quantization>-<rounded-size-GiB>-r<recipe-revision>`
+for both folder and GGUF basename. Most expert layers are in the core, so its
+quantization distinguishes the recipes in the filename. `Core-IQ1_S` means
+all three expert tensors (down, gate, up) are IQ1_S. `CoreDown-IQ2_S-GateUp-IQ2_XS`
+means the core expert down tensors are IQ2_S and gate/up are IQ2_XS. The same
+rule applies to the two IQ3_KS core variants. The size is the completed GGUF
+rounded to whole GiB, not a RAM requirement. `r1` identifies this first set
+of local recipe revisions. Names do not imply a measured response-quality rank.
+
+The full layer map is below. Each pair is **expert down / expert gate and up**;
+attention and non-expert tensor types are in the recipe JSON.
+
+| Internal recipe | Edge (0–1, 60–61) | Bridge | Sensitive | Core |
+|---|---|---|---|---|
+| `compact_50_bf16.json` | IQ3_KS / IQ2_S | IQ2_S / IQ2_XS (2–5, 56–59) | — | IQ1_S / IQ1_S (6–55) |
+| `balanced_74_bf16.json` | IQ5_K / IQ4_XS | IQ4_XS / IQ3_KS (2–4, 57–59) | IQ3_KS / IQ2_XS (5–13, 48–56) | IQ2_S / IQ2_XS (14–47) |
+| `ram_81_bf16.json` | IQ5_K / IQ4_XS | IQ3_KS / IQ3_KS (2–4, 57–59) | IQ3_KS / IQ3_KS (5–13, 48–56) | IQ3_KS / IQ2_XS (14–47) |
+| `ram_88_bf16.json` | IQ5_K / IQ4_XS | IQ3_KS / IQ3_KS (2–4, 57–59) | IQ3_KS / IQ3_KS (5–13, 48–56) | IQ3_KS / IQ3_XXS (14–47) |
+
+All four were quantized from the original BF16 GGUF with its matching M2.7
+imatrix. This provenance lives in the recipe and here, rather than in the
+filename: Unsloth Studio treats a GGUF basename ending in `-imatrix` as a
+calibration matrix and hides the model. The original recipe filenames and IDs
+remain stable for historical run records.
+
 | Folder / GGUF | Bytes | GB decimal | GiB | Expert tensor check |
 |---|---:|---:|---:|---|
-| `MiniMax-M2.7-Compact-50/MiniMax-M2.7-Compact-50-BF16-imatrix.gguf` | 51,457,564,576 | 51.46 | 47.92 | 186/186 match |
-| `MiniMax-M2.7-Balanced-74/MiniMax-M2.7-Balanced-74-BF16-imatrix.gguf` | 79,788,654,496 | 79.79 | 74.31 | 186/186 match |
-| `MiniMax-M2.7-RAM-81/MiniMax-M2.7-RAM-81-BF16-imatrix.gguf` | 86,882,271,136 | 86.88 | 80.92 | 186/186 match |
+| `MiniMax-M2.7-Core-IQ1_S-48GiB-r1/MiniMax-M2.7-Core-IQ1_S-48GiB-r1.gguf` | 51,457,564,576 | 51.46 | 47.92 | 186/186 match |
+| `MiniMax-M2.7-CoreDown-IQ2_S-GateUp-IQ2_XS-74GiB-r1/MiniMax-M2.7-CoreDown-IQ2_S-GateUp-IQ2_XS-74GiB-r1.gguf` | 79,788,654,496 | 79.79 | 74.31 | 186/186 match |
+| `MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1/MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1.gguf` | 86,882,271,136 | 86.88 | 80.92 | 186/186 match |
+| `MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1/MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1.gguf` | 94,583,013,280 | 94.58 | 88.09 | 186/186 match |
 
 Run run_recipe.ps1 with Source, Output, Imatrix and Recipe parameters. For
 example, set Recipe to recipes\ram_81_bf16.json and Output to
-E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-81\MiniMax-M2.7-RAM-81-BF16-imatrix.gguf. The default quantizer is
+E:\Lm Models\AndrewM\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1.gguf. The default quantizer is
 D:\build-zen4\bin\llama-quantize.exe. DryRun prints the command without
 loading the model. Estimate invokes the quantizer's dry-run mode and scans
 the whole source without writing GGUF output.

@@ -12,12 +12,12 @@ $jobs = @(
     @{
         Name = "balanced_74"
         Recipe = Join-Path $PSScriptRoot "recipes\balanced_74_bf16.json"
-        Output = "E:\Lm Models\AndrewM\MiniMax-M2.7-Balanced-74\MiniMax-M2.7-Balanced-74-BF16-imatrix.gguf"
+        Output = "E:\Lm Models\AndrewM\MiniMax-M2.7-CoreDown-IQ2_S-GateUp-IQ2_XS-74GiB-r1\MiniMax-M2.7-CoreDown-IQ2_S-GateUp-IQ2_XS-74GiB-r1.gguf"
     },
     @{
         Name = "ram_88"
         Recipe = Join-Path $PSScriptRoot "recipes\ram_88_bf16.json"
-        Output = "E:\Lm Models\AndrewM\MiniMax-M2.7-RAM-88-Research\MiniMax-M2.7-RAM-88-BF16-imatrix.gguf"
+        Output = "E:\Lm Models\AndrewM\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1.gguf"
     }
 )
 
