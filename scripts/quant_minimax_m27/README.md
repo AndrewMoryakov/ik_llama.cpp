@@ -41,6 +41,18 @@ subsequently verified as follows (one GGUF per folder under
 | `balanced` | 79.60 GiB | `/health` OK, one token generated | ~4.9 GiB |
 | `ram_safe` | 81.72 GiB (87,738,154,912 bytes) | `/health` OK, one token generated | ~2.5 GiB |
 
+**`balanced` was deleted on 2026-11-05** on the owner's decision, leaving
+`compact` (53.43 GiB) and `ram_safe` (81.71 GiB) on disk. The reasoning, recorded
+because it is not obvious from the sizes: `ram_safe` is the `balanced` expert map
+with 20 gate/up tensors in the sensitive layers moved from IQ2_XS (~2.3 bpw) to
+IQ3_XXS (~3.1 bpw) and nothing moved down, so on quality it cannot be behind
+`balanced`; and the free-RAM column above is the real trade - 4.9 GiB against
+2.5 GiB, i.e. roughly 10k tokens of context. `compact` stays as the low-memory
+option at ~30.8 GiB free. Regenerating `balanced` takes about 30 minutes:
+`run_unsloth_compatible.ps1 -Profile balanced`, against the committed
+`unsloth_compatible/balanced.tensor-types.txt`. Its run logs were archived to
+`E:\files\archive\minimax-m27-r2-balanced-logs\`.
+
 The `ram_safe` test used the installed Unsloth Release `llama-server.exe` with
 `-c 512 -ngl 0 -lm none --no-warmup --fit off`. Its 809 tensor headers and
 payload length matched the exact plan; no tensor type exceeded the installed
