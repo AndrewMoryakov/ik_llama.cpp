@@ -3,8 +3,9 @@
 ## Unsloth-compatible r2 (2026-09-23)
 
 The r1 GGUF files below contain fork-local GGML types such as 139 and 156.
-The installed Unsloth Studio server is byte-identical to
-`D:\ik_llama-unsloth\build\bin\Release\llama-server.exe`, whose GGML type
+As of 2026-09-23 the installed Unsloth Studio server was byte-identical to
+`D:\ik_llama-unsloth\build\bin\Release\llama-server.exe` (that volume is gone;
+the same binary family now lives at `W:\ik_llama-unsloth\`), whose GGML type
 range ends at 66. It rejects r1 during GGUF header parsing, before loading
 weights. More RAM or changing only attention does not solve that error.
 
@@ -135,10 +136,23 @@ remain stable for historical run records.
 | `MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1/MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1.gguf` | 86,882,271,136 | 86.88 | 80.92 | 186/186 match |
 | `MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1/MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ3_XXS-88GiB-r1.gguf` | 94,583,013,280 | 94.58 | 88.09 | 186/186 match |
 
+### Dry-run reproduction after the path retarget (2026-11-05)
+
+`run_recipe.ps1 -Estimate` on `compact_50_bf16.json`, run from the retargeted
+paths, printed `quant size = 49,065.85 MiB` = **47.92 GiB** at **BPW 1.799**
+across 809 tensors, 186 of which took recipe-driven custom types (iq1_s 150,
+iq2_s 16, iq2_xs 16, iq3_ks 4). Both numbers match the `Core-IQ1_S-48GiB-r1`
+row above exactly - 47.92 GiB and 186/186 - so the chain reproduces the
+2026-09-23 result, not just a successful startup. Exit 0, 29.0 min wall for
+about 90 s of CPU; the peak working set was 74-75 GiB of this machine's 95.1,
+so nothing else should want RAM at the same time. Log:
+`E:\llama_cpp\logs\estimate-2026-11-05.log`.
+
 Run run_recipe.ps1 with Source, Output, Imatrix and Recipe parameters. For
 example, set Recipe to recipes\ram_81_bf16.json and Output to
 E:\Lm Models\AndrewM\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1\MiniMax-M2.7-CoreDown-IQ3_KS-GateUp-IQ2_XS-81GiB-r1.gguf. The default quantizer is
-D:\build-zen4\bin\llama-quantize.exe. DryRun prints the command without
+E:\llama_cpp\ik-llama-unsloth-build\bin\llama-quantize.exe (retargeted
+2026-11-05). DryRun prints the command without
 loading the model. Estimate invokes the quantizer's dry-run mode and scans
 the whole source without writing GGUF output.
 
