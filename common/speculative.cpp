@@ -58,6 +58,8 @@ const std::map<std::string, enum common_speculative_type> common_speculative_typ
     {"suffix",        COMMON_SPECULATIVE_TYPE_SUFFIX}
 };
 
+const llama_ckpt_data spec_ckpt = { LLAMA_CHECKPOINT_SPEC, 0, 0 };
+
 bool common_speculative_needs_checkpoint(const llama_model * model) {
     return model != nullptr &&
         llama_model_has_recurrent(model);
@@ -882,7 +884,6 @@ struct common_speculative_state_ngram_mod : public common_speculative_state {
 };
 
 struct common_speculative_state_ngram_cache : public common_speculative_state {
-    uint16_t n_draft;
     bool save_dynamic;
     bool save_static;
 
@@ -890,17 +891,15 @@ struct common_speculative_state_ngram_cache : public common_speculative_state {
     common_ngram_cache ngram_cache_dynamic;
     common_ngram_cache ngram_cache_static;
 
-    size_t cache_size = 0; // number of tokens in n-gram cache
+    llama_tokens context_tokens;
 
     common_speculative_state_ngram_cache(
             const enum common_speculative_type type,
             const std::string & path_static,
             const std::string & path_dynamic,
-            uint16_t            n_draft,
             bool                save_dynamic,
             bool                save_static)
         : common_speculative_state(type)
-        , n_draft(n_draft)
         , save_dynamic(save_dynamic)
         , save_static(save_static)
     {
@@ -925,6 +924,8 @@ struct common_speculative_state_ngram_cache : public common_speculative_state {
 
     void begin(const llama_tokens & prompt) override {
         GGML_UNUSED(prompt);
+        ngram_cache_context.clear();
+        context_tokens.clear();
     }
 
     void draft(
@@ -932,22 +933,6 @@ struct common_speculative_state_ngram_cache : public common_speculative_state {
             const llama_tokens & prompt_tgt,
             llama_token id_last,
             llama_tokens & result) override {
-        GGML_UNUSED(params);
-
-        if (cache_size < prompt_tgt.size() + 1) {
-            llama_tokens tokens_new;
-            tokens_new.reserve(prompt_tgt.size() + 1 - cache_size);
-            for (size_t j = cache_size; j < prompt_tgt.size(); ++j) {
-                tokens_new.push_back(prompt_tgt[j]);
-            }
-            tokens_new.push_back(id_last); // add the last token
-
-            // Update context ngram cache with new prompt_tgt:
-            common_ngram_cache_update(ngram_cache_context, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
-                    tokens_new, tokens_new.size(), false);
-            cache_size = prompt_tgt.size() + 1;
-        }
-
         llama_tokens inp;
         inp.reserve(prompt_tgt.size() + 1);
         for (size_t j = 0; j < prompt_tgt.size(); ++j) {
@@ -955,9 +940,24 @@ struct common_speculative_state_ngram_cache : public common_speculative_state {
         }
         inp.push_back(id_last);
 
+        // Keep the full sequence for cross-boundary n-grams, rebuild after shrink/shift/rewrite.
+        const bool extends_context = inp.size() >= context_tokens.size() &&
+            std::equal(context_tokens.begin(), context_tokens.end(), inp.begin());
+        if (!extends_context) {
+            ngram_cache_context.clear();
+            context_tokens.clear();
+        }
+
+        const size_t nnew = inp.size() - context_tokens.size();
+        if (nnew > 0) {
+            common_ngram_cache_update(ngram_cache_context, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
+                    inp, static_cast<int>(nnew), false);
+            context_tokens = inp;
+        }
+
         result.push_back(id_last);
 
-        common_ngram_cache_draft(inp, result, n_draft, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
+        common_ngram_cache_draft(inp, result, params.n_max, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
                 ngram_cache_context,
                 ngram_cache_dynamic,
                 ngram_cache_static);
@@ -1196,13 +1196,11 @@ static common_ngram_map get_common_ngram_map(const common_speculative_config & c
 static common_speculative_state_ngram_cache create_state_ngram_cache(
         const std::string & path_static, const std::string & path_dynamic,
         const common_speculative_config & config) {
-    uint16_t n_draft = 8; // TODO get from config?
-
     // TODO bool param in common/common.h to set save_static/save_dynamic?
     bool save_static = false;
     bool save_dynamic = false;
 
-    common_speculative_state_ngram_cache state(config.type, path_static, path_dynamic, n_draft, save_static, save_dynamic);
+    common_speculative_state_ngram_cache state(config.type, path_static, path_dynamic, save_dynamic, save_static);
 
     return state;
 }
@@ -1251,9 +1249,14 @@ bool common_speculative_is_compat(llama_context * ctx_tgt) {
     bool res = true;
 
     const llama_model * model = llama_get_model(ctx_tgt);
-    if (model != nullptr && std::string(llama_model_arch_string(model)) == "lfm2") {
-        LOG_WRN("%s: speculative decoding is not supported for LFM2 models (shortconv recurrent state is not rolled back)\n", __func__);
-        return false;
+    if (model != nullptr) {
+        const std::string arch = llama_model_arch_string(model);
+        // LFM2 has a short-conv state (no SSM term): the CPU checkpoint rolls it back
+        if (arch == "lfm2") {
+            LOG_WRN("%s: LFM2 spec uses the CPU checkpoint for its short-conv state (--spec-ckpt-mode cpu)\n", __func__);
+        } else if (arch == "lfm2moe") {
+            LOG_WRN("%s: LFM2-MoE spec is lossless but the n-gram drafter accepts little here; usually not a win\n", __func__);
+        }
     }
 
     llama_kv_cache_clear(ctx_tgt);
@@ -1282,6 +1285,15 @@ done:
     llama_synchronize(ctx_tgt);
 
     return res;
+}
+
+bool common_speculative_needs_all_target_hidden(const common_speculative * spec) {
+    const auto * mtp_state = common_speculative_get_mtp_state(spec);
+    // gemma4-assistant: stateless, only the last target hidden row is needed
+    if (mtp_state != nullptr && mtp_state->constant_draft_positions) {
+        return false;
+    }
+    return true;
 }
 
 // initialization of the speculative decoding system
@@ -1416,7 +1428,7 @@ common_speculative * common_speculative_init(
 
     if (!configs.empty() && common_speculative_needs_checkpoint(target_model)) {
         const int ckpt_tokens = std::max(1, params.get_max_stage_n_max() + 1);
-        const int actual_mode = llama_spec_ckpt_init(ctx_tgt, params.spec_ckpt_mode, ckpt_tokens);
+        const int actual_mode = llama_spec_ckpt_init(ctx_tgt, spec_ckpt, params.spec_ckpt_mode, ckpt_tokens);
         if (actual_mode == LLAMA_SPEC_CKPT_NONE) {
             LOG_ERR("%s: failed to prepare speculative checkpoint mode '%s' during speculative init (max_tokens=%d)\n",
                     __func__,
@@ -1429,7 +1441,7 @@ common_speculative * common_speculative_init(
             }
             return nullptr;
         }
-        llama_spec_ckpt_discard(ctx_tgt);
+        llama_spec_ckpt_discard(ctx_tgt, spec_ckpt);
         params.spec_ckpt_mode = actual_mode;
     }
 
@@ -2001,6 +2013,65 @@ static bool common_speculative_has_target_features(const common_speculative * sp
     });
 }
 
+// parse --draft-params into draft model/context parameters
+static bool common_speculative_parse_params(const std::string & args, gpt_params & out, bool print_usage) {
+    auto [argc, argv] = parse_command_line("llama " + args);
+    const bool ok = gpt_params_parse(argc, argv, out);
+    if (!ok && print_usage) {
+        gpt_params_print_usage(argc, argv, out);
+    }
+    free_command_line(argc, argv);
+    return ok;
+}
+
+void common_speculative_reset_draft_offload_defaults(gpt_params & params) {
+    params.ncmoe = 0;
+    params.tensor_buft_overrides.clear();
+    params.offload_policy.clear();
+    params.moe_cache_size = 0;
+}
+
+// apply -td/--threads-draft to a draft params copy
+void common_speculative_apply_draft_threads(const common_params_speculative & spec, gpt_params & out) {
+    if (spec.n_threads > 0) {
+        out.n_threads = spec.n_threads;
+        if (spec.n_threads_batch <= 0) {
+            out.n_threads_batch = spec.n_threads; // follow -td
+        }
+    }
+    if (spec.n_threads_batch > 0) {
+        out.n_threads_batch = spec.n_threads_batch;
+    }
+}
+
+// store the draft affinity from parsed --draft-params
+static void common_speculative_apply_draft_affinity(const gpt_params & parsed, common_params_speculative & params) {
+    if (!parsed.cpu_affinity_configured) {
+        return;
+    }
+    // --cpu-affinity = hybrid E-cores
+    params.cpu_affinity = parsed.cpu_affinity_auto
+        ? cpu_affinity_resolve_draft({}, true)
+        : cpu_affinity_resolve_draft(parsed.cpu_affinity, false);
+    params.cpu_affinity_configured = true;
+    if (params.cpu_affinity.empty()) {
+        if (parsed.cpu_affinity_auto) {
+            LOG_WRN("%s: no efficiency cores available for the draft affinity\n", __func__);
+        }
+    } else {
+        std::string cpus;
+        for (size_t i = 0; i < params.cpu_affinity.size(); ++i) {
+            cpus += (i == 0 ? "" : ",") + std::to_string(params.cpu_affinity[i]);
+        }
+        LOG_INF("%s: draft CPU affinity: %s\n", __func__, cpus.c_str());
+    }
+    const int n_dft_threads = parsed.n_threads > 0 ? parsed.n_threads : (int) params.cpu_affinity.size();
+    if (!params.cpu_affinity.empty() && n_dft_threads > (int) params.cpu_affinity.size()) {
+        LOG_WRN("%s: draft uses %d threads on %zu pinned CPUs; consider -t %zu in --draft-params\n",
+                __func__, n_dft_threads, params.cpu_affinity.size(), params.cpu_affinity.size());
+    }
+}
+
 bool common_speculative_load_draft_model(
         common_params_speculative & params,
         const gpt_params         & params_base) {
@@ -2008,7 +2079,15 @@ bool common_speculative_load_draft_model(
         return true;
     }
 
+    // never inherit the target affinity flags into the draft copy
+    params.cpu_affinity.clear();
+    params.cpu_affinity_configured = false;
+
     gpt_params params_dft = params_base;
+    common_speculative_reset_draft_offload_defaults(params_dft);
+    params_dft.cpu_affinity.clear();
+    params_dft.cpu_affinity_auto = false;
+    params_dft.cpu_affinity_configured = false;
     if (params.has_stage_type(COMMON_SPECULATIVE_TYPE_MTP)) {
         params_dft.has_mtp = true;
     }
@@ -2019,24 +2098,27 @@ bool common_speculative_load_draft_model(
     params_dft.cache_type_v     = params.cache_type_v.empty() ? params_base.cache_type_v : params.cache_type_v;
 
 
+    LOG_INF("%s: draft uses isolated CPU-MoE/tensor/offload defaults\n", __func__);
+
     if (!params.params.empty()) {
-        auto [argc, argv] = parse_command_line("llama-server " + params.params);
-        if (!gpt_params_parse(argc, argv, params_dft)) {
-            gpt_params_print_usage(argc, argv, params_dft);
-            free_command_line(argc, argv);
+        while (!params_dft.kv_overrides.empty() && params_dft.kv_overrides.back().key[0] == 0) {
+            params_dft.kv_overrides.pop_back();
+        }
+        while (!params_dft.tensor_buft_overrides.empty() && params_dft.tensor_buft_overrides.back().pattern == nullptr) {
+            params_dft.tensor_buft_overrides.pop_back();
+        }
+        while (params_dft.fit_margin_array.size() >= 2 &&
+                params_dft.fit_margin_array[params_dft.fit_margin_array.size()-2] == -1 &&
+                params_dft.fit_margin_array.back() == 0) {
+            params_dft.fit_margin_array.pop_back();
+            params_dft.fit_margin_array.pop_back();
+        }
+        if (!common_speculative_parse_params(params.params, params_dft, true)) {
             return false;
         }
-        free_command_line(argc, argv);
     }
-
-    // We likely don't want to inherit offload policy for MTP
-    if (params.has_stage_type(COMMON_SPECULATIVE_TYPE_MTP)) {
-        params_dft.ncmoe = 0;
-        params_dft.tensor_buft_overrides.clear();
-        params_dft.offload_policy.clear();
-        LOG_INF("%s: MTP draft ignores target CPU-MoE/tensor placement overrides\n",
-                __func__);
-    }
+    common_speculative_apply_draft_threads(params, params_dft);
+    common_speculative_apply_draft_affinity(params_dft, params);
 
     LOG_INF("%s: loading draft model '%s'\n", __func__, params_dft.model.c_str());
 
@@ -2062,6 +2144,17 @@ bool common_speculative_load_draft_model(
 
     params.model_dft = loaded_model;
     params.cparams_dft = common_context_params_to_llama(params_dft);
+    params.cparams_dft.moe_cache_size = 0;
+    params.cuda_params = params_dft.cuda_params;
+    params.offload_policy = params_dft.offload_policy;
+    params.cparams_dft.cuda_params    = params.cuda_params.empty()    ? nullptr : (void *) params.cuda_params.data();
+    params.cparams_dft.offload_policy = params.offload_policy.empty() ? nullptr : (void *) &params.offload_policy;
+    // draft affinity; inherits the target one when not requested
+    const std::vector<int32_t> & cpu_affinity_dft = params.cpu_affinity_configured
+        ? params.cpu_affinity
+        : params_base.cpu_affinity;
+    params.cparams_dft.cpu_affinity   = cpu_affinity_dft.empty() ? nullptr : cpu_affinity_dft.data();
+    params.cparams_dft.n_cpu_affinity = (int32_t) cpu_affinity_dft.size();
     return true;
 }
 
@@ -2102,7 +2195,19 @@ bool common_speculative_prepare_mtp_runtime(
     if (!has_external_mtp) {
         gpt_params params_mtp = params_base;
         params_mtp.pooling_type = LLAMA_POOLING_TYPE_NONE;
+        common_speculative_apply_draft_threads(params, params_mtp);
         params.cparams_dft = common_context_params_to_llama(params_mtp);
+        params.cparams_dft.moe_cache_size = 0;
+        params.cuda_params = params_mtp.cuda_params;
+        params.offload_policy = params_mtp.offload_policy;
+        params.cparams_dft.cuda_params    = params.cuda_params.empty()    ? nullptr : (void *) params.cuda_params.data();
+        params.cparams_dft.offload_policy = params.offload_policy.empty() ? nullptr : (void *) &params.offload_policy;
+        // same draft affinity as the external draft path
+        const std::vector<int32_t> & cpu_affinity_dft = params.cpu_affinity_configured
+            ? params.cpu_affinity
+            : params_base.cpu_affinity;
+        params.cparams_dft.cpu_affinity   = cpu_affinity_dft.empty() ? nullptr : cpu_affinity_dft.data();
+        params.cparams_dft.n_cpu_affinity = (int32_t) cpu_affinity_dft.size();
     }
 
     params.cparams_dft.mtp         = true;
@@ -2142,10 +2247,26 @@ common_speculative_init_status common_speculative_try_init(
     return COMMON_SPECULATIVE_INIT_ERR_GENERIC;
 }
 
-void common_speculative_prepare_startup(
+bool common_speculative_prepare_startup(
         gpt_params & params_base,
         bool         allow_parallel_mtp) {
     auto & params = params_base.speculative;
+
+    // resolve draft affinity for embedded stages (external: on load)
+    params.cpu_affinity.clear();
+    params.cpu_affinity_configured = false;
+    if (!params.has_dft() && !params.params.empty()) {
+        gpt_params params_dft = params_base;
+        common_speculative_reset_draft_offload_defaults(params_dft);
+        params_dft.cpu_affinity.clear();
+        params_dft.cpu_affinity_auto = false;
+        params_dft.cpu_affinity_configured = false;
+        if (!common_speculative_parse_params(params.params, params_dft, false)) {
+            return false; // invalid --draft-params must abort startup
+        }
+        common_speculative_apply_draft_threads(params, params_dft);
+        common_speculative_apply_draft_affinity(params_dft, params);
+    }
 
     if (!allow_parallel_mtp && params_base.n_parallel > 1 && params.has_stage_type(COMMON_SPECULATIVE_TYPE_MTP)) {
         LOG_WRN("%s: MTP is not supported with parallel slots yet, removing the MTP stage to avoid cross-slot corruption. n_parallel=%d, stage_chain=%s\n",
@@ -2158,6 +2279,8 @@ void common_speculative_prepare_startup(
     }
 
     params_base.has_mtp = params.has_stage_type(COMMON_SPECULATIVE_TYPE_MTP);
+
+    return true;
 }
 
 bool common_speculative_finalize_startup(
@@ -2523,15 +2646,15 @@ static bool common_speculative_checkpoint_save(
     ckpt.n_past = n_past;
     ckpt.sampled = sampled;
 
-    const int actual_mode = llama_spec_ckpt_init(ctx, ckpt_mode, max_tokens);
+    const int actual_mode = llama_spec_ckpt_init(ctx, spec_ckpt, ckpt_mode, max_tokens);
     if (actual_mode == LLAMA_SPEC_CKPT_NONE) {
         return false;
     }
     ckpt.mode = actual_mode;
 
-    ckpt.valid = llama_spec_ckpt_save(ctx, seq_id);
+    ckpt.valid = llama_spec_ckpt_save(ctx, spec_ckpt, seq_id);
     if (!ckpt.valid) {
-        llama_spec_ckpt_discard(ctx);
+        llama_spec_ckpt_discard(ctx, spec_ckpt);
         return false;
     }
 
@@ -2556,7 +2679,7 @@ void common_speculative_checkpoint_discard(
         common_speculative_checkpoint & ckpt,
         llama_context * ctx) {
     ckpt.clear();
-    llama_spec_ckpt_discard(ctx);
+    llama_spec_ckpt_discard(ctx, spec_ckpt);
 }
 
 bool common_speculative_checkpoint_restore(
@@ -2577,7 +2700,7 @@ bool common_speculative_checkpoint_restore(
 
     const int step = (int) ids.size() - 1;
     const enum llama_spec_ckpt_restore_result restore_result = llama_spec_ckpt_restore_ex(
-            ctx, seq_id, ckpt.n_past, ckpt.mode == LLAMA_SPEC_CKPT_PER_STEP ? step : 0);
+            ctx, spec_ckpt, seq_id, ckpt.n_past, ckpt.mode == LLAMA_SPEC_CKPT_PER_STEP ? step : 0);
     if (restore_result == LLAMA_SPEC_CKPT_RESTORE_FAILED) {
         LOG_ERR("%s: seq_id=%d speculative checkpoint restore failed\n", __func__, (int) seq_id);
         common_speculative_checkpoint_discard(ckpt, ctx);
@@ -3003,6 +3126,28 @@ llama_context * common_speculative_get_companion_ctx(common_speculative * spec) 
     return nullptr;
 }
 
+std::vector<const llama_context *> common_speculative_get_draft_contexts(const common_speculative * spec) {
+    std::vector<const llama_context *> result;
+    if (spec == nullptr) {
+        return result;
+    }
+
+    for (const auto & impl : spec->impls) {
+        const llama_context * ctx = nullptr;
+        if (const auto * state = dynamic_cast<const common_speculative_state_draft *>(impl.get())) {
+            ctx = state->ctx_dft;
+        } else if (const auto * state = dynamic_cast<const common_speculative_state_mtp *>(impl.get())) {
+            ctx = state->ctx_mtp;
+        } else if (const auto * state = dynamic_cast<const common_speculative_state_dflash *>(impl.get())) {
+            ctx = state->ctx_dft;
+        }
+        if (ctx != nullptr) {
+            result.push_back(ctx);
+        }
+    }
+    return result;
+}
+
 static int32_t mtp_accept_batch(
         common_speculative_state_mtp & state,
         const llama_batch & accepted_batch,
@@ -3373,14 +3518,15 @@ int32_t mtp_update_kv_cache(struct llama_context * ctx, const llama_batch& batch
     LOG_DBG("[MTP-UPDATE|%s] Updating %d tokens for seq_id %d from pos %d...\n",
             is_prompt_warmup ? "PROMPT_WARMUP" : "GEN_ACCEPTED", batch.n_tokens, seq_id, (int)start_pos);
 
-    // We never need all logits. We only need the logits of the last token so we can sample
-    // the next draft token. In the MTP_OP_WARMUP case we do not need logits at all, but just
-    // in case we also get the logits of the last token.
+    // Warmup only updates MTP state and does not need logits.
+    // Accepted-token updates need only the final logit for the next draft.
     llama_batch mtp_batch = batch;
     for (int i = 0; i < mtp_batch.n_tokens; ++i) {
         mtp_batch.logits[i] = false;
     }
-    mtp_batch.logits[mtp_batch.n_tokens-1] = true;
+    if (!is_prompt_warmup) {
+        mtp_batch.logits[mtp_batch.n_tokens-1] = true;
+    }
     if (is_prompt_warmup) {
         llama_set_mtp_n_heads(ctx, mtp_heads);
         llama_set_mtp_step_idx(ctx, 0);

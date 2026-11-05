@@ -52,6 +52,8 @@ add_library(llama
             llama-load-tensors.cpp
             llama-build-context.h
             llama-build-context.cpp
+            llama-moe-cache.h
+            llama-moe-cache.cpp
             llama-model.h
             llama-model.cpp
             llama-reload-info.h
@@ -94,8 +96,10 @@ add_library(llama
             graphs/build_qwen2.cpp
             graphs/build_qwen3.cpp
             graphs/build_mellum.cpp
+            graphs/build_maple.cpp
             graphs/build_qwen3next.cpp
             graphs/build_lfm2.cpp
+            graphs/build_lfm3.cpp
             graphs/build_qwen4exp.cpp
             graphs/build_qwen35.cpp
             graphs/build_phi2.cpp
@@ -131,13 +135,17 @@ add_library(llama
             graphs/build_ernie45.cpp
             graphs/build_hunyuan.cpp
             graphs/build_mimo2.cpp
+            graphs/build_flint.cpp
             graphs/build_openai.cpp
             graphs/build_bailingmoe2.cpp
             graphs/build_bailingmoe3.cpp
             graphs/build_glm5next.cpp
+            graphs/build_raon1.cpp
+            graphs/build_xing4.cpp
             graphs/build_minimaxm2.cpp
             graphs/build_minimaxm3.cpp
             graphs/build_smollm3.cpp
+            graphs/build_spark2_5.cpp
             )
 
 target_include_directories(llama PUBLIC . ../include)
@@ -156,4 +164,8 @@ if (GGML_MAX_CONTEXTS)
 endif()
 if (GGML_MAX_SRC)
   add_compile_definitions(GGML_MAX_SRC=${GGML_MAX_SRC})
+endif()
+if (WIN32 AND DEFINED GGML_WIN_VER)
+    # llama needs this too (ggml/src has it) or the _WIN32_WINNT>=0x602 gate kills prefetch.
+    target_compile_definitions(llama PRIVATE _WIN32_WINNT=${GGML_WIN_VER})
 endif()

@@ -10,6 +10,12 @@
 void ggml_cuda_op_mul_mat_q(ggml_backend_cuda_context & ctx, enum ggml_type type, const mmq_args & args) {
     auto stream = ctx.stream();
     switch (type) {
+        case GGML_TYPE_Q2_0:
+            mul_mat_q_case<GGML_TYPE_Q2_0>(ctx, args, stream);
+            break;
+        case GGML_TYPE_PQ2_0:
+            mul_mat_q_case<GGML_TYPE_PQ2_0>(ctx, args, stream);
+            break;
         case GGML_TYPE_Q4_0:
             mul_mat_q_case<GGML_TYPE_Q4_0>(ctx, args, stream);
             break;
@@ -79,6 +85,9 @@ void ggml_cuda_op_mul_mat_q(ggml_backend_cuda_context & ctx, enum ggml_type type
         case GGML_TYPE_IQ3_KS:
             mul_mat_q_case<GGML_TYPE_IQ3_KS>(ctx, args, stream);
             break;
+        case GGML_TYPE_IQ3_KS_R16:
+            mul_mat_q_case<GGML_TYPE_IQ3_KS_R16>(ctx, args, stream);
+            break;
         case GGML_TYPE_IQ4_KSS:
             mul_mat_q_case<GGML_TYPE_IQ4_KSS>(ctx, args, stream);
             break;
@@ -87,6 +96,12 @@ void ggml_cuda_op_mul_mat_q(ggml_backend_cuda_context & ctx, enum ggml_type type
             break;
         case GGML_TYPE_IQ4_KS_R4:
             mul_mat_q_case<GGML_TYPE_IQ4_KS_R4>(ctx, args, stream);
+            break;
+        case GGML_TYPE_IQ4_KS_R16:
+            mul_mat_q_case<GGML_TYPE_IQ4_KS_R16>(ctx, args, stream);
+            break;
+        case GGML_TYPE_IQ5_KS_R16:
+            mul_mat_q_case<GGML_TYPE_IQ5_KS_R16>(ctx, args, stream);
             break;
         case GGML_TYPE_IQ4_KT:
             mul_mat_q_case<GGML_TYPE_IQ4_KT>(ctx, args, stream);
@@ -135,6 +150,24 @@ void ggml_cuda_op_mul_mat_q(ggml_backend_cuda_context & ctx, enum ggml_type type
             break;
         case GGML_TYPE_IQ5_K_R4:
             mul_mat_q_case<GGML_TYPE_IQ5_K_R4>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQ2_T:
+            mul_mat_q_case<GGML_TYPE_TQ2_T>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQK6:
+            mul_mat_q_case<GGML_TYPE_TQK6>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQK7:
+            mul_mat_q_case<GGML_TYPE_TQK7>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP5:
+            mul_mat_q_case<GGML_TYPE_TQP5>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP6:
+            mul_mat_q_case<GGML_TYPE_TQP6>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP7:
+            mul_mat_q_case<GGML_TYPE_TQP7>(ctx, args, stream);
             break;
         default:
             GGML_ABORT("fatal error");
@@ -203,6 +236,8 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_Q5_1:
         case GGML_TYPE_Q6_0:
         case GGML_TYPE_Q8_0:
+        case GGML_TYPE_Q2_0:
+        case GGML_TYPE_PQ2_0:
         case GGML_TYPE_Q4_K:
         case GGML_TYPE_Q5_K:
         case GGML_TYPE_IQ2_XXS:
@@ -215,9 +250,12 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_IQ2_KL:
         case GGML_TYPE_IQ3_KS:
+        case GGML_TYPE_IQ3_KS_R16:
         case GGML_TYPE_IQ4_KSS:
         case GGML_TYPE_IQ4_KS:
         case GGML_TYPE_IQ4_KS_R4:
+        case GGML_TYPE_IQ4_KS_R16:
+        case GGML_TYPE_IQ5_KS_R16:
         case GGML_TYPE_IQ5_KS:
         case GGML_TYPE_IQ5_KS_R4:
         case GGML_TYPE_IQ2_KS:
@@ -225,6 +263,12 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_IQ2_KT:
         case GGML_TYPE_IQ3_KT:
         case GGML_TYPE_IQ4_KT:
+        case GGML_TYPE_TQ2_T:
+        case GGML_TYPE_TQK6:
+        case GGML_TYPE_TQK7:
+        case GGML_TYPE_TQP5:
+        case GGML_TYPE_TQP6:
+        case GGML_TYPE_TQP7:
             mmq_supported = true;
             break;
         default:

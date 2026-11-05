@@ -143,7 +143,9 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_speculative_prepare_startup(params);
+    if (!common_speculative_prepare_startup(params)) {
+        return 1;
+    }
 
     common_params_sampling & sparams = params.sparams;
 
@@ -393,10 +395,6 @@ int main(int argc, char ** argv) {
     }
     auto chat_templates = common_chat_templates_init(model, params.chat_template);
 
-    if (params.has_mtp) {
-        llama_set_embeddings(ctx, true);
-    }
-
     if (requested_spec) {
         if (!common_speculative_is_compat(ctx)) {
             LOG_TEE("%s: error: speculative decoding is not supported by this context\n", __func__);
@@ -423,6 +421,11 @@ int main(int argc, char ** argv) {
         case COMMON_SPECULATIVE_INIT_SKIPPED:
             break;
         }
+    }
+
+    // all-token embeddings are only needed by MTP variants that consume them
+    if (params.has_mtp && common_speculative_needs_all_target_hidden(spec)) {
+        llama_set_embeddings(ctx, true);
     }
 
     const int n_ctx_train = llama_n_ctx_train(model);
@@ -957,10 +960,14 @@ int main(int argc, char ** argv) {
 
                 LOG("eval: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, embd).c_str());
 
-                const bool need_prompt_target_features =
+                const bool prompt_needs_target_features =
                     embd_is_prompt &&
                     spec != nullptr &&
                     params.speculative.uses_target_features();
+                // stateless MTP: only the last prompt hidden is needed
+                const bool need_prompt_target_features =
+                    prompt_needs_target_features &&
+                    common_speculative_needs_all_target_hidden(spec);
 
                 llama_batch batch = {};
                 if (need_prompt_target_features) {
@@ -1002,6 +1009,10 @@ int main(int argc, char ** argv) {
                             return 1;
                         }
                         final_prompt_output_index = n_eval - 1;
+                        final_prompt_hidden_pos = n_past + n_eval - 1;
+                    } else if (prompt_needs_target_features) {
+                        // last prompt ubatch has a single output row
+                        final_prompt_output_index = 0;
                         final_prompt_hidden_pos = n_past + n_eval - 1;
                     } else if (!embd_is_prompt) {
                         speculative_tokens.insert(speculative_tokens.end(), embd.begin() + i, embd.begin() + i + n_eval);

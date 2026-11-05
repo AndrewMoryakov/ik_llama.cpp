@@ -6,6 +6,7 @@
 
 static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LLAMA,           "llama"        },
+    { LLM_ARCH_NANBEIGE,        "nanbeige"     },
     { LLM_ARCH_K2_HORIZON,      "k2-horizon"   },
     { LLM_ARCH_LLAMA4,          "llama4"       },
     { LLM_ARCH_DECI,            "deci"         },
@@ -29,6 +30,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_QWEN2VL,         "qwen2vl"      },
     { LLM_ARCH_QWEN3,           "qwen3"        },
     { LLM_ARCH_QWEN3MOE,        "qwen3moe"     },
+    { LLM_ARCH_FLINT,           "flint"        },
     { LLM_ARCH_QWEN3NEXT,       "qwen3next"    },
     { LLM_ARCH_QWEN3VL,         "qwen3vl"      },
     { LLM_ARCH_QWEN3VLMOE,      "qwen3vlmoe"   },
@@ -87,6 +89,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LAGUNA,          "laguna"       },
     { LLM_ARCH_GLM_DSA,         "glm-dsa"      },
     { LLM_ARCH_GLM5NEXT,        "glm5next"     },
+    { LLM_ARCH_GLM5NEXT_DASHED, "glm5-next"    },
     { LLM_ARCH_MISTRAL4,        "mistral4"     },
     { LLM_ARCH_GEMMA4,          "gemma4"       },
     { LLM_ARCH_GEMMA4_MTP,      "gemma4_mtp"   },
@@ -97,6 +100,12 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_OPENPANGU,       "openpangu"    },
     { LLM_ARCH_MUSE_GLIMMER,    "muse-glimmer" },
     { LLM_ARCH_LFM2,            "lfm2"         },
+    { LLM_ARCH_LFM2MOE,         "lfm2moe"      },
+    { LLM_ARCH_LFM3,            "lfm3"         },
+    { LLM_ARCH_MAPLE,           "maple"        },
+    { LLM_ARCH_SPARK2_5,        "spark2_5"     },
+    { LLM_ARCH_RAON1,           "raon1"        },
+    { LLM_ARCH_XING4_0,         "xing4_0"      },
     { LLM_ARCH_UNKNOWN,         "(unknown)"    },
 };
 
@@ -140,6 +149,8 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_EMBEDDING_LENGTH_PER_LAYER,        "%s.embedding_length_per_layer_input"  },
     { LLM_KV_BLOCK_COUNT,                       "%s.block_count"                       },
     { LLM_KV_LEADING_DENSE_BLOCK_COUNT,         "%s.leading_dense_block_count"         },
+    { LLM_KV_ACTIVATION_SITU_BETA,              "%s.activation.situ_beta"              },
+    { LLM_KV_ACTIVATION_SITU_LINEAR_BETA,       "%s.activation.situ_linear_beta"       },
     { LLM_KV_FEED_FORWARD_LENGTH,               "%s.feed_forward_length"               },
     { LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        "%s.expert_feed_forward_length"        },
     { LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, "%s.expert_shared_feed_forward_length" },
@@ -157,7 +168,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_ATTENTION_GROUPNORM_GROUPS,       "%s.attention.group_norm_groups"        },
     { LLM_KV_ATTENTION_VALUE_EXPERT_COUNT,     "%s.attention.value_expert_count"       },
     { LLM_KV_ATTENTION_VALUE_EXPERT_USED_COUNT,"%s.attention.value_expert_used_count"  },
-    
+
     { LLM_KV_NEXTN_PREDICT_LAYERS,              "%s.nextn_predict_layers"              },
     { LLM_KV_NUM_DEEPSTACK_LAYERS,              "%s.n_deepstack_layers"                },
     { LLM_KV_POOLING_TYPE,                      "%s.pooling_type"                      },
@@ -198,12 +209,14 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_ATTENTION_VALUE_LENGTH,           "%s.attention.value_length"           },
     { LLM_KV_ATTENTION_LAYERNORM_EPS,          "%s.attention.layer_norm_epsilon"     },
     { LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,      "%s.attention.layer_norm_rms_epsilon" },
+    { LLM_KV_ATTENTION_LATENT_NORM_RMS_EPS,    "%s.attention.latent_norm_rms_epsilon" },
     { LLM_KV_ATTENTION_CAUSAL,                 "%s.attention.causal"                 },
     { LLM_KV_ATTENTION_Q_LORA_RANK,            "%s.attention.q_lora_rank"            },
     { LLM_KV_ATTENTION_KV_LORA_RANK,           "%s.attention.kv_lora_rank"           },
     { LLM_KV_ATTENTION_RELATIVE_BUCKETS_COUNT, "%s.attention.relative_buckets_count" },
     { LLM_KV_ATTENTION_SLIDING_WINDOW,         "%s.attention.sliding_window"         },
     { LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, "%s.attention.sliding_window_pattern" },
+    { LLM_KV_ATTENTION_ROPE_PATTERN,           "%s.attention.rope_pattern"           },
     { LLM_KV_ATTENTION_SCALE,                  "%s.attention.scale"                  },
     { LLM_KV_ATTENTION_OUTPUT_SCALE,           "%s.attention.output_scale"           },
     { LLM_KV_ATTENTION_TEMPERATURE_LENGTH,     "%s.attention.temperature_length"     },
@@ -214,6 +227,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_ATTENTION_INDEXER_KEY_LENGTH,     "%s.attention.indexer.key_length"     },
     { LLM_KV_ATTENTION_INDEXER_TOP_K,          "%s.attention.indexer.top_k"          },
     { LLM_KV_ATTENTION_INDEXER_KPOOL,          "%s.attention.indexer.kpool"          },
+    { LLM_KV_ATTENTION_INDEXER_BLOCK_SIZE,     "%s.attention.indexer.block_size"     },
     { LLM_KV_ATTENTION_OUTPUT_GROUP_COUNT,     "%s.attention.output_group_count"     },
     { LLM_KV_ATTENTION_OUTPUT_LORA_RANK,       "%s.attention.output_lora_rank"       },
     { LLM_KV_ATTENTION_COMPRESS_ROPE_FREQ_BASE,"%s.attention.compress_rope_freq_base"},
@@ -226,8 +240,9 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
     { LLM_KV_HYPER_CONNECTION_COUNT,               "%s.hyper_connection.count"               },
     { LLM_KV_HYPER_CONNECTION_SINKHORN_ITERATIONS, "%s.hyper_connection.sinkhorn_iterations" },
-    { LLM_KV_HYPER_CONNECTION_EPSILON,             "%s.hyper_connection.epsilon"             },
-    { LLM_KV_HYPER_CONNECTION_LOW_RANK,            "%s.hyper_connection.low_rank"            },
+    { LLM_KV_HYPER_CONNECTION_EPSILON,          "%s.hyper_connection.epsilon"          },
+    { LLM_KV_HYPER_CONNECTION_MAGNITUDE,        "%s.hyper_connection.magnitude"        },
+    { LLM_KV_HYPER_CONNECTION_LOW_RANK,         "%s.hyper_connection.low_rank"         },
 
     { LLM_KV_PLE_LAYERS,                       "%s.ple.layers"                      },
     { LLM_KV_PLE_NGRAM_SIZE,                   "%s.ple.ngram_size"                  },
@@ -249,6 +264,9 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_ENGRAM_OFFSETS,         "%s.engram.offsets" },
     { LLM_KV_ENGRAM_TOKEN_MAP,       "%s.engram.token_map" },
     { LLM_KV_ENGRAM_PAD_ID,          "%s.engram.pad_id" },
+    { LLM_KV_CANDIDATE_SOURCE_LAYER,         "%s.attention.candidate_source_layer_id" },
+    { LLM_KV_CANDIDATE_BLOCK_SIZE,           "%s.attention.candidate_block_size"      },
+    { LLM_KV_CANDIDATE_TOPK_BLOCKS,          "%s.attention.candidate_topk_blocks"     },
 
     { LLM_KV_ROPE_DIMENSION_COUNT,          "%s.rope.dimension_count"                 },
     { LLM_KV_ROPE_DIMENSION_COUNT_SWA,      "%s.rope.dimension_count_swa"             },
@@ -256,6 +274,8 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_ROPE_DIMENSION_SECTIONS,       "%s.rope.dimension_sections"              },
     { LLM_KV_ROPE_FREQ_BASE,                "%s.rope.freq_base"                       },
     { LLM_KV_ROPE_FREQ_BASE_PER_LAYER,      "%s.rope.freq_base_per_layer"             },
+    { LLM_KV_NUM_LOOPS,                     "%s.num_loops"                            },
+    { LLM_KV_SKIP_LOOP_FINAL_NORM,          "%s.skip_loop_final_norm"                 },
     { LLM_KV_ROPE_FREQ_BASE_SWA,            "%s.rope.freq_base_swa"                   },
     { LLM_KV_ROPE_SCALE_LINEAR,             "%s.rope.scale_linear"                    },
     { LLM_KV_ROPE_SCALING_TYPE,             "%s.rope.scaling.type"                    },
@@ -286,6 +306,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
     { LLM_KV_TOKENIZER_MODEL,                "tokenizer.ggml.model"                    },
     { LLM_KV_TOKENIZER_PRE,                  "tokenizer.ggml.pre"                      },
+    { LLM_KV_TOKENIZER_NORMALIZER_NFC,       "tokenizer.ggml.normalizer.nfc"           },
     { LLM_KV_TOKENIZER_LIST,                 "tokenizer.ggml.tokens"                   },
     { LLM_KV_TOKENIZER_TOKEN_TYPE,           "tokenizer.ggml.token_type"               },
     { LLM_KV_TOKENIZER_TOKEN_TYPE_COUNT,     "tokenizer.ggml.token_type_count"         },
@@ -332,8 +353,14 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 LLM_KV::LLM_KV(llm_arch arch, const char* suffix) : arch(arch), suffix(suffix) {}
 
 std::string LLM_KV::operator()(llm_kv kv) const {
-    return suffix ? ::format(LLM_KV_NAMES.at(kv), LLM_ARCH_NAMES.at(arch), suffix)
-        : ::format(LLM_KV_NAMES.at(kv), LLM_ARCH_NAMES.at(arch));
+    std::string name = ::format(LLM_KV_NAMES.at(kv), LLM_ARCH_NAMES.at(arch));
+
+    if (suffix != nullptr) {
+        name += ".";
+        name += suffix;
+    }
+
+    return name;
 }
 
 const char * llama_model_arch_name(llm_arch arch) {
@@ -365,6 +392,9 @@ bool llm_arch_is_hybrid(const llm_arch & arch) {
     case LLM_ARCH_BAILINGMOE3:
     case LLM_ARCH_GLM5NEXT:
     case LLM_ARCH_LFM2:
+    case LLM_ARCH_LFM2MOE:
+    case LLM_ARCH_LFM3:
+    case LLM_ARCH_RAON1:
         return true;
     default:
         return false;

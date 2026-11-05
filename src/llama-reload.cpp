@@ -686,7 +686,7 @@ static bool reload_tensor_split_path(
         bool returning_to_original,
         ggml_backend_buffer_t old_buf)
 {
-		(void)curr_type;
+    (void)curr_type;
     const char * name = ggml_get_name(tensor);
 
     if (returning_to_original) {
@@ -751,7 +751,7 @@ static bool reload_tensor_non_split_path(
         bool returning_to_original,
         ggml_backend_buffer_t old_buf)
 {
-		(void)curr_type;
+    (void)curr_type;
 #ifndef NDEBUG
     const char * name = ggml_get_name(tensor);
 #endif
@@ -944,6 +944,16 @@ bool reload_info::reload_tensor(const char * name, llama_model & model) {
 
     ggml_backend_buffer_t old_buf = tensor->buffer;
     bool returning = (curr_type == src.original_type);
+
+    // Row views of a merged weight pair keep the storage and type of the original tensor
+    if (!returning) {
+        for (auto & p : model.tensors_by_name) {
+            if (p.second->view_src == tensor) {
+                LLAMA_LOG_WARN("hotswap: tensor '%s' cannot change type: view '%s' uses its storage; skipping\n", name, p.first.c_str());
+                return false;
+            }
+        }
+    }
 
     // A same-dtype swap reattaches the original buffer and refreshes its data;
     // that is impossible when the original data lives inside a read-only file

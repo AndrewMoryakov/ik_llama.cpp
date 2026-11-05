@@ -84,6 +84,9 @@ std::string common_speculative_type_to_str(enum common_speculative_type type);
 // note: clears the memory of the context
 bool common_speculative_is_compat(llama_context * ctx_tgt);
 
+// true if the target must keep the hidden state of every prompt token
+bool common_speculative_needs_all_target_hidden(const common_speculative * spec);
+
 common_speculative * common_speculative_init(
         common_params_speculative & params,
         llama_context             * ctx_tgt);
@@ -93,7 +96,7 @@ common_speculative_init_status common_speculative_try_init(
         llama_context             * ctx_tgt,
         common_speculative      ** out_spec);
 
-void common_speculative_prepare_startup(
+bool common_speculative_prepare_startup(
         gpt_params & params_base,
         bool         allow_parallel_mtp = true);
 
@@ -104,6 +107,8 @@ bool common_speculative_finalize_startup(
 bool common_speculative_load_draft_model(
         common_params_speculative & params,
         const gpt_params         & params_base);
+
+void common_speculative_reset_draft_offload_defaults(gpt_params & params);
 
 bool common_speculative_prepare_mtp_runtime(
         common_params_speculative & params,
@@ -144,6 +149,9 @@ common_speculative_draft_result common_speculative_draft_ex(
                             const common_params_sampling * sampling = nullptr);
 
 int common_speculative_get_configured_n_max(const common_speculative * spec);
+
+// apply -td/--threads-draft to a draft params copy
+void common_speculative_apply_draft_threads(const common_params_speculative & spec, gpt_params & out);
 
 // informs the speculative decoder that n_accepted tokens were accepted by the target model
 void common_speculative_accept(common_speculative * spec, uint16_t n_accepted);
@@ -249,6 +257,9 @@ void common_speculative_clear_sequence_kv(
     llama_seq_id seq_id);
 
 llama_context * common_speculative_get_companion_ctx(common_speculative * spec);
+
+// the draft, MTP and DFlash contexts that the stages of spec own
+std::vector<const llama_context *> common_speculative_get_draft_contexts(const common_speculative * spec);
 
 int32_t common_speculative_on_target_seq_batch(
     common_speculative * spec,

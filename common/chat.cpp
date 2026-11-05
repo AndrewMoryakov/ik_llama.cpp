@@ -784,9 +784,6 @@ static std::string common_chat_template_direct_apply_impl(
         {"bos_token", tmpl.bos_token()},
         {"eos_token", tmpl.eos_token()},
         {"enable_thinking", inputs.enable_thinking},
-        // LFM2.5: whether previous assistant reasoning is kept in the prompt
-        // (separate from enable_thinking; can be overridden via chat_template_kwargs)
-        {"preserve_thinking", false},
     };
     // openPangu's chat template gates reasoning on a `thinking` variable rather than the
     // ecosystem-standard `enable_thinking`, so the normal toggle never reaches it. Bridge the
@@ -1623,7 +1620,7 @@ static common_chat_params common_chat_params_init_lfm2(const common_chat_templat
         auto tool_calls = p.rule("tool-calls",
             p.trigger_rule("tool-call",
                 p.literal(TOOL_CALL_START) +
-                p.python_style_tool_calls(inputs.tools, inputs.parallel_tool_calls) +
+                p.python_style_tool_calls(inputs.tools, inputs.parallel_tool_calls, /* allow_json_literals = */ true) +
                 p.literal(TOOL_CALL_END)
             )
         );
@@ -1682,6 +1679,14 @@ static common_chat_params common_chat_params_init_lfm2_5(const common_chat_templ
     data.thinking_start_tag = THINK_START;
     data.thinking_end_tag   = THINK_END;
 
+    // Only stop content on "[<name>(", not on any "[" (e.g. regexes).
+    std::vector<std::string> content_delimiters = { "<|tool_call_start|>" };
+    if (has_tools) {
+        foreach_function(inputs.tools, [&](const json & tool) {
+            content_delimiters.push_back("[" + tool.at("function").at("name").get<std::string>() + "(");
+        });
+    }
+
     auto parser = build_chat_peg_parser([&](common_chat_peg_builder & p) {
         auto generation_prompt = p.prefix(inputs.generation_prompt, THINK_START);
         auto end = p.end();
@@ -1699,11 +1704,11 @@ static common_chat_params common_chat_params_init_lfm2_5(const common_chat_templ
 
         auto tool_calls = p.rule("tool-calls",
             p.trigger_rule("tool-call",
-                p.python_style_tool_calls(inputs.tools, inputs.parallel_tool_calls)
+                p.python_style_tool_calls(inputs.tools, inputs.parallel_tool_calls, /* allow_json_literals = */ true)
             )
         );
 
-        auto content = p.content(p.until_one_of({"<|tool_call_start|>", "["}));
+        auto content = p.content(p.until_one_of(content_delimiters));
         auto maybe_start = p.optional(p.literal("<|tool_call_start|>"));
         auto maybe_end   = p.optional(p.literal("<|tool_call_end|>"));
         return generation_prompt + reasoning + content + maybe_start + tool_calls + maybe_end + end;
@@ -2809,7 +2814,12 @@ static common_chat_params common_chat_params_init_minicpm5(const common_chat_tem
         auto max_calls  = inputs.parallel_tool_calls ? -1 : 1;
         auto tool_calls = p.trigger_rule("tool-call", p.repeat(tool_choice + p.space(), 1, max_calls));
 
-        auto content = p.content(p.until("<function"));
+        // Only stop content on "<function name=\"<known>\">", not on any "<function".
+        std::vector<std::string> content_delimiters;
+        foreach_function(inputs.tools, [&](const json & tool) {
+            content_delimiters.push_back("<function name=\"" + tool.at("function").at("name").get<std::string>() + "\">");
+        });
+        auto content = p.content(p.until_one_of(content_delimiters));
 
         return generation_prompt + reasoning + content + tool_calls + p.end();
     });

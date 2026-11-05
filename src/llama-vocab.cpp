@@ -381,7 +381,22 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                     "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}+| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
                 };
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_SPARK2_5:
+                regex_exprs = {
+                    // Split(\p{N}{1,3}) + Digits(individual_digits=True)
+                    "\\p{N}",
+                    "[一-龥぀-ゟ゠-ヿ]+",
+                    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\\r\\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+|[\\r\\n]|\\s+(?!\\S)|\\s+",
+                };
+                break;
             case LLAMA_VOCAB_PRE_TYPE_STABLELM2:
+            case LLAMA_VOCAB_PRE_TYPE_FLINT:
+                regex_exprs = {
+                    "\\p{N}{1,3}",
+                    "[一-龥぀-ゟ゠-ヿ]+",
+                    "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?| ?[\\p{P}\\p{S}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
+                };
+                break;
             case LLAMA_VOCAB_PRE_TYPE_QWEN2:
             case LLAMA_VOCAB_PRE_TYPE_HUNYUAN:
             case LLAMA_VOCAB_PRE_TYPE_SOLAR_OPEN:
@@ -397,6 +412,9 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                     // "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
                     "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
                 };
+                break;
+            case LLAMA_VOCAB_PRE_TYPE_RAON:
+                regex_exprs = {" ?[\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff]+| ?(?:(?:(?![\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])\\p{L})\\p{M}*)+(?: (?:(?:(?![\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])\\p{L})\\p{M}*)+)*|\\p{N}{1,3}(?=(?:\\p{N}{3})*(?!\\p{N}))| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"};
                 break;
             case LLAMA_VOCAB_PRE_TYPE_PORO:
             case LLAMA_VOCAB_PRE_TYPE_BLOOM:
@@ -574,7 +592,16 @@ struct llm_tokenizer_bpe_session {
 
     void tokenize(const std::string & text, std::vector<llama_token> & output) {
         int final_prev_index = -1;
-        const auto word_collection = unicode_regex_split(text, tokenizer.regex_exprs, tokenizer.byte_encode);
+        // Raon-1's HF tokenizer applies an NFC normalizer before pre-tokenization.
+        const bool normalize_nfc = vocab.get_normalize_nfc();
+        std::string normalized;
+        if (normalize_nfc) {
+            for (const uint32_t cpt : unicode_cpts_normalize_nfc(unicode_cpts_from_utf8(text))) {
+                normalized += unicode_cpt_to_utf8(cpt);
+            }
+        }
+        const auto word_collection = unicode_regex_split(normalize_nfc ? normalized : text,
+                tokenizer.regex_exprs, tokenizer.byte_encode);
 
         symbols_final.clear();
         auto tok_pre = vocab.get_pre_type();
@@ -1631,6 +1658,8 @@ struct llama_vocab::impl {
     enum llama_vocab_type     type     = LLAMA_VOCAB_TYPE_SPM;
     enum llama_vocab_pre_type pre_type = LLAMA_VOCAB_PRE_TYPE_DEFAULT;
 
+    bool normalize_nfc = false; // tokenizer declares an NFC normalizer
+
     int max_token_len = 0; // used for optimizing longest token search
 
     // default LLaMA special tokens
@@ -1766,6 +1795,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
     {
         ml.get_key(LLM_KV_TOKENIZER_MODEL, tokenizer_model);
         ml.get_key(LLM_KV_TOKENIZER_PRE,   tokenizer_pre, false);
+        ml.get_key(LLM_KV_TOKENIZER_NORMALIZER_NFC, normalize_nfc, false);
 
         ml.get_key(LLM_KV_TOKENIZER_TOKEN_TYPE_COUNT, n_token_types, false);
 
@@ -1961,8 +1991,15 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
             } else if (tokenizer_pre == "minicpm5") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_MINICPM5;
                 ignore_merges = true;
+            } else if (
+                    tokenizer_pre == "spark2_5") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_SPARK2_5;
+                clean_spaces = false;
             } else if (tokenizer_pre == "k2-horizon") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_K2_HORIZON;
+            } else if (tokenizer_pre == "flint") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_FLINT;
+                clean_spaces = false;
             } else if (tokenizer_pre == "default") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_DEFAULT;
             } else if (
@@ -2054,6 +2091,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                     tokenizer_pre == "qwen35") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_QWEN35;
                 clean_spaces = false;
+            } else if (tokenizer_pre == "raon") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_RAON;
+                clean_spaces = false;
             } else if (
                 tokenizer_pre == "stablelm2") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_STABLELM2;
@@ -2075,6 +2115,11 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 tokenizer_pre == "chatglm-bpe") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_CHATGLM4;
                 special_bos_id = LLAMA_TOKEN_NULL;
+            } else if (
+                tokenizer_pre == "glm5") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_CHATGLM4;
+                special_bos_id = LLAMA_TOKEN_NULL;
+                ignore_merges = true;
             } else if (
                 tokenizer_pre == "viking") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_VIKING;
@@ -2595,6 +2640,8 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                     || t.first == "<eos>"            // gemma4
                     || t.first == "<turn|>"          // gemma4
                     || t.first == "<|tool_response>" // gemma4
+                    || (pre_type == LLAMA_VOCAB_PRE_TYPE_FLINT &&
+                        (t.first == "<|user|>" || t.first == "<|observation|>"))
                     || t.first == "<｜end▁of▁sentence｜>" // deepseek-ocr
                ) {
                 special_eog_ids.insert(t.second);
@@ -3571,6 +3618,10 @@ enum llama_vocab_type llama_vocab::get_type() const {
 
 enum llama_vocab_pre_type llama_vocab::get_pre_type() const {
     return pimpl->pre_type;
+}
+
+bool llama_vocab::get_normalize_nfc() const {
+    return pimpl->normalize_nfc;
 }
 
 uint32_t llama_vocab::n_tokens() const {

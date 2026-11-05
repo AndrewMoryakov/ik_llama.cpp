@@ -33,7 +33,7 @@ general:
          --verbosity N            set specific verbosity level (default: 0)
          --verbose-prompt         print a verbose prompt before generation (default: false)
          --no-display-prompt      don't print prompt at generation (default: false)
-  -co,   --color                  colorise output to distinguish prompt and user input from generations (default: false)
+  -co,   --color                  colorize output to distinguish prompt and user input from generations (default: false)
   -s,    --seed SEED              RNG seed (default: -1, use random seed for < 0)
   -t,    --threads N              number of threads to use during generation (default: 8)
   -tb,   --threads-batch N        number of threads to use during batch and prompt processing (default: same as --threads)
@@ -236,6 +236,7 @@ server:
          --log-format {text,json}
                                   log output format: json or text (default: json)
          --metrics                enable prometheus compatible metrics endpoint (default: disabled)
+         --memory                 enable the /memory endpoint reporting per-device memory use (default: disabled)
          --no-slots               disables slots monitoring endpoint (default: enabled)
          --slot-save-path PATH    path to save slot kv cache (default: disabled)
          --chat-template JINJA_TEMPLATE
@@ -278,6 +279,7 @@ Available environment variables (if specified, these variables will override par
 - `LLAMA_ARG_CHAT_TEMPLATE`: equivalent to `--chat-template`
 - `LLAMA_ARG_N_PREDICT`: equivalent to `-n`
 - `LLAMA_ARG_ENDPOINT_METRICS`: if set to `1`, it will enable metrics endpoint (equivalent to `--metrics`)
+- `LLAMA_ARG_ENDPOINT_MEMORY`: if set to `1`, it will enable the memory endpoint (equivalent to `--memory`)
 - `LLAMA_ARG_ENDPOINT_SLOTS`: if set to `0`, it will **disable** slots endpoint (equivalent to `--no-slots`). This feature is enabled by default.
 - `LLAMA_ARG_EMBEDDINGS`: if set to `1`, it will enable embeddings endpoint (equivalent to `--embeddings`)
 - `LLAMA_ARG_FLASH_ATTN`: if set to `1`, it will enable flash attention (equivalent to `-fa`)
@@ -800,6 +802,108 @@ This endpoint works by converting Responses requests into Chat Completions reque
     }'
     ```
 
+### POST `/v1/systemone`: TypeSafe-compatible System One API
+
+Answers typed questions about a `state` with a decision model (for example: lev, openjev). The model type is read from `<arch>.decision.type` in the model file.
+
+Follows the [TypeSafe API](https://docs.typesafe.ai/api), streaming is not supported. Image input is not supported.
+
+*Options:*
+
+`state`: The content to evaluate. Can be a string, an object or an array. A value that is not a string is given to the model as JSON text.
+
+`questions`: An object that maps a question id to a question. Each question has these fields:
+
+- `type`: One of `choice`, `score`, `noul`.
+- `instructions`: The question. Can be a string, an object or an array.
+- `criteria`: The possible answers, the shape depends on `type`:
+  - `choice`: An object that maps each option to its description. The description can be `null`.
+  - `score`: An array of 2 to 10 level descriptions, lowest level first.
+  - `noul`: Optional. An object with the descriptions of `true` and `false`.
+
+The questions of a request are answered independently, an answer does not depend on the other questions, except for nimble, whose prompt lists all the questions.
+
+The number of options of a `choice` question is limited by the model, for example: 52 for openjev.
+
+*Response:*
+
+`answers`: An object that maps each question id to its answer. The fields depend on the question type:
+
+- `choice`:
+  - `choice`: The option with the highest probability.
+  - `probabilities`: The probability of each option, they sum to 1.
+  - `confidence`: A value from 0 to 1, where 0 means all options are equally likely.
+- `score`:
+  - `score`: The expected level index, weighted by probability. It can be between two levels.
+  - `legend`: The description of each level index.
+  - `probabilities`: The probability of each level index, they sum to 1.
+  - `confidence`: A value from 0 to 1.
+- `noul`:
+  - `noul`: The probability that the answer is true.
+
+`usage`: `input_tokens` is the number of prompt tokens of all questions. `output_tokens` is always 0.
+
+The probabilities are scaled with the temperatures stored in the model file. They are not guaranteed to be calibrated for your data.
+
+*Examples:*
+
+```shell
+curl http://127.0.0.1:8080/v1/systemone \
+    -H "Content-Type: application/json" \
+    -d '{
+        "state": "Customer message: I was charged twice for my order last week and nobody has replied.",
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": "Which team should handle this?",
+                "criteria": {"billing": null, "shipping": null, "technical": null}
+            },
+            "angry": {
+                "type": "noul",
+                "instructions": "Is the customer angry?"
+            },
+            "urgency": {
+                "type": "score",
+                "instructions": "How urgent is this?",
+                "criteria": ["can wait", "this week", "today", "right now"]
+            }
+        }
+    }' | jq
+```
+
+Response with lev-Q8_0 (values are shortened):
+
+```json
+{
+  "model": "lev-Q8_0.gguf",
+  "answers": {
+    "route": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {"billing": 0.9272, "shipping": 0.0436, "technical": 0.0291},
+      "confidence": 0.8909
+    },
+    "angry": {
+      "type": "noul",
+      "noul": 0.539
+    },
+    "urgency": {
+      "type": "score",
+      "score": 1.5983,
+      "legend": {"0": "can wait", "1": "this week", "2": "today", "3": "right now"},
+      "probabilities": {"0": 0.1049, "1": 0.3988, "2": 0.2893, "3": 0.207},
+      "confidence": 0.1918
+    }
+  },
+  "usage": {
+    "input_tokens": 488,
+    "output_tokens": 0
+  }
+}
+```
+
+An invalid request returns the error `400`. A model that is not a decision model returns the error `501`. A request with images returns the error `501`.
+
 ### GET `/slots`: Returns the current slots processing state. Can be disabled with `--slots-endpoint-disable`.
 
 **Response format**
@@ -874,6 +978,35 @@ Available metrics:
 - `llamacpp:kv_cache_tokens`: KV-cache tokens.
 - `llamacpp:requests_processing`: Number of requests processing.
 - `llamacpp:requests_deferred`: Number of requests deferred.
+- `llamacpp:memory_model_bytes`, `llamacpp:memory_context_bytes`, `llamacpp:memory_compute_bytes`: Memory the model weights, the KV cache and the compute buffers use, in bytes.
+- `llamacpp:memory_mmproj_bytes`: Memory the multimodal projector uses, in bytes. Present only with `--mmproj`.
+- `llamacpp:memory_total_bytes`, `llamacpp:memory_free_bytes`: Total and free memory of the device, in bytes. Present on devices only.
+
+The `memory_*` metrics carry a `device` label and report the same figures as `GET /memory`. They do not need `--memory`.
+
+### GET `/memory`: Get the memory use of each device as JSON if `--memory` is enabled:
+
+The server sums the size of the buffers that hold the model weights, the KV cache, the compute buffers and the multimodal projector. It groups the sizes by device.
+
+**Response format**
+
+```json
+{
+  "n_layer": 32,
+  "data": [
+    {"name": "CUDA0", "model": 4370000000, "context": 268435456, "compute": 301989888, "total": 25386352640, "free": 20123456512},
+    {"name": "Host", "model": 281018368, "context": 0, "compute": 16777216}
+  ]
+}
+```
+
+- All values are bytes. `model` is the weights, `context` is the KV cache, and `compute` is the compute buffers.
+- The array holds one row for each device the model can use, then a `Host` row, then one row for each other buffer type in use, such as `CUDA_Split`. The `name` of a device row is the name of its buffer type.
+- `total` and `free` describe the whole device, not this process. A row has them only when it is a device.
+- With `--mmproj`, each row also has `mmproj`, the memory of the multimodal projector.
+- With speculative decoding, the rows also count the draft model and the context of each slot's draft, MTP or DFlash stage. A speculative checkpoint counts when it is in a backend buffer. A checkpoint that the CPU checkpoint mode keeps in host memory does not count.
+- On a build without a device backend, the only row is `Host`.
+- Without `--memory`, the endpoint answers with an error and status 501.
 
 ### POST `/slots/{id_slot}?action=save`: Save the prompt cache of the specified slot to a file.
 

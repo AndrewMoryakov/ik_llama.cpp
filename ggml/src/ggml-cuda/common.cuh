@@ -200,6 +200,10 @@ constexpr int ggml_cuda_highest_compiled_arch(const int arch) {
     return ggml_cuda_highest_compiled_arch_impl(arch, 0, __CUDA_ARCH_LIST__);
 }
 #else
+static constexpr bool ggml_cuda_has_arch(const int) {
+    return true;
+}
+
 static int ggml_cuda_highest_compiled_arch(const int arch) {
     return arch;
 }
@@ -460,6 +464,13 @@ struct ggml_cuda_type_traits<GGML_TYPE_F16> {
 };
 
 template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q2_0> {
+    static constexpr int qk = QK2_0;
+    static constexpr int qr = QR2_0;
+    static constexpr int qi = QI2_0;
+};
+
+template<>
 struct ggml_cuda_type_traits<GGML_TYPE_Q4_0> {
     static constexpr int qk = QK4_0;
     static constexpr int qr = QR4_0;
@@ -600,6 +611,13 @@ struct ggml_cuda_type_traits<GGML_TYPE_IQ2_BN> {
 };
 
 template<>
+struct ggml_cuda_type_traits<GGML_TYPE_PQ2_0> {
+    static constexpr int qk = QK_PQ2_0;
+    static constexpr int qr = PQR2_0;
+    static constexpr int qi = PQI2_0;
+};
+
+template<>
 struct ggml_cuda_type_traits<GGML_TYPE_IQ4_NL> {
     static constexpr int qk = QK4_NL;
     static constexpr int qr = QR4_NL;
@@ -705,6 +723,27 @@ struct ggml_cuda_type_traits<GGML_TYPE_IQ4_KS_R4> {
 };
 
 template<>
+struct ggml_cuda_type_traits<GGML_TYPE_IQ3_KS_R16> {
+    static constexpr int qk = 32;   // block = 16 rows x 32 columns
+    static constexpr int qr = 2;
+    static constexpr int qi = 8;    // one lane per block (vdr = 8)
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_IQ4_KS_R16> {
+    static constexpr int qk = QK8_0;
+    static constexpr int qr = QR4_0;
+    static constexpr int qi = 16;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_IQ5_KS_R16> {
+    static constexpr int qk = QK8_0;
+    static constexpr int qr = QR4_0;
+    static constexpr int qi = 16;
+};
+
+template<>
 struct ggml_cuda_type_traits<GGML_TYPE_IQ4_KSS> {
     static constexpr int qk = QK_K;
     static constexpr int qr = QR4_XS;
@@ -775,6 +814,52 @@ struct ggml_cuda_type_traits<GGML_TYPE_IQ5_K_R4> {
 };
 
 
+#define QR_TQ 4
+#define QI_TQ (QK_TQK/QR_TQ)
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQ2_T> {
+    static constexpr int qk = QK_TQK;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQK6> {
+    static constexpr int qk = QK_TQK;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQK7> {
+    static constexpr int qk = QK_TQK;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQP5> {
+    static constexpr int qk = QK_TQP;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQP6> {
+    static constexpr int qk = QK_TQP;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_TQP7> {
+    static constexpr int qk = QK_TQP;
+    static constexpr int qr = QR_TQ;
+    static constexpr int qi = QI_TQ;
+};
+
+
 //////////////////////
 
 struct ggml_backend_cuda_context;
@@ -790,6 +875,7 @@ struct ggml_cuda_device_info {
         bool    vmm;                // virtual memory support
         size_t  vmm_granularity;    // granularity of virtual memory
         size_t  total_vram;
+        bool    integrated;
     };
 
     cuda_device_info devices[GGML_CUDA_MAX_DEVICES] = {};
@@ -884,6 +970,7 @@ struct ggml_backend_cuda_context {
 
     cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
     cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = {nullptr};
+    void * cublas_workspaces[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
 
     int   fusion = GGML_CUDA_FUSION;
     int   offload_batch_size = GGML_CUDA_MIN_BATCH_OFFLOAD;
@@ -893,6 +980,7 @@ struct ggml_backend_cuda_context {
     bool  fabsum = false;      // opt-in: bound the fp16 accumulation error in the tile FA kernel
 #ifdef USE_CUDA_GRAPH
     bool use_cuda_graph = true;
+    int  max_graphs = 0;
 
     ggml_cuda_graph * cur_graph = nullptr;
 
@@ -931,6 +1019,28 @@ struct ggml_backend_cuda_context {
 
     cublasHandle_t cublas_handle() {
         return cublas_handle(device);
+    }
+
+    // cublasSetStream() resets the handle to the default workspace pool, and cuBLAS may then add
+    // memory nodes to captured CUDA graphs. Bind a per-(device, stream) workspace instead.
+    cublasHandle_t cublas_handle(int device, cudaStream_t stream) {
+        cublasHandle_t handle = cublas_handle(device);
+        CUBLAS_CHECK(cublasSetStream(handle, stream));
+#if !defined(GGML_USE_HIPBLAS) && !defined(GGML_USE_MUSA) && (CUBLAS_VER_MAJOR > 11 || (CUBLAS_VER_MAJOR == 11 && CUBLAS_VER_MINOR >= 2))
+        for (int is = 0; is < GGML_CUDA_MAX_STREAMS; ++is) {
+            if (streams[device][is] != stream) {
+                continue;
+            }
+            const size_t size = ggml_cuda_info().devices[device].cc >= 900 ? (size_t) 32 << 20 : (size_t) 4 << 20;
+            if (cublas_workspaces[device][is] == nullptr) {
+                ggml_cuda_set_device(device);
+                CUDA_CHECK(cudaMalloc(&cublas_workspaces[device][is], size));
+            }
+            CUBLAS_CHECK(cublasSetWorkspace(handle, cublas_workspaces[device][is], size));
+            break;
+        }
+#endif
+        return handle;
     }
 
     // pool

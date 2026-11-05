@@ -66,8 +66,8 @@ static __global__ void mmq_ids_helper(
         }
     } else {
         // Implementation optimized for specific numbers of experts used:
-        static_assert(n_expert_used == 6 || warp_size % n_expert_used == 0, "bad n_expert_used");
-        const int neu_padded = n_expert_used == 6 ? 8 : n_expert_used; // Padded to next higher power of 2.
+        constexpr int neu_padded = n_expert_used_template == 6 ? 8 : n_expert_used_template == 10 ? 16 : n_expert_used_template;
+        static_assert(neu_padded <= warp_size && warp_size % neu_padded == 0, "bad n_expert_used");
         for (int it0 = 0; it0 < n_tokens; it0 += warp_size/neu_padded) {
             const int it = it0 + threadIdx.x / neu_padded;
 
@@ -206,6 +206,12 @@ static void ggml_cuda_mul_mat_q_switch_type_id(ggml_backend_cuda_context & ctx, 
         case GGML_TYPE_IQ4_NL:
             mul_mat_q_case_id<GGML_TYPE_IQ4_NL>(ctx, args, stream);
             break;
+        case GGML_TYPE_Q2_0:
+            mul_mat_q_case_id<GGML_TYPE_Q2_0>(ctx, args, stream);
+            break;
+        case GGML_TYPE_PQ2_0:
+            mul_mat_q_case_id<GGML_TYPE_PQ2_0>(ctx, args, stream);
+            break;
         case GGML_TYPE_IQ2_KS:
             mul_mat_q_case_id<GGML_TYPE_IQ2_KS>(ctx, args, stream);
             break;
@@ -236,6 +242,9 @@ static void ggml_cuda_mul_mat_q_switch_type_id(ggml_backend_cuda_context & ctx, 
         case GGML_TYPE_IQ4_KS_R4:
             mul_mat_q_case_id<GGML_TYPE_IQ4_KS_R4>(ctx, args, stream);
             break;
+        case GGML_TYPE_IQ4_KS_R16:
+            mul_mat_q_case_id<GGML_TYPE_IQ4_KS_R16>(ctx, args, stream);
+            break;
         case GGML_TYPE_IQ4_K:
             mul_mat_q_case_id<GGML_TYPE_IQ4_K>(ctx, args, stream);
             break;
@@ -254,6 +263,9 @@ static void ggml_cuda_mul_mat_q_switch_type_id(ggml_backend_cuda_context & ctx, 
         case GGML_TYPE_IQ5_K_R4:
             mul_mat_q_case_id<GGML_TYPE_IQ5_K_R4>(ctx, args, stream);
             break;
+        case GGML_TYPE_IQ5_KS_R16:
+            mul_mat_q_case_id<GGML_TYPE_IQ5_KS_R16>(ctx, args, stream);
+            break;
         case GGML_TYPE_IQ6_K:
             mul_mat_q_case_id<GGML_TYPE_IQ6_K>(ctx, args, stream);
             break;
@@ -268,6 +280,24 @@ static void ggml_cuda_mul_mat_q_switch_type_id(ggml_backend_cuda_context & ctx, 
             break;
         case GGML_TYPE_IQ4_KT:
             mul_mat_q_case_id<GGML_TYPE_IQ4_KT>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQ2_T:
+            mul_mat_q_case_id<GGML_TYPE_TQ2_T>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQK6:
+            mul_mat_q_case_id<GGML_TYPE_TQK6>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQK7:
+            mul_mat_q_case_id<GGML_TYPE_TQK7>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP5:
+            mul_mat_q_case_id<GGML_TYPE_TQP5>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP6:
+            mul_mat_q_case_id<GGML_TYPE_TQP6>(ctx, args, stream);
+            break;
+        case GGML_TYPE_TQP7:
+            mul_mat_q_case_id<GGML_TYPE_TQP7>(ctx, args, stream);
             break;
         default:
             GGML_ABORT("fatal error");
@@ -344,13 +374,14 @@ void ggml_cuda_mul_mat_q_id(ggml_backend_cuda_context & ctx, const ggml_tensor *
     float       *  dst_d = (float       *)  dst->data;
 
     // If src0 is a temporary compute buffer, clear any potential padding.
+    // If src0 is a view (one expert), the padding is at the end of the tensor it views.
     if (ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
-        const size_t size_data  = ggml_nbytes(src0);
-        const size_t size_alloc = ggml_backend_buffer_get_alloc_size(src0->buffer, src0);
+        const ggml_tensor * src0_full = src0->view_src ? src0->view_src : src0;
+        const size_t size_data  = ggml_nbytes(src0_full);
+        const size_t size_alloc = ggml_backend_buffer_get_alloc_size(src0_full->buffer, src0_full);
         if (size_alloc > size_data) {
-            GGML_ASSERT(ggml_is_contiguously_allocated(src0));
-            GGML_ASSERT(!src0->view_src);
-            CUDA_CHECK(cudaMemsetAsync((char *) src0->data + size_data, 0, size_alloc - size_data, stream));
+            GGML_ASSERT(ggml_is_contiguously_allocated(src0_full));
+            CUDA_CHECK(cudaMemsetAsync((char *) src0_full->data + size_data, 0, size_alloc - size_data, stream));
         }
     }
 
@@ -435,6 +466,10 @@ void ggml_cuda_mul_mat_q_id(ggml_backend_cuda_context & ctx, const ggml_tensor *
                 break;
             case  8:
                 launch_mmq_ids_helper< 8> ((const int32_t *) ids_tensor->data, ids_src1, ids_dst, expert_bounds,
+                    ne02, ne12, n_expert_used, ne11, si1, sis1, stream);
+                break;
+            case 10:
+                launch_mmq_ids_helper<10> ((const int32_t *) ids_tensor->data, ids_src1, ids_dst, expert_bounds,
                     ne02, ne12, n_expert_used, ne11, si1, sis1, stream);
                 break;
             case 16:
@@ -522,6 +557,8 @@ bool ggml_cuda_can_use_mmq_id(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_IQ1_S_R4:
         case GGML_TYPE_IQ4_XS:
         case GGML_TYPE_IQ4_NL:
+        case GGML_TYPE_Q2_0:
+        case GGML_TYPE_PQ2_0:
         case GGML_TYPE_IQ2_KS:
         case GGML_TYPE_IQ2_KL:
         case GGML_TYPE_IQ2_K:
@@ -532,10 +569,12 @@ bool ggml_cuda_can_use_mmq_id(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_IQ4_KSS:
         case GGML_TYPE_IQ4_KS:
         case GGML_TYPE_IQ4_KS_R4:
+        case GGML_TYPE_IQ4_KS_R16:
         case GGML_TYPE_IQ4_K:
         case GGML_TYPE_IQ4_K_R4:
         case GGML_TYPE_IQ5_KS:
         case GGML_TYPE_IQ5_KS_R4:
+        case GGML_TYPE_IQ5_KS_R16:
         case GGML_TYPE_IQ5_K:
         case GGML_TYPE_IQ5_K_R4:
         case GGML_TYPE_IQ6_K:
@@ -543,6 +582,12 @@ bool ggml_cuda_can_use_mmq_id(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_IQ2_KT:
         case GGML_TYPE_IQ3_KT:
         case GGML_TYPE_IQ4_KT:
+        case GGML_TYPE_TQ2_T:
+        case GGML_TYPE_TQK6:
+        case GGML_TYPE_TQK7:
+        case GGML_TYPE_TQP5:
+        case GGML_TYPE_TQP6:
+        case GGML_TYPE_TQP7:
             mmq_supported = true;
             break;
         default:
@@ -556,6 +601,10 @@ bool ggml_cuda_can_use_mmq_id(enum ggml_type type, int cc, int64_t ne11) {
 
     if (turing_mma_available(cc)) {
         return true;
+    }
+
+    if (type == GGML_TYPE_IQ1_S_R4) {
+        return false;
     }
 
     if (ggml_cuda_highest_compiled_arch(cc) < GGML_CUDA_CC_DP4A) {

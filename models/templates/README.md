@@ -16,6 +16,7 @@ These templates can be updated with the following commands:
 ./scripts/get_chat_template.py meta-llama/Llama-3.3-70B-Instruct             > models/templates/meta-llama-Llama-3.3-70B-Instruct.jinja
 ./scripts/get_chat_template.py microsoft/Phi-3.5-mini-instruct               > models/templates/microsoft-Phi-3.5-mini-instruct.jinja
 ./scripts/get_chat_template.py mistralai/Mistral-Nemo-Instruct-2407          > models/templates/mistralai-Mistral-Nemo-Instruct-2407.jinja
+./scripts/get_chat_template.py Nanbeige/Nanbeige4.2-3B                    > models/templates/Nanbeige4.2-3B.jinja
 ./scripts/get_chat_template.py NousResearch/Hermes-2-Pro-Llama-3-8B tool_use > models/templates/NousResearch-Hermes-2-Pro-Llama-3-8B-tool_use.jinja
 ./scripts/get_chat_template.py NousResearch/Hermes-3-Llama-3.1-8B tool_use   > models/templates/NousResearch-Hermes-3-Llama-3.1-8B-tool_use.jinja
 ./scripts/get_chat_template.py Qwen/Qwen2.5-7B-Instruct                      > models/templates/Qwen-Qwen2.5-7B-Instruct.jinja
@@ -23,5 +24,8 @@ These templates can be updated with the following commands:
 ./scripts/get_chat_template.py Qwen/Qwen3-0.6B                               > models/templates/Qwen-Qwen3-0.6B.jinja
 ./scripts/get_chat_template.py zai-org/GLM-4.5                               > models/templates/zai-org-GLM-4.5.jinja
 ./scripts/get_chat_template.py deepseek-ai/DeepSeek-V3.1                     > models/templates/deepseek-ai-DeepSeek-V3.1.jinja
+./scripts/get_chat_template.py XHToken/Spark-X2.5-1.7B                       > models/templates/Spark2.5.jinja
+./scripts/get_chat_template.py XHToken/Spark-X2.5-4B                         > models/templates/Spark2.5.jinja
 ./scripts/get_chat_template.py deepseek-ai/DeepSeek-V4                       > models/templates/deepseek-ai-DeepSeek-V4.jinja
 ```
+./scripts/get_chat_template.py XingChen-AGI/Xing4.0-29B-A4B                > models/templates/Xing4.0.jinja

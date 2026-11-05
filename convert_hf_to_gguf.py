@@ -47,6 +47,7 @@ AnyModel = TypeVar("AnyModel", bound="type[Model]")
 class Model:
     _model_classes: dict[str, type[Model]] = {}
     mtp_only = False
+    keep_source_dtypes = False
 
     dir_model: Path
     ftype: gguf.LlamaFileType
@@ -93,7 +94,7 @@ class Model:
             self.part_names = Model.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
             if len(self.part_names) == 0:
                 self.part_names = Model.get_model_part_names_from_weight_map(self.dir_model, "pytorch_model.bin.index.json")
-        self.hparams = Model.load_hparams(self.dir_model)
+        self.hparams = type(self).load_hparams(self.dir_model)
         self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
         self.tensor_names = None
@@ -280,7 +281,7 @@ class Model:
             old_dtype = data_torch.dtype
 
             # convert any unsupported data types to float32
-            if data_torch.dtype not in (torch.float16, torch.float32) and not self.mtp_only:
+            if data_torch.dtype not in (torch.float16, torch.float32) and not self.mtp_only and not self.keep_source_dtypes:
                 data_torch = data_torch.to(torch.float32)
 
             # use the first number-like part of the tensor name as the block id
@@ -292,7 +293,7 @@ class Model:
 
             for new_name, data in ((
                 n,
-                (d if self.mtp_only and self.model_arch == gguf.MODEL_ARCH.DEEPSEEK4 and n == "output_hc_scale.weight" else d.squeeze()).numpy(),
+                (d if self.mtp_only and self.model_arch in (gguf.MODEL_ARCH.DEEPSEEK4, gguf.MODEL_ARCH.DEEPSEEK41) and n == "output_hc_scale.weight" else d.squeeze()).numpy(),
             ) for n, d in self.modify_tensors(data_torch, name, bid)):
                 data: np.ndarray  # type hint
                 n_dims = len(data.shape)
@@ -608,6 +609,12 @@ class Model:
         if chkhsh == "169bf0296a13c4d9b7672313f749eb36501d931022de052aad6e36f2bf34dd51":
             # ref: https://huggingface.co/LiquidAI/LFM2-Tokenizer
             res = "lfm2"
+        if chkhsh == "9e454714343b69b99b71795c1d27a68c2a1d15dab111f4d353109f966af29da7":
+            # ref: https://huggingface.co/LiquidAI/LFM2.5-8B-A1B
+            res = "lfm2"
+        if chkhsh == "ffdae2f611dc6903980be2fbb108467cb97376d7d03cd332bb7e2602f87fa1f1":
+            # ref: https://huggingface.co/KRAFTON/Raon-1-mini-preview
+            res = "raon"
         if chkhsh == "0ef9807a4087ebef797fc749390439009c3b9eda9ad1a097abbe738f486c01e5":
             # ref: https://huggingface.co/meta-llama/Meta-Llama-3-8B
             res = "llama-bpe"
@@ -737,6 +744,12 @@ class Model:
         if chkhsh == "ccc2ef013c104be7bae2965776d611e1d7a8a2a9c547dd93a682c9a9fc80352e":
             # ref: https://huggingface.co/openai/gpt-oss-20b
             res = "gpt-4o"
+        if chkhsh == "0a766d034107bc736a3f2dc4968fd62e54a3570f1454443e0c5a4cc6bd7941ed":
+            # ref: https://huggingface.co/XHToken/Spark-X2.5-1.7B
+            res = "spark2_5"
+        if chkhsh == "d5420e601e979078c670bc503d9ac411c311fa76b76a76267c31e0d6ba816637":
+            # ref: https://huggingface.co/RecursiveSI/flint-preview
+            res = "flint"
         if res is None:
             logger.warning("\n")
             logger.warning("**************************************************************************************")
@@ -1633,12 +1646,17 @@ class LlamaModel(Model):
             special_vocab.add_to_gguf(self.gguf_writer)
 
     def set_gguf_parameters(self):
+        # MoE-only keys (absent from dense configs).
+        has_dense_prefix = "prefix_dense_intermediate_size" in self.hparams
         saved_intermediate_size = self.hparams.get("intermediate_size")
-        saved_num_experts_per_tok = self.hparams.pop("num_experts_per_tok")
-        self.hparams["intermediate_size"] = self.hparams["prefix_dense_intermediate_size"]
+        saved_num_experts_per_tok = self.hparams.pop("num_experts_per_tok", None)
+        if has_dense_prefix:
+            self.hparams["intermediate_size"] = self.hparams["prefix_dense_intermediate_size"]
         super().set_gguf_parameters()
-        self.hparams["intermediate_size"] = saved_intermediate_size
-        self.hparams["num_experts_per_tok"] = saved_num_experts_per_tok
+        if saved_intermediate_size is not None:
+            self.hparams["intermediate_size"] = saved_intermediate_size
+        if saved_num_experts_per_tok is not None:
+            self.hparams["num_experts_per_tok"] = saved_num_experts_per_tok
         hparams = self.hparams
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
 
@@ -1756,6 +1774,26 @@ class LlamaModel(Model):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
+
+
+@Model.register("NanbeigeForCausalLM")
+class NanbeigeModel(LlamaModel):
+    # Looped transformer: n_layer physical layers repeated num_loops times.
+    model_arch = gguf.MODEL_ARCH.NANBEIGE
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+
+        hparams = self.hparams
+        for key in ("loop_share_kv", "enable_double_loop_split", "enable_depth_attention"):
+            if hparams.get(key, False):
+                raise NotImplementedError(f"Nanbeige models with '{key}=True' are not supported yet")
+
+        n_loops = int(hparams.get("num_loops", 1) or 1)
+        if n_loops < 1:
+            n_loops = 1
+        self.gguf_writer.add_num_loops(n_loops)
+        self.gguf_writer.add_skip_loop_final_norm(bool(hparams.get("skip_loop_final_norm", False)))
 
 
 @Model.register("DeciLMForCausalLM")
@@ -2340,6 +2378,59 @@ class Qwen3MoeModel(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3MOE
 
 
+@Model.register("FlintForCausalLM")
+class FlintModel(Qwen2MoeModel):
+    model_arch = gguf.MODEL_ARCH.FLINT
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        dense = self.hparams.get("mlp_only_layers", [])
+        if dense != list(range(len(dense))):
+            raise ValueError("Flint dense layers must precede the MoE layers")
+        self.gguf_writer.add_leading_dense_block_count(len(dense))
+        shared_size = self.hparams.get("shared_expert_intermediate_size", 0)
+        moe_size    = self.hparams.get("moe_intermediate_size")
+        if shared_size:
+            if not moe_size:
+                raise ValueError("Flint shared expert without moe_intermediate_size")
+            self.gguf_writer.add_expert_shared_count(shared_size // moe_size)
+        else:
+            self.gguf_writer.add_expert_shared_count(0)
+        self.gguf_writer.add_expert_weights_norm(self.hparams.get("norm_topk_prob", True))
+        self.gguf_writer.add_expert_weights_scale(1.0)
+        score_func = self.hparams.get("router_score_function", "softmax")
+        gating = {
+            "softmax":      gguf.ExpertGatingFuncType.SOFTMAX,
+            "sigmoid":      gguf.ExpertGatingFuncType.SIGMOID,
+            "sqrtsoftplus": gguf.ExpertGatingFuncType.SQRTSOFTPLUS,
+        }
+        if score_func not in gating:
+            raise ValueError(f"Unsupported Flint router_score_function={score_func!r}")
+        self.gguf_writer.add_expert_gating_func(gating[score_func])
+        sliding = self.hparams.get("sliding_window")
+        if sliding:
+            layer_types = self.hparams.get("layer_types")
+            if not layer_types:
+                raise ValueError("Flint sliding window without layer_types")
+            self.gguf_writer.add_sliding_window(sliding)
+            self.gguf_writer.add_sliding_window_pattern([
+                kind == "sliding_attention" for kind in layer_types
+            ])
+        no_rope = set(self.hparams.get("no_rope_layer_indices", []))
+        self.gguf_writer.add_rope_pattern([
+            i not in no_rope for i in range(self.block_count)
+        ])
+
+    def modify_tensors(self, data_torch, name, bid):
+        if name.endswith(".softmax_offset"):
+            name += ".weight"
+        if name.endswith(".gate.expert_bias"):
+            if not self.hparams.get("router_expert_bias", False):
+                return
+            name += ".bias"
+        yield from super().modify_tensors(data_torch, name, bid)
+
+
 @Model.register("DFlashDraftModel")
 class DFlashDraftModel(Qwen3Model):
     model_arch = gguf.MODEL_ARCH.DFLASH_DRAFT
@@ -2781,6 +2872,62 @@ class DFlash2DraftModel(DFlashDraftModel):
         if top_level_name == "hidden_norm.weight":
             return [("enc.output_norm.weight", data_torch)]
         return super().modify_tensors(data_torch, self.normalize_tensor_name(name), bid)
+
+
+@Model.register("Spark2_5ForCausalLM")
+class Spark2_5Model(Model):
+    model_arch = gguf.MODEL_ARCH.SPARK2_5
+
+    def set_gguf_parameters(self) -> None:
+        super().set_gguf_parameters()
+
+        hparams = self.hparams
+        layer_types = hparams["layer_types"]
+        if len(layer_types) != self.block_count:
+            raise ValueError(
+                f"Spark2_5 layer_types length {len(layer_types)} != num_hidden_layers {self.block_count}"
+            )
+        if any(layer_type not in ("sliding_attention", "full_attention") for layer_type in layer_types):
+            raise ValueError(f"Spark2_5 has unsupported layer_types: {layer_types}")
+        if hparams.get("gate_attn_act_mode") != "sigmoid" or hparams.get("headwise_attn_output_gate") is not True:
+            raise ValueError("Spark2_5 conversion requires head-wise sigmoid attention gates")
+        if hparams.get("hidden_act") != "gelu":
+            raise ValueError(f"Spark2_5 conversion requires GELU, got {hparams.get('hidden_act')!r}")
+
+        self.gguf_writer.add_vocab_size(hparams["vocab_size"])
+        if (sliding_window := hparams.get("sliding_window")) is not None:
+            self.gguf_writer.add_sliding_window(sliding_window)
+        self.gguf_writer.add_sliding_window_pattern(
+            [layer_type == "sliding_attention" for layer_type in layer_types]
+        )
+
+        # Layer-type-dependent RoPE (full vs sliding).
+        rope_parameters = hparams.get("rope_parameters") or {}
+        head_dim = hparams["head_dim"]
+        if (full_rope := rope_parameters.get("full_attention")) is not None:
+            if (rope_theta := full_rope.get("rope_theta")) is not None:
+                self.gguf_writer.add_rope_freq_base(rope_theta)
+            self.gguf_writer.add_rope_dimension_count(
+                int(head_dim * float(full_rope.get("partial_rotary_factor", 1.0)))
+            )
+        if (swa_rope := rope_parameters.get("sliding_attention")) is not None:
+            if (rope_theta_swa := swa_rope.get("rope_theta")) is not None:
+                self.gguf_writer.add_rope_freq_base_swa(rope_theta_swa)
+            n_rot_swa = int(head_dim * float(swa_rope.get("partial_rotary_factor", 1.0)))
+            self.gguf_writer.add_rope_dimension_count_swa(n_rot_swa)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # Tensor names are mapped by gguf-py; validate the gate width.
+        if name.endswith(".self_attn.g_proj.weight"):
+            if bid is None:
+                raise ValueError(f"Spark2_5 attention gate tensor has no block id: {name}")
+            expected = self.hparams["num_attention_heads"]
+            if data_torch.shape[0] != expected:
+                raise ValueError(
+                    f"Spark2_5 layer {bid} attention gate width {data_torch.shape[0]} != head count {expected}"
+                )
+
+        yield from super().modify_tensors(data_torch, name, bid)
 
 
 @Model.register("Qwen3DSparkModel")
@@ -5342,8 +5489,447 @@ class DeepseekV4Model(DeepseekV2Model):
             self.gguf_writer.add_attention_indexer_key_length(indexer_dim)
         if (indexer_top_k := self.hparams.get("indexer_topk", self.hparams.get("index_topk"))) is not None:
             self.gguf_writer.add_attention_indexer_top_k(indexer_top_k)
-        if (nextn_layers := self.hparams.get("num_nextn_predict_layers")) is not None:
+        # the key describes an MTP tail stored in this file: only claim it when block_count includes the tail
+        if (nextn_layers := self.hparams.get("num_nextn_predict_layers")) is not None and \
+                self.block_count == int(self.hparams["num_hidden_layers"]) + nextn_layers:
             self.gguf_writer.add_nextn_predict_layers(nextn_layers)
+
+
+@Model.register("DeepseekV41ForCausalLM")
+class DeepseekV41Model(DeepseekV4Model):
+    model_arch = gguf.MODEL_ARCH.DEEPSEEK41
+    # keep int8/fp8 source dtypes; this class converts what it needs itself
+    keep_source_dtypes = True
+
+    _ENGRAM_CHUNK_ROWS = 1_000_000  # rows per pass over an engram table (~1 GB fp32 scratch)
+
+    _V41_ROOT_NAMES: dict[str, str] = {
+        "embed.weight": "token_embd.weight",
+        "norm.weight":  "output_norm.weight",
+        "head.weight":  "output.weight",
+    }
+
+    _V41_LAYER_NAMES: dict[str, str] = {
+        "attn_norm.weight":                  "attn_norm.weight",
+        "ffn_norm.weight":                   "ffn_norm.weight",
+        "attn.attn_sink":                    "attn_sinks.weight",
+        "attn.wq_a.weight":                  "attn_q_a.weight",
+        "attn.wq_b.weight":                  "attn_q_b.weight",
+        "attn.q_norm.weight":                "attn_q_a_norm.weight",
+        "attn.wkv.weight":                   "attn_kv.weight",
+        "attn.kv_norm.weight":               "attn_kv_a_norm.weight",
+        "attn.wo_a.weight":                  "attn_output_a.weight",
+        "attn.wo_b.weight":                  "attn_output_b.weight",
+        "attn.compressor.wkv.weight":        "attn_compressor_kv.weight",
+        "attn.compressor.wgate.weight":      "attn_compressor_gate.weight",
+        "attn.compressor.norm.weight":       "attn_compressor_norm.weight",
+        "attn.indexer.wq_b.weight":          "indexer.attn_q_b.weight",
+        "attn.indexer.weights_proj.weight":  "indexer.proj.weight",
+        "attn.indexer.wk.weight":            "indexer.attn_k.weight",
+        "attn.indexer.k_norm.weight":        "indexer.k_norm.weight",
+        "ffn.gate.weight":                   "ffn_gate_inp.weight",
+        "ffn.gate.bias":                     "exp_probs_b.bias",
+        "ffn.gate.bias_vl":                  "exp_probs_b_vl.bias",
+        "ffn.shared_experts.w1.weight":      "ffn_gate_shexp.weight",
+        "ffn.shared_experts.w2.weight":      "ffn_down_shexp.weight",
+        "ffn.shared_experts.w3.weight":      "ffn_up_shexp.weight",
+        "hc_attn_base":                      "hc_attn_base.weight",
+        "hc_attn_fn":                        "hc_attn_fn.weight",
+        "hc_attn_scale":                     "hc_attn_scale.weight",
+        "hc_ffn_base":                       "hc_ffn_base.weight",
+        "hc_ffn_fn":                         "hc_ffn_fn.weight",
+        "hc_ffn_scale":                      "hc_ffn_scale.weight",
+        "engram.k_weight":                   "engram_k.weight",
+        "engram.q_weight":                   "engram_q.weight",
+        "engram.wkv.weight":                 "engram_wkv.weight",
+    }
+
+    _V41_EXPERT_PROJ_NAMES = {
+        "1": "ffn_gate_exps.weight",
+        "2": "ffn_down_exps.weight",
+        "3": "ffn_up_exps.weight",
+    }
+
+    @staticmethod
+    def load_hparams(dir_model: Path) -> dict[str, Any]:
+        with open(dir_model / "config.json", "r", encoding="utf-8") as f:
+            hparams = json.load(f)
+        # V4.1 nests the text parameters under text_config; the inherited
+        # V4/V2 code expects them at the top level.
+        for key, value in (hparams.get("text_config") or {}).items():
+            hparams.setdefault(key, value)
+        # absent in V4.1; the V4 metadata path reads it
+        hparams.setdefault("num_hash_layers", 0)
+        # transformers v5 renamed rope_scaling "type" to "rope_type"
+        rope_scaling = hparams.get("rope_scaling")
+        if isinstance(rope_scaling, dict) and "type" not in rope_scaling and "rope_type" in rope_scaling:
+            rope_scaling["type"] = rope_scaling["rope_type"]
+        return hparams
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # V4.1 tiles FP8 weights with [32, 32] blocks where V4 used [128, 128].
+        quant_cfg = self.hparams.get("quantization_config") or {}
+        block = quant_cfg.get("weight_block_size") or [128, 128]
+        self._v41_block_rows = int(block[0])
+        self._v41_block_cols = int(block[1] if len(block) > 1 else block[0])
+        if (self._v41_block_rows, self._v41_block_cols) != (32, 32):
+            logger.warning(
+                "DeepSeek-V4.1: unexpected fp8 weight_block_size %dx%d (expected 32x32)",
+                self._v41_block_rows, self._v41_block_cols,
+            )
+
+        self.block_count = int(self.hparams["num_hidden_layers"])
+        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+        self._v41_engram_layers = [int(b) for b in (self.hparams.get("engram_layer_ids") or [])]
+        logger.info(
+            "DeepSeek-V4.1: %d backbone layers, fp8 block %dx%d, engram layers %s",
+            self.block_count, self._v41_block_rows, self._v41_block_cols, self._v41_engram_layers,
+        )
+
+        # tensors that carry a sibling .scale in the checkpoint (fp8 pairing)
+        index_path = self.dir_model / "model.safetensors.index.json"
+        if index_path.is_file():
+            with open(index_path, "r", encoding="utf-8") as f:
+                weight_map = json.load(f).get("weight_map") or {}
+            self._v41_expected_scales = {
+                n[:-len(".scale")] + ".weight" for n in weight_map if n.endswith(".scale")
+            }
+        else:
+            self._v41_expected_scales = set()
+
+        self._v41_scales: dict[str, Tensor] = {}
+        self._v41_pending_weights: dict[str, Tensor] = {}
+        self._v41_experts: dict[tuple[int, str], dict[int, Tensor]] = {}
+        self._v41_fp8_dequantized: set[str] = set()
+        self._v41_bf16_tensors: set[str] = set()
+        self._v41_f32_tensors: set[str] = set()
+
+    def _v41_skip_tensor(self, name: str) -> bool:
+        # vision tower / aligner: separate mmproj export; DSpark: separate draft export
+        if name.startswith(("vision.", "aligner.", "image_", "mtp.")):
+            return True
+        # engram embedding tables are far too large for the streaming flow;
+        # _v41_write_engram_table handles them in row chunks
+        if re.match(r"layers\.\d+\.engram\.embed\.(weight|scale)$", name):
+            return True
+        return False
+
+    def get_tensors(self) -> Iterator[tuple[str, Tensor]]:
+        for name, data_torch in super().get_tensors():
+            if self._v41_skip_tensor(name):
+                continue
+            yield name, data_torch
+
+    def _v41_map_name(self, name: str, bid: int | None) -> str:
+        if name in self._V41_ROOT_NAMES:
+            return self._V41_ROOT_NAMES[name]
+        match = re.match(r"layers\.(\d+)\.(.+)$", name)
+        if match is None or match.group(2) not in self._V41_LAYER_NAMES:
+            raise ValueError(f"Unsupported DeepSeek-V4.1 tensor {name!r}")
+        layer = int(match.group(1))
+        if bid is not None and bid != layer:
+            raise ValueError(f"Tensor {name!r} has block id {bid}, expected {layer}")
+        return f"blk.{layer}." + self._V41_LAYER_NAMES[match.group(2)]
+
+    @staticmethod
+    def _v41_e8m0_to_float(scale: Tensor) -> Tensor:
+        torch_float8_e8m0 = getattr(torch, "float8_e8m0fnu", None)
+        if torch_float8_e8m0 is not None and scale.dtype == torch_float8_e8m0:
+            return scale.float()
+        bits = scale.view(torch.uint8).float()
+        return torch.exp2(bits - 127.0)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if self.mtp_only:
+            return super().modify_tensors(data_torch, name, bid)
+
+        expert_match = re.match(r"layers\.(\d+)\.ffn\.experts\.(\d+)\.w([123])\.(weight|scale)$", name)
+        is_scale = name.endswith(".scale")
+        weight_name = name.removesuffix(".scale") + ".weight" if is_scale else name
+
+        if expert_match is not None:
+            # MXFP4 experts: pair weight+scale, repack, and stream out each
+            # (layer, projection) stack as soon as all experts have arrived.
+            if is_scale:
+                self._v41_scales[weight_name] = data_torch
+                if weight_name not in self._v41_pending_weights:
+                    return []
+                weight = self._v41_pending_weights.pop(weight_name)
+            else:
+                if weight_name not in self._v41_scales:
+                    self._v41_pending_weights[weight_name] = data_torch
+                    return []
+                weight = data_torch
+            scale = self._v41_scales.pop(weight_name)
+            return self._v41_record_expert(weight_name, weight, scale)
+
+        if is_scale:
+            if weight_name not in self._v41_expected_scales:
+                raise ValueError(f"DeepSeek-V4.1: unexpected scale tensor {name!r}")
+            self._v41_scales[weight_name] = data_torch
+            if weight_name in self._v41_pending_weights:
+                # weight arrived first; complete the pair now
+                weight = self._v41_pending_weights.pop(weight_name)
+                self._v41_fp8_dequantized.add(weight_name)
+                return [(self._v41_map_name(weight_name, bid), self._dequantize_mtp_weight(weight, data_torch))]
+            return []
+
+        if weight_name in self._v41_expected_scales:
+            # FP8 weight: pair with its .scale and dequantize to F32
+            if weight_name not in self._v41_scales:
+                self._v41_pending_weights[weight_name] = data_torch
+                return []
+            scale = self._v41_scales.pop(weight_name)
+            self._v41_fp8_dequantized.add(weight_name)
+            return [(self._v41_map_name(weight_name, bid), self._dequantize_mtp_weight(data_torch, scale))]
+
+        # plain tensor: track the source dtype for tensor_force_quant, normalize to F32
+        dtype = data_torch.dtype
+        if dtype == torch.bfloat16:
+            self._v41_bf16_tensors.add(name)
+        elif dtype == torch.float32:
+            self._v41_f32_tensors.add(name)
+        if dtype not in (torch.float16, torch.float32):
+            data_torch = data_torch.to(torch.float32)
+        return [(self._v41_map_name(name, bid), data_torch)]
+
+    def _v41_record_expert(self, weight_name: str, weight: Tensor, scale: Tensor) -> Iterable[tuple[str, Tensor]]:
+        match = re.match(r"layers\.(\d+)\.ffn\.experts\.(\d+)\.w([123])\.weight$", weight_name)
+        assert match is not None
+        layer, expert, proj = int(match.group(1)), int(match.group(2)), match.group(3)
+
+        packed = self._pack_mxfp4_blocks(weight, scale)
+        key = (layer, proj)
+        self._v41_experts.setdefault(key, {})[expert] = packed
+
+        n_experts = int(self.hparams["n_routed_experts"])
+        if len(self._v41_experts[key]) < n_experts:
+            return []
+        experts = self._v41_experts.pop(key)
+        if set(experts) != set(range(n_experts)):
+            raise ValueError(f"Incomplete DeepSeek-V4.1 expert set for layer {layer}, projection w{proj}")
+
+        stacked = torch.stack([experts[eid] for eid in range(n_experts)], dim=0).contiguous()
+        new_name = f"blk.{layer}.{self._V41_EXPERT_PROJ_NAMES[proj]}"
+        self.gguf_writer.add_tensor(new_name, stacked.numpy(), raw_dtype=gguf.GGMLQuantizationType.MXFP4)
+        logger.info(f"{new_name}, MXFP4 experts {n_experts} x {tuple(stacked.shape[1:])}")
+        return []
+
+    def tensor_force_quant(self, name: str, new_name: str, bid: int | None, n_dims: int) -> gguf.GGMLQuantizationType | bool:
+        # Mirror the upstream V4.1 export: dequantized FP8 -> Q8_0, source
+        # BF16 -> BF16, source F32 -> F32 (1D is forced to F32 by the base).
+        if name in self._v41_fp8_dequantized and n_dims >= 2:
+            return gguf.GGMLQuantizationType.Q8_0
+        if name in self._v41_bf16_tensors and n_dims >= 2:
+            return gguf.GGMLQuantizationType.BF16
+        if name in self._v41_f32_tensors:
+            return gguf.GGMLQuantizationType.F32
+        return False
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        hparams = self.hparams
+        arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
+
+        # written unconditionally, matching upstream DEEPSEEK4 exports
+        self.gguf_writer.add_embedding_length_out(int(hparams["hidden_size"]) * int(hparams["hc_mult"]))
+
+        # The inherited V2 yarn branch requires mscale_all_dim, which V4.1 does
+        # not have, so it never fires; write the yarn keys explicitly instead.
+        rope_scaling = hparams.get("rope_scaling") or {}
+        if rope_scaling.get("type") == "yarn":
+            self.gguf_writer.add_string(f"{arch}.rope.scaling.type", "yarn")
+            self.gguf_writer.add_float32(f"{arch}.rope.scaling.factor", float(rope_scaling["factor"]))
+            self.gguf_writer.add_uint32(
+                f"{arch}.rope.scaling.original_context_length",
+                int(rope_scaling["original_max_position_embeddings"]),
+            )
+            self.gguf_writer.add_float32(f"{arch}.rope.scaling.yarn_beta_fast", float(rope_scaling.get("beta_fast", 32.0)))
+            self.gguf_writer.add_float32(f"{arch}.rope.scaling.yarn_beta_slow", float(rope_scaling.get("beta_slow", 1.0)))
+
+        if (engram_ids := hparams.get("engram_layer_ids")) is not None:
+            self.gguf_writer.add_uint32(f"{arch}.engram.head_count", int(hparams["engram_n_heads"]))
+            self.gguf_writer.add_uint32(f"{arch}.engram.key_length", int(hparams["engram_head_dim"]))
+            self.gguf_writer.add_uint32(f"{arch}.engram.max_ngram_size", int(hparams["engram_max_ngram_size"]))
+            self.gguf_writer.add_array(f"{arch}.engram.layer_ids", engram_ids)
+            self._v41_write_engram_constants(arch, hparams)
+
+    def _v41_write_engram_constants(self, arch: str, hparams) -> None:
+        # emit multipliers/primes/offsets/token_map/pad_id, flattened across layers
+        import numpy as np
+        from tokenizers import Regex, Tokenizer, normalizers
+
+        layer_ids    = [int(b) for b in hparams["engram_layer_ids"]]
+        max_ngram    = int(hparams["engram_max_ngram_size"])
+        engram_vocab = int(hparams["engram_vocab_size"])
+        n_heads      = int(hparams["engram_n_heads"])
+        pad_token_id = int(hparams["engram_pad_token_id"])
+        n_vocab      = int(hparams["vocab_size"])
+
+        # (a) compressed token map: dedup the vocab under the reference normalization
+        tokenizer = Tokenizer.from_file(str(self.dir_model / "tokenizer.json"))
+        sentinel = "\ue000"
+        normalizer = normalizers.Sequence([
+            normalizers.NFKC(),
+            normalizers.NFD(),
+            normalizers.StripAccents(),
+            normalizers.Lowercase(),
+            normalizers.Replace(Regex(r"[ \t\r\n]+"), " "),
+            normalizers.Replace(Regex(r"^ $"), sentinel),
+            normalizers.Strip(),
+            normalizers.Replace(sentinel, " "),
+        ])
+        key_to_new: dict[str, int] = {}
+        token_map = [0] * n_vocab
+        for tid in range(n_vocab):
+            text = tokenizer.decode([tid], skip_special_tokens=False)
+            if "\ufffd" in text:
+                key = tokenizer.id_to_token(tid) or text
+            else:
+                norm = normalizer.normalize_str(text)
+                key = norm if norm else text
+            nid = key_to_new.get(key)
+            if nid is None:
+                nid = len(key_to_new)
+                key_to_new[key] = nid
+            token_map[tid] = nid
+        compressed_vocab = len(key_to_new)
+
+        # (b) hash multipliers (deterministic per layer)
+        bound = max(1, (np.iinfo(np.int64).max // compressed_vocab) // 2)
+        multipliers: list[int] = []
+        for layer_id in layer_ids:
+            vals = np.random.default_rng(10007 * layer_id).integers(0, bound, size=(max_ngram,), dtype=np.int64)
+            multipliers.extend(int(v) * 2 + 1 for v in vals)
+
+        # (c) primes + offsets (never reused across the whole layout)
+        def is_prime(n: int) -> bool:
+            if n < 2:
+                return False
+            if n % 2 == 0:
+                return n == 2
+            d = 3
+            while d * d <= n:
+                if n % d == 0:
+                    return False
+                d += 2
+            return True
+
+        seen: set[int] = set()
+        primes: list[int] = []
+        offsets: list[int] = []
+        for _ in layer_ids:
+            per: list[int] = []
+            for _ in range(max_ngram - 1):
+                current = engram_vocab - 1
+                for _ in range(n_heads):
+                    candidate = current + 1
+                    while not is_prime(candidate) or candidate in seen:
+                        candidate += 1
+                    seen.add(candidate)
+                    per.append(candidate)
+                    current = candidate
+            primes.extend(per)
+            off = 0
+            for s in per[:-1]:
+                offsets.append(off)
+                off += s
+            offsets.append(off)
+
+        kv = self.gguf_writer
+        kv.add_key_value(f"{arch}.engram.multipliers", [int(x) for x in multipliers], gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.UINT64)
+        kv.add_key_value(f"{arch}.engram.primes",      [int(x) for x in primes],      gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.UINT64)
+        kv.add_key_value(f"{arch}.engram.offsets",     [int(x) for x in offsets],     gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.UINT64)
+        kv.add_key_value(f"{arch}.engram.token_map",   [int(x) for x in token_map],   gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.UINT32)
+        kv.add_uint32(f"{arch}.engram.pad_id", int(token_map[pad_token_id]))
+        logger.info(
+            "DeepSeek-V4.1 engram constants: %d layers, %d primes/offsets, compressed vocab %d, pad_id %d",
+            len(layer_ids), len(primes), compressed_vocab, token_map[pad_token_id],
+        )
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+
+        if self._v41_pending_weights:
+            raise ValueError(f"Unpaired DeepSeek-V4.1 weight scales: {sorted(self._v41_pending_weights)}")
+        if self._v41_scales:
+            raise ValueError(f"Unpaired DeepSeek-V4.1 scales: {sorted(self._v41_scales)}")
+        if self._v41_experts:
+            raise ValueError(f"Unprocessed DeepSeek-V4.1 experts: {sorted(self._v41_experts)}")
+
+        for bid in self._v41_engram_layers:
+            self._v41_write_engram_table(bid)
+
+    def _v41_write_engram_table(self, bid: int) -> None:
+        from safetensors import safe_open
+
+        weight_name = f"layers.{bid}.engram.embed.weight"
+        scale_name = f"layers.{bid}.engram.embed.scale"
+
+        index_path = self.dir_model / "model.safetensors.index.json"
+        with open(index_path, "r", encoding="utf-8") as f:
+            weight_map = json.load(f)["weight_map"]
+        shard_path = self.dir_model / weight_map[weight_name]
+
+        qtype = gguf.GGMLQuantizationType.Q8_0
+        block_elems = gguf.GGML_QUANT_SIZES[qtype][0]
+
+        with safe_open(str(shard_path), framework="pt") as f:
+            weight_slice = f.get_slice(weight_name)
+            n_rows, n_cols = (int(x) for x in weight_slice.get_shape())
+            has_scale = scale_name in f.keys()
+            scale_slice = f.get_slice(scale_name) if has_scale else None
+            scale_groups = int(scale_slice.get_shape()[1]) if has_scale else 0
+
+            if n_cols % block_elems:
+                raise ValueError(f"DeepSeek-V4.1 engram table has {n_cols} columns, not a multiple of {block_elems}")
+            if has_scale and (n_cols % scale_groups or int(scale_slice.get_shape()[0]) != n_rows):
+                raise ValueError(
+                    f"DeepSeek-V4.1 engram scale shape {tuple(scale_slice.get_shape())} does not tile "
+                    f"a [{n_rows}, {n_cols}] table with {scale_groups} groups per row"
+                )
+            # engram scales tile per row (one per 32 cols), not the [rows/32, cols/32] linear-weight layout
+            per_group = n_cols // scale_groups if has_scale else 0
+
+            row_bytes = gguf.quants.quantize(np.zeros((1, n_cols), dtype=np.float32), qtype).nbytes
+            rows_per_chunk = min(int(self._ENGRAM_CHUNK_ROWS), n_rows)
+
+            tmp_dir = os.environ.get("V41_ENGRAM_TMPDIR") or str(self.fname_out.parent)
+            os.makedirs(tmp_dir, exist_ok=True)
+            tmp_path = os.path.join(tmp_dir, f".{weight_name.replace('.', '_')}.q8_0.tmp")
+            logger.info(
+                f"DeepSeek-V4.1: quantizing engram table {weight_name} [{n_rows}, {n_cols}] to {qtype.name} "
+                f"({n_rows * row_bytes / 1e9:.1f} GB scratch at {tmp_path})"
+            )
+
+            out = np.memmap(tmp_path, dtype=np.uint8, mode="w+", shape=(n_rows, row_bytes))
+            try:
+                for start in range(0, n_rows, rows_per_chunk):
+                    stop = min(start + rows_per_chunk, n_rows)
+                    chunk = weight_slice[start:stop, :].float()
+                    if has_scale:
+                        scales = self._v41_e8m0_to_float(scale_slice[start:stop, :])
+                        chunk = chunk * scales.repeat_interleave(per_group, 1)[:, :n_cols]
+                    out[start:stop] = gguf.quants.quantize(
+                        chunk.cpu().numpy().astype(np.float32), qtype,
+                    ).reshape(stop - start, row_bytes)
+                    del chunk
+                    logger.info(f"DeepSeek-V4.1: engram {weight_name} rows {start}-{stop} of {n_rows}")
+                out.flush()
+            except BaseException:
+                del out
+                os.remove(tmp_path)
+                raise
+
+        try:
+            self.gguf_writer.add_tensor(f"blk.{bid}.engram_embd.weight", out, raw_dtype=qtype)
+        finally:
+            # the writer has streamed the bytes into its temp data file
+            del out
+            os.remove(tmp_path)
+
 
 @Model.register("OpenPanguV2ForCausalLM")
 class OpenPanguV2Model(DeepseekV2Model):
@@ -5916,6 +6502,138 @@ class MiniMaxM2Model(Model):
         return super().modify_tensors(data_torch, name, bid)
 
 
+@Model.register("MiniMaxM3SparseForCausalLM", "MiniMaxM3SparseForConditionalGeneration")
+class MiniMaxM3Model(Model):
+    model_arch = gguf.MODEL_ARCH.MINIMAXM3
+    _experts_cache: dict[int, dict[str, Tensor]] = {}
+    _e2m1_values = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0)
+
+    @staticmethod
+    def load_hparams(dir_model: Path) -> dict[str, Any]:
+        return Model.load_text_hparams(dir_model)
+
+    def set_vocab(self):
+        super().set_vocab()
+        # the HF tokenizer normalizes with NFC before pre-tokenization
+        self.gguf_writer.add_bool("tokenizer.ggml.normalizer.nfc", True)
+
+    def tensor_force_quant(self, name: str, new_name: str, bid: int | None, n_dims: int) -> gguf.GGMLQuantizationType | bool:
+        # the indexer projections are exact in BF16; F16 is not, and lower types change the selected blocks
+        if n_dims > 1 and ".indexer." in new_name and self.ftype != gguf.LlamaFileType.ALL_F32:
+            return gguf.GGMLQuantizationType.BF16
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+    def set_gguf_parameters(self):
+        # the base writes intermediate_size as feed_forward_length, which only the leading dense layers use
+        n_ff_exp = self.hparams["intermediate_size"]
+        self.hparams["intermediate_size"] = self.hparams["dense_intermediate_size"]
+        super().set_gguf_parameters()
+        self.gguf_writer.add_expert_feed_forward_length(n_ff_exp)
+        self.gguf_writer.add_rope_dimension_count(self.hparams["rotary_dim"])
+        self.gguf_writer.add_expert_shared_count(self.hparams["n_shared_experts"])
+        self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
+        self.gguf_writer.add_expert_weights_norm(True)
+        if self.hparams["scoring_func"] == "sigmoid":
+            self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
+        elif self.hparams["scoring_func"] == "softmax":
+            self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
+        else:
+            raise ValueError(f"Unsupported scoring_func value: {self.hparams['scoring_func']}")
+        self.gguf_writer.add_leading_dense_block_count(self.hparams["moe_layer_freq"].index(1))
+
+        sac = self.hparams["sparse_attention_config"]
+        self.gguf_writer.add_attention_indexer_head_count(sac["sparse_num_index_heads"])
+        self.gguf_writer.add_attention_indexer_key_length(sac["sparse_index_dim"])
+        self.gguf_writer.add_attention_indexer_top_k(sac["sparse_topk_blocks"])
+        self.gguf_writer.add_attention_indexer_block_size(sac["sparse_block_size"])
+        self.gguf_writer.add_attention_indexer_local_blocks(sac["sparse_local_block"])
+
+    @staticmethod
+    def _dequant_nvfp4(packed: Tensor, scale: Tensor, global_scale: Tensor) -> Tensor:
+        rows, cols = packed.shape[0], packed.shape[1] * 2
+        # the even column is in the low nibble; the stored global scale divides, as in compressed-tensors
+        codes = torch.stack((packed & 0x0F, packed >> 4), dim=-1).reshape(rows, cols // 16, 16).long()
+        values = torch.tensor(MiniMaxM3Model._e2m1_values)[codes]
+        return (values * (scale.float() / global_scale.float()).unsqueeze(-1)).reshape(rows, cols)
+
+    def get_tensors(self) -> Iterator[tuple[str, Tensor]]:
+        # M3.1 ships MXFP8 projections and NVFP4 routed experts. Pair each weight with its scales by
+        # name and dequantize to F32 once the set is complete.
+        pending: dict[str, dict[str, Tensor]] = {}
+        for name, data in super().get_tensors():
+            # activation scale, only used by W4A4 kernels
+            if name.endswith(".input_global_scale"):
+                continue
+            if name.endswith(".weight") and data.dtype == torch.float8_e4m3fn:
+                weight_name, part = name, "weight"
+            elif name.endswith((".weight_scale_inv", ".weight_packed", ".weight_scale", ".weight_global_scale")):
+                base, _, part = name.rpartition(".")
+                weight_name = base + ".weight"
+            else:
+                yield name, data
+                continue
+
+            parts = pending.setdefault(weight_name, {})
+            parts[part] = data
+            if parts.keys() == {"weight", "weight_scale_inv"}:
+                fn, args = DeepseekV4Model._dequantize_mtp_weight, (parts["weight"], parts["weight_scale_inv"])
+                shape = tuple(parts["weight"].shape)
+            elif parts.keys() == {"weight_packed", "weight_scale", "weight_global_scale"}:
+                fn, args = self._dequant_nvfp4, (parts["weight_packed"], parts["weight_scale"], parts["weight_global_scale"])
+                shape = (parts["weight_packed"].shape[0], parts["weight_packed"].shape[1] * 2)
+            else:
+                continue
+            del pending[weight_name]
+
+            if isinstance(data, LazyTorchTensor):
+                meta = LazyTorchTensor.meta_with_dtype_and_shape(torch.float32, shape)
+                yield weight_name, cast(torch.Tensor, LazyTorchTensor(meta=meta, args=args, func=fn))
+            else:
+                yield weight_name, fn(*args)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
+        if name.startswith(("vision_tower.", "multi_modal_projector.", "patch_merge_mlp.")):
+            return []
+        name = name.removeprefix("language_model.")
+
+        # Gemma-style (1 + w) RMSNorm: bake the +1 in so llama.cpp can use plain RMSNorm
+        if name.endswith("norm.weight"):
+            data_torch = data_torch + 1.0
+
+        if name.endswith("e_score_correction_bias"):
+            name = name.replace("e_score_correction_bias", "e_score_correction.bias")
+
+        if "block_sparse_moe.experts." in name:
+            n_experts = self.hparams["num_local_experts"]
+            assert bid is not None
+
+            expert_cache = self._experts_cache.setdefault(bid, {})
+            expert_cache[name] = data_torch
+            expert_weights = ["w1", "w2", "w3"]
+
+            if len(expert_cache) < n_experts * len(expert_weights):
+                return []
+
+            tensors: list[tuple[str, Tensor]] = []
+            for w_name in expert_weights:
+                datas: list[Tensor] = []
+
+                for xid in range(n_experts):
+                    ename = f"model.layers.{bid}.block_sparse_moe.experts.{xid}.{w_name}.weight"
+                    datas.append(expert_cache[ename])
+                    del expert_cache[ename]
+
+                data_torch = torch.stack(datas, dim=0)
+                merged_name = f"model.layers.{bid}.block_sparse_moe.experts.{w_name}.weight"
+                new_name = self.map_tensor_name(merged_name)
+                tensors.append((new_name, data_torch))
+
+            del self._experts_cache[bid]
+            return tensors
+
+        return super().modify_tensors(data_torch, name, bid)
+
+
 @Model.register("SmolLM3ForCausalLM")
 class SmolLM3Model(LlamaModel):
     model_arch = gguf.MODEL_ARCH.SMOLLM3
@@ -5962,6 +6680,70 @@ class Dots1Model(Qwen2MoeModel):
         if "shared_experts" in name:
             return [(self.map_tensor_name(name), data_torch)]
         return super().modify_tensors(data_torch, name, bid)
+
+
+@Model.register("MapleForCausalLM")
+class MapleModel(Model):
+    model_arch = gguf.MODEL_ARCH.MAPLE
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        hparams = self.hparams
+
+        assert hparams["hidden_act"] == "silu"
+        assert hparams.get("num_shared_experts", 0) == 0
+        assert hparams.get("norm_topk_prob", True)
+        assert hparams.get("nope_on_global_attention", False)
+
+        head_dim = hparams.get("head_dim", hparams["hidden_size"] // hparams["num_attention_heads"])
+        partial_rotary_factor = hparams.get("partial_rotary_factor", 1.0)
+
+        self.gguf_writer.add_vocab_size(hparams["vocab_size"])
+        self.gguf_writer.add_rope_dimension_count(int(head_dim * partial_rotary_factor))
+        self.gguf_writer.add_sliding_window(hparams["sliding_window"])
+        self.gguf_writer.add_sliding_window_pattern([layer_type == "sliding_attention" for layer_type in hparams["layer_types"]])
+        self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
+        clamp_val = float(hparams.get("swiglu_limit", hparams.get("swiglu_clamp", 7.0)))
+        self.gguf_writer.add_swiglu_clamp_exp([clamp_val] * self.block_count)
+
+    _experts: list[dict[str, Tensor]] | None = None
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if "mlp.experts" in name:
+            n_experts = self.hparams["num_experts"]
+            assert bid is not None
+
+            if self._experts is None:
+                self._experts = [{} for _ in range(self.block_count)]
+
+            self._experts[bid][name] = data_torch
+
+            if len(self._experts[bid]) >= n_experts * 3:
+                tensors: list[tuple[str, Tensor]] = []
+
+                for w_name in ["down_proj", "gate_proj", "up_proj"]:
+                    datas: list[Tensor] = []
+
+                    for xid in range(n_experts):
+                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight"
+                        datas.append(self._experts[bid][ename])
+                        del self._experts[bid][ename]
+
+                    merged = torch.stack(datas, dim=0)
+                    merged_name = f"model.layers.{bid}.mlp.experts.{w_name}.weight"
+                    tensors.append((self.map_tensor_name(merged_name), merged))
+
+                return tensors
+            return []
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+        if self._experts is not None:
+            experts = [name for layer in self._experts for name in layer]
+            if len(experts) > 0:
+                raise ValueError(f"Unprocessed experts: {experts}")
 
 
 @Model.register("Glm4MoeForCausalLM")
@@ -6529,7 +7311,7 @@ class LFM2Model(Model):
     def set_vocab(self):
         self._set_vocab_gpt2()
 
-    def set_gguf_parameters(self):
+    def _set_attention_layer_types(self):
         # zero KV heads mark short-conv layers; old configs use full_attn_idxs,
         # newer ones the layer_types list
         if "layer_types" in self.hparams:
@@ -6538,12 +7320,29 @@ class LFM2Model(Model):
             full_idxs = set(self.hparams.get("full_attn_idxs", []))
             full_attention = [i in full_idxs for i in range(self.block_count)]
         n_kv = self.hparams["num_key_value_heads"]
+        if isinstance(n_kv, list):
+            return
         self.hparams["num_key_value_heads"] = [
             n_kv if is_full else 0
             for is_full in full_attention
         ]
 
-        ff_dim = self.hparams["block_ff_dim"]
+    def _set_rope_theta(self):
+        # transformers >= 5 moves rope_theta into the rope_parameters dict
+        if self.hparams.get("rope_theta") is None:
+            rope_parameters = self.hparams.get("rope_parameters")
+            if isinstance(rope_parameters, dict) and rope_parameters.get("rope_theta") is not None:
+                self.hparams["rope_theta"] = rope_parameters["rope_theta"]
+
+    def _head_dim(self) -> int:
+        return self.hparams.get(
+            "head_dim", self.hparams["hidden_size"] // self.hparams["num_attention_heads"])
+
+    def set_gguf_parameters(self):
+        self._set_attention_layer_types()
+        self._set_rope_theta()
+
+        ff_dim = self.find_hparam(["block_ff_dim", "intermediate_size"])
         if self.hparams.get("block_auto_adjust_ff_dim", False):
             ff_dim = int(2 * ff_dim / 3)
             multiplier = self.hparams.get("block_ffn_dim_multiplier")
@@ -6569,15 +7368,9 @@ class LFM2Model(Model):
         self.gguf_writer.add_vocab_size(self.hparams["vocab_size"])
         self.gguf_writer.add_shortconv_l_cache(self.hparams["conv_L_cache"])
         self.gguf_writer.add_feed_forward_length(ff_dim)
-        self.gguf_writer.add_rope_dimension_count(
-            self.hparams.get("head_dim", self.hparams["hidden_size"] // self.hparams["num_attention_heads"])
-        )
-        self.gguf_writer.add_key_length(
-            self.hparams.get("head_dim", self.hparams["hidden_size"] // self.hparams["num_attention_heads"])
-        )
-        self.gguf_writer.add_value_length(
-            self.hparams.get("head_dim", self.hparams["hidden_size"] // self.hparams["num_attention_heads"])
-        )
+        self.gguf_writer.add_rope_dimension_count(self._head_dim())
+        self.gguf_writer.add_key_length(self._head_dim())
+        self.gguf_writer.add_value_length(self._head_dim())
         self.gguf_writer.add_layer_norm_rms_eps(self.hparams["norm_eps"])
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
@@ -6591,6 +7384,131 @@ class LFM2Model(Model):
                 new_name, gguf.MODEL_TENSOR.SHORTCONV_CONV, bid):
             return gguf.GGMLQuantizationType.F32
         return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+
+@Model.register("Lfm3ForCausalLM", "LFM3ForCausalLM")
+class LFM3Model(LFM2Model):
+    """Converter for Liquid AI's dense LFM3 models."""
+
+    model_arch = gguf.MODEL_ARCH.LFM3
+
+    def _rope_param_for(self, layer_type: str) -> dict:
+        rope_parameters = self.hparams.get("rope_parameters")
+        if isinstance(rope_parameters, dict):
+            params = rope_parameters.get(layer_type)
+            if isinstance(params, dict):
+                return params
+            if "rope_theta" in rope_parameters:
+                return rope_parameters
+        return {}
+
+    def _set_rope_theta(self):
+        if self.hparams.get("rope_theta") is None:
+            rope_theta = self._rope_param_for("full_attention").get("rope_theta")
+            if rope_theta is not None:
+                self.hparams["rope_theta"] = rope_theta
+
+    def set_gguf_parameters(self):
+        self.hparams.setdefault("norm_eps", self.hparams.get("rms_norm_eps"))
+        super().set_gguf_parameters()
+
+        layer_types = self.hparams["layer_types"]
+        self.gguf_writer.add_sliding_window(int(self.hparams["sliding_window"]))
+        self.gguf_writer.add_sliding_window_pattern(
+            [layer_type == "sliding_attention" for layer_type in layer_types])
+
+        rope_theta_swa = self._rope_param_for("sliding_attention").get("rope_theta")
+        if rope_theta_swa is not None:
+            self.gguf_writer.add_rope_freq_base_swa(float(rope_theta_swa))
+
+    def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
+        head_dim = self._head_dim()
+        partial_rotary_factor = float(
+            self._rope_param_for("full_attention").get("partial_rotary_factor", 1.0))
+        rope_angles = int(head_dim * partial_rotary_factor) // 2
+        n_pairs = head_dim // 2
+        values = [1.0] * rope_angles + [1e30] * (n_pairs - rope_angles)
+        yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FREQS),
+               torch.tensor(values, dtype=torch.float32))
+
+
+@Model.register("Lfm2MoeForCausalLM", "LFM2MoeForCausalLM")
+class LFM2MoeModel(LFM2Model):
+    """Converter for Liquid AI's LFM2 MoE models (LFM2-8B-A1B, LFM2-24B-A2B, ...)."""
+
+    model_arch = gguf.MODEL_ARCH.LFM2MOE
+
+    # per-layer cache of the individual expert tensors, merged once complete
+    _experts: list[dict[str, Tensor]] | None = None
+
+    def set_gguf_parameters(self):
+        # LFM2-MoE configs use num_experts; the base converter expects num_local_experts
+        saved_num_local_experts = self.hparams.pop("num_local_experts", None)
+        super().set_gguf_parameters()
+        if saved_num_local_experts is not None:
+            self.hparams["num_local_experts"] = saved_num_local_experts
+
+        n_expert = self.find_hparam(["num_experts", "num_local_experts"])
+        self.gguf_writer.add_expert_count(n_expert)
+        # num_experts_per_tok is already handled by the base converter
+        self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
+        self.gguf_writer.add_leading_dense_block_count(self.hparams["num_dense_layers"])
+        self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
+        self.gguf_writer.add_expert_weights_norm(self.hparams.get("norm_topk_prob", True))
+        self.gguf_writer.add_expert_weights_scale(self.hparams.get("routed_scaling_factor", 1.0))
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # the routing bias is stored without a .weight / .bias suffix
+        if name.endswith("feed_forward.expert_bias"):
+            return [(self.map_tensor_name(name + ".bias"), data_torch)]
+
+        # transformers >= 5 stores the experts fused: gate_up_proj is
+        # [n_expert, 2 * moe_intermediate_size, n_embd] (gate half first),
+        # down_proj is [n_expert, n_embd, moe_intermediate_size]
+        if name.endswith("feed_forward.experts.gate_up_proj"):
+            assert bid is not None
+            n_ff_exp = self.hparams["moe_intermediate_size"]
+            return [
+                (self.format_tensor_name(gguf.MODEL_TENSOR.FFN_GATE_EXP, bid), data_torch[:, :n_ff_exp, :]),
+                (self.format_tensor_name(gguf.MODEL_TENSOR.FFN_UP_EXP,   bid), data_torch[:, n_ff_exp:,  :]),
+            ]
+        if name.endswith("feed_forward.experts.down_proj"):
+            assert bid is not None
+            return [(self.format_tensor_name(gguf.MODEL_TENSOR.FFN_DOWN_EXP, bid), data_torch)]
+
+        # merge the per-expert tensors into the 3d tensors llama.cpp expects
+        if "feed_forward.experts." in name:
+            assert bid is not None
+            n_expert = self.find_hparam(["num_experts", "num_local_experts"])
+
+            if self._experts is None:
+                self._experts = [{} for _ in range(self.block_count)]
+            self._experts[bid][name] = data_torch
+
+            if len(self._experts[bid]) < n_expert * 3:
+                return []
+
+            tensors: list[tuple[str, Tensor]] = []
+            for w_name in ("w1", "w2", "w3"):
+                datas: list[Tensor] = []
+                for xid in range(n_expert):
+                    ename = f"model.layers.{bid}.feed_forward.experts.{xid}.{w_name}.weight"
+                    datas.append(self._experts[bid][ename])
+                    del self._experts[bid][ename]
+
+                merged = torch.stack(datas, dim=0)
+                merged_name = f"layers.{bid}.feed_forward.experts.{w_name}.weight"
+                tensors.append((self.map_tensor_name(merged_name), merged))
+            return tensors
+
+        return super().modify_tensors(data_torch, name, bid)
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+        if self._experts is not None:
+            experts = [k for d in self._experts for k in d.keys()]
+            if experts:
+                raise ValueError(f"Unprocessed experts: {experts}")
 
 
 ###### CONVERSION LOGIC ######
@@ -6647,7 +7565,7 @@ class LazyTorchTensor(gguf.LazyBase):
     def from_safetensors_slice(cls, st_slice: Any) -> Tensor:
         dtype = cls._dtype_str_map[st_slice.get_dtype()]
         shape: tuple[int, ...] = tuple(st_slice.get_shape())
-        lazy = cls(meta=cls.meta_with_dtype_and_shape(dtype, shape), args=(st_slice,), func=lambda s: s[:])
+        lazy = cls(meta=cls.meta_with_dtype_and_shape(dtype, shape), args=(st_slice,), func=lambda s: s[...] if len(s.get_shape()) == 0 else s[:])
         return cast(torch.Tensor, lazy)
 
     @classmethod
@@ -6750,6 +7668,291 @@ def split_str_to_n_bytes(split_str: str) -> int:
         raise ValueError(f"Invalid split size: {split_str}, must be positive")
 
     return n
+
+
+@Model.register("Xing4_0ForCausalLM")
+@Model.register("XingChen4ForCausalLM")
+class Xing4Model(DeepseekV2Model):
+    model_arch = gguf.MODEL_ARCH.XING4_0
+
+    def set_vocab(self):
+        from sentencepiece import SentencePieceProcessor
+        tokenizer_path = self.dir_model / "tokenizer.model"
+        if not tokenizer_path.is_file():
+            raise FileNotFoundError(f"Missing tokenizer.model in {self.dir_model}")
+        tokenizer = SentencePieceProcessor()
+        tokenizer.LoadFromFile(str(tokenizer_path))
+        tokens: list[bytes] = []
+        scores: list[float] = []
+        toktypes: list[int] = []
+        for i in range(tokenizer.vocab_size()):
+            if tokenizer.is_unknown(i):
+                text = " \u2047 ".encode()
+            elif tokenizer.is_control(i):
+                text = b""
+            elif tokenizer.is_byte(i):
+                piece = tokenizer.id_to_piece(i)
+                if len(piece) != 6 or piece[0] != "<" or piece[-1] != ">":
+                    raise ValueError(f"Invalid byte piece {piece}")
+                text = bytes([int(piece[1:-1], 16)])
+            else:
+                text = tokenizer.id_to_piece(i).replace("\u2581", " ").encode()
+            tokens.append(text)
+            scores.append(tokenizer.get_score(i))
+            toktypes.append(tokenizer.get_type(i))
+        self.gguf_writer.add_tokenizer_model("llama")
+        self.gguf_writer.add_tokenizer_pre("default")
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_scores(scores)
+        self.gguf_writer.add_token_types(toktypes)
+        special_vocab = gguf.SpecialVocab(self.dir_model, n_vocab=len(tokens))
+        special_vocab.add_to_gguf(self.gguf_writer)
+        self.gguf_writer.add_add_bos_token(True)
+        self.gguf_writer.add_add_eos_token(True)
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_hyper_connection_count(self.hparams["hc_mult"])
+        self.gguf_writer.add_hyper_connection_sinkhorn_iterations(self.hparams.get("hc_sinkhorn_iters", 20))
+        self.gguf_writer.add_hyper_connection_epsilon(self.hparams.get("hc_eps", 1e-6))
+        self.gguf_writer.add_hyper_connection_magnitude(self.hparams.get("hc_magnitude", 2.0))
+
+    def modify_tensors(self, data_torch, name, bid):
+        m = re.match(r"model\.layers\.(\d+)\.(attn_hc|ffn_hc)\.(hc_fn|hc_base|hc_scale)$", name)
+        if m:
+            il = int(m.group(1))
+            if il >= int(self.hparams["num_hidden_layers"]):
+                return
+            site = "ATTN" if m.group(2) == "attn_hc" else "FFN"
+            leaf = {"hc_fn": "FN", "hc_base": "BASE", "hc_scale": "SCALE"}[m.group(3)]
+            yield self.format_tensor_name(getattr(gguf.MODEL_TENSOR, f"HC_{site}_{leaf}"), il), data_torch
+            return
+        yield from super().modify_tensors(data_torch, name, bid)
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        import re
+        if ".hc_" in new_name and not new_name.endswith("_fn.weight"):
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+@Model.register("Raon1MiniForCausalLM")
+class Raon1Model(Model):
+    model_arch = gguf.MODEL_ARCH.RAON1
+
+    _MHC_SITES = (("self_attn_raon_mhc", "HC_ATTN"), ("mlp_raon_mhc", "HC_FFN"))
+    _MHC_PARTS = ("phi_pre", "phi_post", "res.phi_z", "b_pre", "b_post", "res.b_z",
+                  "alpha_pre", "alpha_post", "res.alpha_z", "res.eta")
+    # kept unquantized by llama-quantize (src/llama-quant.cpp); a quantized --outtype keeps them at F16 the same way
+    _KEEP_UNQUANTIZED = ("hc_attn_fn", "hc_ffn_fn", "ssm_f_a", "ssm_f_b", "ssm_beta", "ssm_rda")
+    _KEEP_UNQUANTIZED_Q8_0 = ("attn_kv_a_mqa", "attn_k_b", "attn_v_b")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._experts: dict[tuple[int, str], dict[int, torch.Tensor]] = {}
+        self._mhc: dict[tuple[int, str], dict[str, torch.Tensor]] = {}
+        self._rda_layers = set(self.hparams["rda_config"]["rda_layers"])
+
+    @staticmethod
+    def _with_default(hp: dict[str, Any], key: str, default: Any) -> Any:
+        value = hp.get(key)
+        return default if value is None else value
+
+    @staticmethod
+    def _dequant_mxfp8(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+        # Lazy tensors cannot be reshaped in the MXFP8 block layout without
+        # materializing the full expert weight first.
+        weight = LazyTorchTensor.to_eager(weight)
+        scale = LazyTorchTensor.to_eager(scale)
+        factor = torch.exp2(scale.float() - 127) if scale.dtype == torch.uint8 else scale.float()
+        rows, cols = weight.shape
+        if cols % 32 != 0:
+            raise ValueError(f"MXFP8 tensor has {cols} columns, expected a multiple of 32")
+        return (weight.float().reshape(rows, cols // 32, 32) * factor.unsqueeze(-1)).reshape(rows, cols)
+
+    def get_tensors(self):
+        n_layer = self.hparams["num_hidden_layers"]
+        quant_config = self.hparams.get("quantization_config") or {}
+        mxfp8 = quant_config.get("quant_method") == "mxfp8"
+        if mxfp8 and list(quant_config.get("weight_block_size") or [1, 32]) != [1, 32]:
+            raise ValueError(f"Raon-1 MXFP8 needs weight_block_size [1, 32], got {quant_config['weight_block_size']}")
+
+        pending: dict[str, torch.Tensor] = {}
+        scales: dict[str, torch.Tensor] = {}
+        for name, data in super().get_tensors():
+            # MTP is not supported: drop the nextn layers before any data is written.
+            parts = name.split(".")
+            if len(parts) > 3 and parts[0] == "model" and parts[1] == "layers" and parts[2].isdigit():
+                if int(parts[2]) >= n_layer:
+                    continue
+
+            if mxfp8 and name.endswith(".weight_scale_inv"):
+                weight_name = name.removesuffix("_scale_inv")
+                if ".moe.experts." not in weight_name:
+                    raise ValueError(f"Unexpected MXFP8 tensor {weight_name}: only the routed experts are quantized")
+                if weight_name in pending:
+                    yield weight_name, self._dequant_mxfp8(pending.pop(weight_name), data)
+                else:
+                    scales[weight_name] = data
+                continue
+            if mxfp8 and ".moe.experts." in name and name.endswith(".weight"):
+                if name in scales:
+                    yield name, self._dequant_mxfp8(data, scales.pop(name))
+                else:
+                    pending[name] = data
+                continue
+            yield name, data
+
+        if pending:
+            raise ValueError(f"Missing MXFP8 scale tensors for {len(pending)} expert weights")
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+        if self._experts or self._mhc:
+            raise ValueError(f"Incomplete Raon-1 tensor groups: experts={list(self._experts)}, mHC={list(self._mhc)}")
+
+    def set_vocab(self):
+        tokens, toktypes, _ = self.get_vocab_base(vocab_size=self.hparams["vocab_size"])
+        self.gguf_writer.add_tokenizer_model("gpt2")
+        self.gguf_writer.add_tokenizer_pre("raon")
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_types(toktypes)
+        # Raon-1's HF tokenizer normalizes with NFC before pre-tokenization.
+        self.gguf_writer.add_bool("tokenizer.ggml.normalizer.nfc", True)
+        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        special_vocab.add_to_gguf(self.gguf_writer)
+
+    def set_gguf_parameters(self):
+        hp = self.hparams
+        rda_config = hp["rda_config"]
+        n_layer = hp["num_hidden_layers"]
+        # 1-based layer ids, as in the HF config (is_rda_layer: layer_idx + 1 in rda_layers)
+        rda = self._rda_layers
+        mla = set(rda_config["mla_layers"])
+        if rda & mla or rda | mla != set(range(1, n_layer + 1)):
+            raise ValueError("Raon-1 attention layer lists must partition all layers")
+        if not rda or not mla:
+            raise ValueError("Raon-1 needs at least one RDA (rda_layers) and one MLA (mla_layers) layer")
+        if hp.get("tie_word_embeddings"):
+            raise ValueError("Raon-1 with tie_word_embeddings is not supported (the released model has a separate lm_head)")
+        if (not hp["mla_use_nope"] or not hp["mla_use_output_gate"]
+                or not rda_config["full_rank_gate"] or hp["hidden_act"] != "situ"
+                or hp["moe_router_activation_func"] != "sigmoid"
+                or hp.get("use_grouped_topk") or hp.get("routed_expert_hidden_size")
+                or hp.get("attn_res_block_size") or hp["moe_layer_freq"] != 1):
+            raise ValueError("Unsupported Raon-1 architecture variant")
+        if rda_config["num_heads"] != hp["num_attention_heads"]:
+            raise ValueError("Raon-1 RDA and MLA head counts must match")
+
+        self.gguf_writer.add_block_count(self.block_count)
+        self.gguf_writer.add_context_length(self.find_hparam(["max_position_embeddings", "n_ctx"]))
+        self.gguf_writer.add_embedding_length(self.find_hparam(["hidden_size", "n_embd"]))
+        self.gguf_writer.add_feed_forward_length(self.find_hparam(["intermediate_size", "n_inner"]))
+        self.gguf_writer.add_vocab_size(hp["vocab_size"])
+        self.gguf_writer.add_head_count(hp["num_attention_heads"])
+        self.gguf_writer.add_head_count_kv([0 if i + 1 in rda else 1 for i in range(n_layer)])
+        self.gguf_writer.add_layer_norm_rms_eps(self.find_hparam(["rms_norm_eps", "layer_norm_eps"]))
+        self.gguf_writer.add_ssm_conv_kernel(rda_config["conv_kernel_size"])
+        self.gguf_writer.add_ssm_time_step_rank(hp.get("rda_decay_rank", 128))
+        self.gguf_writer.add_kda_head_dim(rda_config["head_dim"])
+        # HF uses -5.0 when the key is absent; an explicit null selects the unbounded gate
+        if (bound := rda_config.get("gate_lower_bound", -5.0)) is not None:
+            self.gguf_writer.add_kda_gate_lower_bound(bound)
+        self.gguf_writer.add_q_lora_rank(hp["q_lora_rank"])
+        self.gguf_writer.add_kv_lora_rank(hp["kv_lora_rank"])
+        self.gguf_writer.add_rope_dimension_count(hp["qk_rope_head_dim"])
+        self.gguf_writer.add_key_length(hp["kv_lora_rank"] + hp["qk_rope_head_dim"])
+        self.gguf_writer.add_value_length(hp["kv_lora_rank"])
+        self.gguf_writer.add_key_length_mla(hp["qk_nope_head_dim"] + hp["qk_rope_head_dim"])
+        self.gguf_writer.add_value_length_mla(hp["v_head_dim"])
+        self.gguf_writer.add_latent_norm_rms_eps(hp.get("mla_latent_norm_eps", 1e-6))
+        self.gguf_writer.add_expert_count(hp["num_experts"])
+        self.gguf_writer.add_expert_used_count(hp["num_experts_per_token"])
+        self.gguf_writer.add_expert_feed_forward_length(hp["moe_intermediate_size"])
+        self.gguf_writer.add_expert_shared_count(hp["num_shared_experts"])
+        self.gguf_writer.add_leading_dense_block_count(hp["first_k_dense_replace"])
+        self.gguf_writer.add_expert_weights_scale(hp["routed_scaling_factor"])
+        self.gguf_writer.add_expert_weights_norm(hp["moe_renormalize"])
+        self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
+        self.gguf_writer.add_activation_situ_beta(hp["activation_situ_beta"])
+        self.gguf_writer.add_activation_situ_linear_beta(hp["activation_situ_linear_beta"])
+        self.gguf_writer.add_hyper_connection_count(self._with_default(hp, "raon_mhc_streams", 4))
+        self.gguf_writer.add_hyper_connection_epsilon(self._with_default(hp, "raon_mhc_selector_eps", 1e-5))
+        self.gguf_writer.add_hyper_connection_magnitude(self._with_default(hp, "raon_mhc_post_factor", 2.0))
+        self.gguf_writer.add_file_type(self.ftype)
+
+    def tensor_force_quant(self, name: str, new_name: str, bid: int | None, n_dims: int):
+        if ".hc_" in new_name and not new_name.endswith("_fn.weight"):
+            return gguf.GGMLQuantizationType.F32
+        quantized = (gguf.LlamaFileType.MOSTLY_Q8_0, gguf.LlamaFileType.MOSTLY_TQ1_0, gguf.LlamaFileType.MOSTLY_TQ2_0)
+        if self.ftype in quantized and new_name.startswith("blk."):
+            keep = self._KEEP_UNQUANTIZED
+            if self.ftype == gguf.LlamaFileType.MOSTLY_Q8_0:
+                keep += self._KEEP_UNQUANTIZED_Q8_0
+            if new_name.split(".")[2] in keep:
+                return gguf.GGMLQuantizationType.F16
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+    def modify_tensors(self, data_torch: torch.Tensor, name: str, bid: int | None) -> Iterable[tuple[str, torch.Tensor]]:
+        for site, prefix in self._MHC_SITES:
+            marker = f".{site}."
+            if marker not in name:
+                continue
+            assert bid is not None
+            parts = self._mhc.setdefault((bid, site), {})
+            suffix = name.split(marker, 1)[1]
+            if suffix in parts:
+                raise ValueError(f"Duplicate tensor {name}")
+            parts[suffix] = data_torch
+            if len(parts) < len(self._MHC_PARTS):
+                return
+            fn = torch.cat([parts[k] for k in ("phi_pre", "phi_post", "res.phi_z")])
+            base = torch.cat([parts[k].float() for k in ("b_pre", "b_post", "res.b_z")])
+            scale = torch.stack([parts[k].float().reshape(()) for k in ("alpha_pre", "alpha_post", "res.alpha_z", "res.eta")])
+            for kind, tensor in (("FN", fn), ("BASE", base), ("SCALE", scale)):
+                yield self.format_tensor_name(getattr(gguf.MODEL_TENSOR, f"{prefix}_{kind}"), bid), tensor
+            del self._mhc[bid, site]
+            return
+
+        if ".moe.experts." in name:
+            assert bid is not None
+            tail = name.split(".experts.", 1)[1].split(".")
+            eid, wid = int(tail[0]), tail[1]
+            group = self._experts.setdefault((bid, wid), {})
+            if eid in group or not 0 <= eid < self.hparams["num_experts"]:
+                raise ValueError(f"Invalid expert tensor {name}")
+            group[eid] = data_torch
+            if len(group) == self.hparams["num_experts"]:
+                tid = {"gate_proj": gguf.MODEL_TENSOR.FFN_GATE_EXP, "down_proj": gguf.MODEL_TENSOR.FFN_DOWN_EXP,
+                       "up_proj": gguf.MODEL_TENSOR.FFN_UP_EXP}[wid]
+                yield self.format_tensor_name(tid, bid), torch.stack([group[i] for i in range(len(group))])
+                del self._experts[bid, wid]
+            return
+
+        # moe.gate / moe.shared_experts -> the block_sparse_moe names the tensor map already has
+        if ".moe." in name:
+            name = name.replace(".moe.", ".block_sparse_moe.")
+        if name.endswith("kv_b_proj.weight"):
+            heads = self.hparams["num_attention_heads"]
+            nk, nv = self.hparams["qk_nope_head_dim"], self.hparams["v_head_dim"]
+            kv = data_torch.reshape(heads, nk + nv, self.hparams["kv_lora_rank"])
+            k, v = torch.split(kv, [nk, nv], dim=1)
+            yield self.map_tensor_name(name.replace("kv_b_proj", "k_b_proj")), k.transpose(1, 2).contiguous()
+            yield self.map_tensor_name(name.replace("kv_b_proj", "v_b_proj")), v.contiguous()
+            return
+        if name.endswith(".self_attn.g_proj.weight"):
+            assert bid is not None
+            rda = bid + 1 in self._rda_layers
+            tid = gguf.MODEL_TENSOR.SSM_G if rda else gguf.MODEL_TENSOR.ATTN_GATE
+            yield self.format_tensor_name(tid, bid), data_torch
+            return
+        if name.endswith((".q_conv1d.weight", ".k_conv1d.weight", ".v_conv1d.weight")):
+            data_torch = data_torch.reshape(1, -1, 1, data_torch.shape[-1])
+        if name.endswith(".A_log"):
+            data_torch = -torch.exp(data_torch.float())
+        # dt_bias -> the name SSM_DT's mapping expects, as for qwen3next
+        if name.endswith(".dt_bias"):
+            name = name.removesuffix(".dt_bias") + ".dt_proj.bias"
+        yield from super().modify_tensors(data_torch, name, bid)
 
 
 def main() -> None:

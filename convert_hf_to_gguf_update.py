@@ -78,6 +78,7 @@ models = [
     {"name": "refact",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/smallcloudai/Refact-1_6-base", },
     {"name": "command-r",      "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/CohereForAI/c4ai-command-r-v01", },
     {"name": "qwen2",          "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/Qwen/Qwen1.5-7B", },
+    {"name": "flint",          "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/RecursiveSI/flint-preview", "chkhsh": "d5420e601e979078c670bc503d9ac411c311fa76b76a76267c31e0d6ba816637", },
     {"name": "qwen35",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/Qwen/Qwen3.5-9B-Instruct", "chkhsh": "d30d75d9059f1aa2c19359de71047b3ae408c70875e8a3ccf8c5fba56c9d8af4", },
     {"name": "qwen35",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/Qwen/Qwen3.5-27B", "chkhsh": "99cc61242f7106804ce24fdf3a6451e4a55251078dffd5453c806e11b2310db3", },
     {"name": "qwen35",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/z-lab/Qwen3.5-27B-DFlash", "chkhsh": "1444df51289cfa8063b96f0e62b1125440111bc79a52003ea14b6eac7016fd5f", },
@@ -108,7 +109,12 @@ models = [
     {"name": "mellum2",        "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/JetBrains/Mellum2-12B-A2.5B-Base", },
     {"name": "gpt-4o",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/openai/gpt-oss-20b", "chkhsh": "ccc2ef013c104be7bae2965776d611e1d7a8a2a9c547dd93a682c9a9fc80352e", },  # o200k_harmony shares the GPT-4o pre-tokenizer
     {"name": "openpangu",      "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/openpangu/openPangu-2.0-Flash", "chkhsh": "65df2fe396b537a53433301848c0a739f56d56f67ad3d35eba27961ac33c12bb", },  # primary source: https://gitcode.com/ascend-tribe/openPangu-2.0-Flash
-    {"name": "lfm2",             "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/LiquidAI/LFM2-Tokenizer"},
+    {"name": "lfm2",             "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/LiquidAI/LFM2-Tokenizer",   "chkhsh": "169bf0296a13c4d9b7672313f749eb36501d931022de052aad6e36f2bf34dd51"},
+    {"name": "lfm2",             "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/LiquidAI/LFM2.5-8B-A1B", "chkhsh": "9e454714343b69b99b71795c1d27a68c2a1d15dab111f4d353109f966af29da7"},
+    {"name": "lfm2",             "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/LiquidAI/LFM3-1.7B",      "chkhsh": "9e454714343b69b99b71795c1d27a68c2a1d15dab111f4d353109f966af29da7"},
+    {"name": "spark2_5",       "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/XHToken/Spark-X2.5-1.7B", "chkhsh": "0a766d034107bc736a3f2dc4968fd62e54a3570f1454443e0c5a4cc6bd7941ed", },
+    # raon: NFC normalizer + CJK-aware split regex
+    {"name": "raon",           "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/KRAFTON/Raon-1-mini-preview", "chkhsh": "ffdae2f611dc6903980be2fbb108467cb97376d7d03cd332bb7e2602f87fa1f1"},
 ]
 
 

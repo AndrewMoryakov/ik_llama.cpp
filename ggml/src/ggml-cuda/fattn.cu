@@ -31,6 +31,21 @@ static inline bool is_pascal_mla_absorbed_decode(const ggml_tensor * Q, const gg
     return Q->ne[1] <= 8 && K->ne[0] == 576 && V->ne[0] == 512;
 }
 
+// Pascal has no other kernel for head size 512 (the Gemma-4 global layers), in prefill or decode.
+static inline bool is_pascal_hs512(const int cc, const ggml_tensor * K, const ggml_tensor * V) {
+    return cc >= CC_PASCAL && cc < CC_VOLTA && K->ne[0] == 512 && V->ne[0] == 512;
+}
+
+static __global__ void k_index_to_mask(const int * __restrict__ idx, half * __restrict__ mask, const int n_idx, const int s1, const int n_kv) {
+    idx  += int64_t(s1)*blockIdx.x;
+    mask += int64_t(n_kv)*blockIdx.x;
+    for (int j = threadIdx.x; j < n_kv; j += blockDim.x) mask[j] = __float2half(-INFINITY);
+    __syncthreads();
+    for (int j = threadIdx.x; j < n_idx; j += blockDim.x) {
+        if (idx[j] >= 0) mask[idx[j]] = __float2half(0.0f);
+    }
+}
+
 void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const ggml_tensor * KQV  = dst;
     const ggml_tensor * Q    = dst->src[0];
@@ -43,7 +58,30 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
     const int32_t precision = KQV->op_params[3];
     const int32_t n_swa = KQV->op_params[4];
 
+    ggml_cuda_pool_alloc<half> idx_mask(ctx.pool());
+    ggml_tensor idx_dst, Mi;
     if (dst->src[5]) {
+        if (ggml_cuda_flash_attn_ext_mma_new_sparse(ctx, dst)) {
+            return;
+        }
+        if (!mask) {
+            const ggml_tensor * kv_idx = dst->src[5];
+            Mi = *kv_idx;
+            Mi.type  = GGML_TYPE_F16;
+            Mi.ne[0] = K->ne[1];
+            Mi.nb[0] = sizeof(half);
+            Mi.nb[1] = Mi.ne[0]*Mi.nb[0];
+            Mi.nb[2] = Mi.ne[1]*Mi.nb[1];
+            Mi.nb[3] = Mi.ne[2]*Mi.nb[2];
+            Mi.data  = idx_mask.alloc(ggml_nelements(&Mi));
+            k_index_to_mask<<<ggml_nrows(&Mi), 256, 0, ctx.stream()>>>((const int *)kv_idx->data, (half *)Mi.data,
+                    kv_idx->ne[0], kv_idx->nb[1]/sizeof(int), Mi.ne[0]);
+            CUDA_CHECK(cudaGetLastError());
+            idx_dst = *dst;
+            idx_dst.src[3] = &Mi;
+            dst  = &idx_dst;
+            mask = &Mi;
+        }
         if (ggml_cuda_dsa_attn_ext(ctx, dst)) {
             return;
         }
@@ -80,8 +118,13 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
         return;
     }
 
+    if (is_pascal_hs512(cc, K, V)) {
+        ggml_cuda_flash_attn_ext_tile_new(ctx, dst);
+        return;
+    }
+
     if (!fast_fp16_available(cc)) {
-        if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
+        if (Q->ne[1] <= 8) {
             ggml_cuda_flash_attn_ext_vec_f32(ctx, dst);
         } else {
             ggml_cuda_flash_attn_ext_tile_f32(ctx, dst);
@@ -95,22 +138,24 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
             return;
         }
         if (precision == GGML_PREC_DEFAULT) {
-            if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
+            if (Q->ne[1] <= 8) {
                 // P100 (sm_60/CC_PASCAL): the fp16 vec kernel accumulates the online-softmax
                 // denominator and the P*V product in fp16, flipping ~3-4% of decode top-1 tokens
                 // vs fp32 (llama.cpp#25593). Decode is bandwidth-bound on P100 so vec_f32 is free.
-                if (cc == CC_PASCAL && Q->ne[1] <= 8) {  // decode only (batch<=8); D=256 prefill stays vec_f16
+                if (cc == CC_PASCAL) {
                     ggml_cuda_flash_attn_ext_vec_f32(ctx, dst);
                 } else {
                     ggml_cuda_flash_attn_ext_vec_f16(ctx, dst);
                 }
+            } else if (Q->ne[0] == 256) {
+                ggml_cuda_flash_attn_ext_tile_f32(ctx, dst);
             } else if (ctx.fabsum) {
                 ggml_cuda_flash_attn_ext_tile_f16_fabsum(ctx, dst);
             } else {
                 ggml_cuda_flash_attn_ext_tile_f16(ctx, dst);
             }
         } else {
-            if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
+            if (Q->ne[1] <= 8) {
                 ggml_cuda_flash_attn_ext_vec_f32(ctx, dst);
             } else {
                 ggml_cuda_flash_attn_ext_tile_f32(ctx, dst);
@@ -191,8 +236,12 @@ bool ggml_cuda_fattn_is_supported(ggml_backend_cuda_context & ctx, const ggml_te
                                               : ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
     }
 
+    if (is_pascal_hs512(cc, K, V)) {
+        return ggml_cuda_fattn_tile_new_is_supported(ctx, dst);
+    }
+
     if (!fast_fp16_available(cc)) {
-        if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
+        if (Q->ne[1] <= 8) {
             return ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
         } else {
             return ggml_cuda_fattn_tile_f32_is_supported(ctx, dst);
@@ -204,16 +253,18 @@ bool ggml_cuda_fattn_is_supported(ggml_backend_cuda_context & ctx, const ggml_te
             return ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
         }
         if (precision == GGML_PREC_DEFAULT) {
-            if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
-                if (cc == CC_PASCAL && Q->ne[1] <= 8) {  // decode only (batch<=8); D=256 prefill stays vec_f16
+            if (Q->ne[1] <= 8) {
+                if (cc == CC_PASCAL) {
                     return ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
                 }
                 return ggml_cuda_fattn_vec_f16_is_supported(ctx, dst);
+            } else if (Q->ne[0] == 256) {
+                return ggml_cuda_fattn_tile_f32_is_supported(ctx, dst);
             } else {
                 return ggml_cuda_fattn_tile_f16_is_supported(ctx, dst);
             }
         } else {
-            if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
+            if (Q->ne[1] <= 8) {
                 return ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
             } else {
                 return ggml_cuda_fattn_tile_f32_is_supported(ctx, dst);

@@ -278,7 +278,7 @@ struct mtmd_context {
             // https://github.com/huggingface/transformers/blob/1cd110c6cb6a6237614130c470e9a902dbc1a4bd/docs/source/en/model_doc/pixtral.md
             img_end = "[IMG_END]";
 
-        } else if (proj == PROJECTOR_TYPE_QWEN2VL || proj == PROJECTOR_TYPE_QWEN25VL || proj == PROJECTOR_TYPE_QWEN3VL) {
+        } else if (proj == PROJECTOR_TYPE_QWEN2VL || proj == PROJECTOR_TYPE_QWEN25VL || proj == PROJECTOR_TYPE_QWEN3VL || proj == PROJECTOR_TYPE_LING3VL) {
             // <|vision_start|> ... (image embeddings) ... <|vision_end|>
             img_beg = "<|vision_start|>";
             img_end = "<|vision_end|>";
@@ -325,7 +325,7 @@ struct mtmd_context {
                 img_end = "<|media_end|>";
             }
         }
-        else if (proj == PROJECTOR_TYPE_DEEPSEEK4V) {
+        else if (proj == PROJECTOR_TYPE_DEEPSEEK4V || proj == PROJECTOR_TYPE_DEEPSEEK41) {
             // markers are learned embeddings emitted by the encoder graph
             img_beg = "";
             img_end = "";
@@ -421,6 +421,25 @@ void mtmd_free(mtmd_context * ctx) {
     delete ctx;
 }
 
+int32_t mtmd_get_memory_usage(const mtmd_context * ctx, struct llama_memory_buft * usage, int32_t n_max) {
+    int32_t n = 0;
+    const clip_ctx * clips[2] = { ctx->ctx_v, ctx->ctx_a };
+    for (int i = 0; i < 2; ++i) {
+        if (!clips[i]) {
+            continue;
+        }
+        const std::vector<std::pair<ggml_backend_buffer_type_t, size_t>> clip_usage = clip_get_mem_usage(clips[i]);
+        for (size_t j = 0; j < clip_usage.size(); ++j) {
+            if (n < n_max) {
+                usage[n].buft = clip_usage[j].first;
+                usage[n].size = clip_usage[j].second;
+            }
+            n++;
+        }
+    }
+    return n;
+}
+
 struct mtmd_tokenizer {
     mtmd_context * ctx;
     std::vector<const mtmd_bitmap *> bitmaps;
@@ -438,7 +457,7 @@ struct mtmd_tokenizer {
             size_t n_bitmaps) : ctx(ctx), bitmaps(bitmaps, bitmaps + n_bitmaps) {
         add_special   = text->add_special;
         parse_special = text->parse_special;
-        input_text    = text->text;
+        input_text.assign(text->text, text->text_len);
         vocab         = llama_model_get_vocab(ctx->text_model);
 
         // for compatibility, we convert image marker to media marker
@@ -448,19 +467,32 @@ struct mtmd_tokenizer {
     int32_t tokenize(mtmd_input_chunks * output) {
         cur.entries.clear();
         std::vector<std::string> parts = split_text(input_text, ctx->media_marker);
+
+        size_t n_markers = 0;
+        for (const auto & part : parts) {
+            if (part == ctx->media_marker) {
+                n_markers++;
+            }
+        }
+
+        if (n_markers > bitmaps.size()) {
+            LOG_WRN("%s: prompt has %zu more media marker(s) than bitmap(s), "
+                    "the unmatched marker(s) will be treated as literal text\n",
+                    __func__, n_markers - bitmaps.size());
+        }
+
         size_t i_bm = 0; // index of the current bitmap
         for (auto & part : parts) {
             if (part == ctx->media_marker) {
-                // this is a marker, we should add the next bitmap
-                if (i_bm >= bitmaps.size()) {
-                    LOG_ERR("%s: error: number of bitmaps (%zu) does not match number of markers (%zu)\n",
-                            __func__, bitmaps.size(), parts.size() - 1);
-                    return 1;
-                }
-                const mtmd_bitmap * bitmap = bitmaps[i_bm++];
-                int32_t res = add_media(bitmap);
-                if (res != 0) {
-                    return res;
+                if (i_bm < bitmaps.size()) {
+                    // this is a marker, we should add the next bitmap
+                    const mtmd_bitmap * bitmap = bitmaps[i_bm++];
+                    int32_t res = add_media(bitmap);
+                    if (res != 0) {
+                        return res;
+                    }
+                } else {
+                    add_text(part, parse_special);
                 }
             } else {
                 // this is a text part, we should add it as text
@@ -492,8 +524,8 @@ struct mtmd_tokenizer {
         }
 
         if (i_bm != bitmaps.size()) {
-            LOG_ERR("%s: error: number of bitmaps (%zu) does not match number of markers (%zu)\n",
-                    __func__, bitmaps.size(), parts.size() - 1);
+            LOG_ERR("%s: error: number of bitmaps (%zu) does not match number of media markers (%zu)\n",
+                    __func__, bitmaps.size(), n_markers);
             return 1;
         }
 
@@ -1110,7 +1142,8 @@ const char * mtmd_image_tokens_get_id(const mtmd_image_tokens * image_tokens) {
 
 llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
     if (image_tokens->use_mrope_pos) {
-        return 1; // for M-RoPE, the whole image is 1 in temporal dimension
+        // next text pos after an M-RoPE image
+        return std::max(image_tokens->nx, image_tokens->ny);
     }
     return image_tokens->n_tokens();
 }

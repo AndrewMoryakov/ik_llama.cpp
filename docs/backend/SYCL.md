@@ -28,7 +28,7 @@
 
 The llama.cpp SYCL backend is designed to support **Intel GPU** firstly. Based on the cross-platform feature of SYCL, it could support other vendor GPUs: Nvidia GPU (*AMD GPU coming*).
 
-When targeting **Intel CPU**, it is recommended to use llama.cpp for [Intel oneMKL](README.md#intel-onemkl) backend.
+When targeting **Intel CPU**, it is recommended to use llama.cpp for [Intel oneMKL](../build.md#intel-onemkl) backend.
 
 It has the similar design of other llama.cpp BLAS-based paths such as *OpenBLAS, cuBLAS, etc..*. In beginning work, the oneAPI's [SYCLomatic](https://github.com/oneapi-src/SYCLomatic) open-source migration tool (Commercial release [Intel® DPC++ Compatibility Tool](https://www.intel.com/content/www/us/en/developer/tools/oneapi/dpc-compatibility-tool.html)) was used for this purpose.
 
@@ -184,7 +184,7 @@ Platform #0: Intel(R) OpenCL HD Graphics
 
 - **Nvidia GPU**
 
-In order to target Nvidia GPUs through SYCL, please make sure the CUDA/CUBLAS native requirements *-found [here](README.md#cuda)-* are installed.
+In order to target Nvidia GPUs through SYCL, please make sure the CUDA/CUBLAS native requirements *-found [here](../build.md#cuda)-* are installed.
 
 2. **Install Intel® oneAPI Base toolkit**
 
@@ -304,7 +304,7 @@ source /opt/intel/oneapi/setvars.sh
 
 2. List devices information
 
-Similar to the native `sycl-ls`, available SYCL devices can be queried as follow:
+Similar to the native `sycl-ls`, available SYCL devices can be queried as follows:
 
 ```sh
 ./build/bin/llama-ls-sycl-device
@@ -377,7 +377,7 @@ ZES_ENABLE_SYSMAN=1 ./build/bin/llama-cli -m models/llama-2-7b.Q4_0.gguf -p "Bui
 
 *Notes:*
 
-- Upon execution, verify the selected device(s) ID(s) in the output log, which can for instance be displayed as follow:
+- Upon execution, verify the selected device(s) ID(s) in the output log, which can for instance be displayed as follows:
 
 ```sh
 detect 1 SYCL GPUs: [0] with top Max compute units:512
@@ -506,7 +506,7 @@ On the oneAPI command line window, run the following and step into the llama.cpp
 
 2. List devices information
 
-Similar to the native `sycl-ls`, available SYCL devices can be queried as follow:
+Similar to the native `sycl-ls`, available SYCL devices can be queried as follows:
 
 ```
 build\bin\llama-ls-sycl-device.exe
@@ -573,7 +573,7 @@ build\bin\llama-cli.exe -m models\llama-2-7b.Q4_0.gguf -p "Building a website ca
 
 Note:
 
-- Upon execution, verify the selected device(s) ID(s) in the output log, which can for instance be displayed as follow:
+- Upon execution, verify the selected device(s) ID(s) in the output log, which can for instance be displayed as follows:
 
 ```sh
 detect 1 SYCL GPUs: [0] with top Max compute units:512
