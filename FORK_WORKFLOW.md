@@ -215,6 +215,49 @@ three `pr/*`. The rest are historical imprints that store nothing unique. A
 branch with zero unique commits should be archived as a tag and deleted — it
 costs a decision every time it is read, and preserves nothing.
 
+### Files git never tracked
+
+Tags keep commits. They do not keep files that git ignored or never tracked:
+raw benchmark logs under `bench_results/` (`*.log` is ignored), launch and
+build scripts in the checkout root, and the notes outside any checkout. These
+are kept in the private repository
+[AndrewMoryakov/ik_llama-local-archive](https://github.com/AndrewMoryakov/ik_llama-local-archive).
+Its first archive (2026-09-30) holds 343 files that existed only in the old
+clone `Z:\files\projects\ik_llama_proj\` on DESKTOP-HENS8K7, including
+`project_docs/` versions that differ from this repository. The files are
+stored byte for byte, and their SHA-256 sums were taken on that machine.
+The archive is private because its logs and notes describe the local machines
+and network.
+
+Before you retire a checkout, check both kinds of loss. The check has to count
+only what the **remote** holds, for three reasons:
+
+- `--not --remotes` alone misses the branches that are already archived as
+  tags on the remote.
+- `--tags` counts local tags too. An unpushed `archive/foo` would make an
+  unpushed commit look safe.
+- A commit can live only in the reflog, or be dangling (the old copy left
+  behind by an amend or rebase).
+
+To avoid all three, fetch the remote's tags into their own namespace under
+`refs/remotes/`, then compare against remote refs only. Repeat the fetches for
+every remote that holds history (here `personal` and `fork`):
+
+```bash
+git fetch personal '+refs/heads/*:refs/remotes/personal/*' '+refs/tags/*:refs/remotes/personal-tags/*'
+git fetch fork     '+refs/heads/*:refs/remotes/fork/*'     '+refs/tags/*:refs/remotes/fork-tags/*'
+
+git rev-list --count --branches --tags --not --remotes          # local commits the remotes lack
+git reflog --all --format=%H | git rev-list --stdin --not --remotes | wc -l   # reflog-only commits
+git fsck --no-reflogs --unreachable | grep commit               # dangling commits: compare content
+git status --porcelain --ignored                                # files git would not keep
+```
+
+Every count must be zero. If `fsck` lists dangling commits, show that
+something already on the remote contains their content before you delete
+anything. On 2026-09-30 the six dangling commits of the old clone were earlier
+versions of commits in `dev` and in `archive/pr/docs-zen-cpu-build-2026-05-03`.
+
 ## Migration from the current layout
 
 **ВЫПОЛНЕНО 2026-09-08.** Таблица ниже оставлена как исходный план; фактический

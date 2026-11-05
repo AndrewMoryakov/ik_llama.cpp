@@ -27,12 +27,15 @@
 
 ## Контекст
 
-Рабочая директория: `Z:\files\projects\ik_llama_proj\ik_llama.cpp`
+Рабочая директория: `Z:\files\projects\ik_llama_proj\ik_llama_my-fork\upstream-integration`
+(ветка `dev`). Прежний клон `Z:\files\projects\ik_llama_proj\ik_llama.cpp` удалён
+2026-11-05: код этой линии живёт в `origin/exp/raptor-runtime` и теге
+`archive/exp/raptor-runtime-2026-09-08`, уникального в клоне не было.
 Это форк `ikawrakow/ik_llama.cpp`. Ведётся upstream contribution
 на feature `-rtr auto` (auto-disable run-time repack для swap-bound MoE).
 
 PR #1738: https://github.com/ikawrakow/ik_llama.cpp/pull/1738
-Текущий статус: OPEN, awaiting maintainer review.
+Текущий статус: CLOSED 2026-09-08 (сверено с GitHub 2026-11-05).
 
 ## Что уже сделано (актуально на 2026-05-05)
 

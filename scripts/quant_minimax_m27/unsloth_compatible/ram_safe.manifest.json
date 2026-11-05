@@ -1,0 +1,15 @@
+{
+  "profile": "ram_safe",
+  "source_recipe": "balanced_74_bf16.json",
+  "source_shards": 10,
+  "source_tensors": 809,
+  "tensor_type_file": "Z:\\files\\projects\\ik_llama_proj\\ik_llama_my-fork\\upstream-integration\\scripts\\quant_minimax_m27\\unsloth_compatible\\ram_safe.tensor-types.txt",
+  "expert_type_substitutions": {
+    "iq3_ks": "iq3_s",
+    "iq5_k": "q5_k"
+  },
+  "ram_safe_changes": "gate/up IQ3_XXS in layers 5-9 and 52-56",
+  "attention_type": "bf16",
+  "embedding_output_type": "bf16",
+  "router_norm_bias_type": "f32"
+}
