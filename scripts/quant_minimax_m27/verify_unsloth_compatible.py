@@ -9,7 +9,7 @@ from pathlib import Path
 from measure_tensor_sizes import read_header
 from prepare_unsloth_compatible import GGML_IDS, RECIPES, ROOT, SOURCE, expert_type_map, tensor_type
 
-sys.path.insert(0, r"D:\ik_llama-unsloth\gguf-py")
+sys.path.insert(0, r"W:\ik_llama-unsloth\gguf-py")
 import gguf  # noqa: E402 - use the installed Unsloth runtime's GGML block sizes
 
 

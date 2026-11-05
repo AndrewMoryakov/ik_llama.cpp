@@ -7,8 +7,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$binary = "D:\build-zen4\bin\llama-perplexity.exe"
-$corpus = "D:\wikitext-2-raw\wiki.test.raw"
+$binary = "E:\llama_cpp\ik-llama-unsloth-build\bin\llama-perplexity.exe"
+$corpus = "E:\llama_cpp\corpora\wikitext-2-raw\wiki.test.raw"
 if (-not (Test-Path -LiteralPath $Model)) { throw "Model missing: $Model" }
 if (-not (Test-Path -LiteralPath $binary)) { throw "Binary missing: $binary" }
 if (-not (Test-Path -LiteralPath $corpus)) { throw "Corpus missing: $corpus" }

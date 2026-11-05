@@ -16,7 +16,7 @@ param(
 
     [string]$Imatrix = "",
 
-    [string]$Quantize = "D:\build-zen4\bin\llama-quantize.exe",
+    [string]$Quantize = "E:\llama_cpp\ik-llama-unsloth-build\bin\llama-quantize.exe",
 
     [ValidateSet("bf16", "q8_0")]
     [string]$SourceType = "bf16",

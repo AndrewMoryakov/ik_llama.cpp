@@ -4,7 +4,7 @@ param(
     [string]$Profile,
     [switch]$Estimate,
     [int]$MaxWorkingSetGiB = 48,
-    [string]$Quantize = 'D:\ik_llama-unsloth\build\bin\Release\llama-quantize.exe'
+    [string]$Quantize = 'W:\ik_llama-unsloth\build\bin\Release\llama-quantize.exe'
 )
 
 $ErrorActionPreference = 'Stop'
