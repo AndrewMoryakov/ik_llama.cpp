@@ -393,6 +393,7 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  -w, --warmup <0|1>                  (default: %s)\n", cmd_params_defaults.warmup ? "1" : "0");
     printf("  --no-warmup                         (same as -w 0)\n");
     printf("  -rtr, --run-time-repack <0|1|auto>  (default: %s)\n", cmd_params_defaults.repack ? (cmd_params_defaults.repack_auto ? "auto" : "1") : "0");
+    printf("  -rtra, --run-time-repack-auto       (alias for -rtr auto)\n");
     printf("  -cuda, --cuda-params <string>       (default: %s)\n", cmd_params_defaults.cuda_params.c_str());
     printf("  -mqkv, --merge-qkv                  (default: %s)\n", cmd_params_defaults.mqkv ? "1" : "0");
     printf("  -muge, --merge-up-gate-experts      (default: %s)\n", cmd_params_defaults.muge ? "1" : "0");
@@ -846,6 +847,14 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
                 params.repack = true;
                 params.repack_auto = false;
             }
+        } else if (arg == "-rtra" || arg == "--run-time-repack-auto") {
+            // Fork-only alias for -rtr auto. Without this branch the flag falls
+            // through to the forwarded-argument path: the common parser accepts it,
+            // but to_llama_mparams() rebuilds both repack fields from the instance,
+            // so the run silently benchmarks without repacking while the table looks
+            // like an ordinary run.
+            params.repack = true;
+            params.repack_auto = true;
         } else if (arg == "-cuda" || arg == "--cuda-params") {
             if (++i >= argc) {
                 invalid_param = true;
