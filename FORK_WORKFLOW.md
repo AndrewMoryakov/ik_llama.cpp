@@ -375,6 +375,14 @@ it. See the `up/*` section. Before any push aimed at an open PR, still verify
 
 Every merge into `dev`, and every `upstream-sync` cycle, passes:
 
+0. **Environment** - print `%TEMP%` and check that the path exists.
+   On DESKTOP-HENS8K7 in a non-interactive session it points at a volume that is
+   not mounted, and that one defect produced three unrelated-looking failures on
+   2026-11-05: MSVC dying with `D8050: cannot execute c1.dll`, three of our own
+   ctest targets crashing with `0xc0000409`, and (independently of TEMP) a
+   credential-store failure on push. Thirty seconds here saves an hour of
+   diagnosing the wrong thing.
+
 1. **Build** — clean CPU-only Release build.
    ```
    cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF \
@@ -391,14 +399,22 @@ Every merge into `dev`, and every `upstream-sync` cycle, passes:
    ручных флагов под MSVC молча собиралось без Zen4-ядер: см.
    `evidence-5-zen4-build-2026-09-08.md`, цена в
    `evidence-10-zen4-cost-2026-09-10.md`.
-2. **Tests** — `ctest`. Known failures, all reproduced on clean upstream:
-   `test-tokenizer-0-bert-bge` (upstream #1098), `test-chat-template` (the
-   IBM Granite expected output in the test lacks the trailing `\n` that
-   `src/llama.cpp` emits since upstream `ab1d7407`; the failed `assert` aborts,
-   which Windows reports as `0xc0000409`) and `test-eval-callback` (needs
-   libcurl). `test-jinja-py` fails on Windows only; it passes on Linux. The
-   reference logs are committed at `docs/rtr-handoff/upstream-four-tests.log`
-   and `pr-four-tests.log` — compare against them rather than re-diagnosing.
+2. **Tests** - `ctest`. Known failures as of the 2026-11-05 intake, each one
+   reproduced on clean upstream: `test-chat-template` (the IBM Granite expected
+   output in the test lacks the trailing `\n` that `src/llama.cpp` emits since
+   upstream `ab1d7407`; the failed `assert` aborts, which Windows reports as
+   `0xc0000409`), `test-eval-callback` (needs libcurl) and `test-ngram-cache`
+   (new with the 2026-11-05 intake, `***Exception: Numerical` with no output,
+   fails identically on pristine `ik-upstream/main` 656036d98).
+
+   **Two names left this list on 2026-11-05**, both verified by building the
+   pre-merge commit on the same host: `test-tokenizer-0-bert-bge` (failed before
+   the intake, passes after - fixed upstream) and `test-jinja-py` (same, and it
+   had been recorded as Windows-only). Do not re-add them without a measurement.
+
+   The reference logs at `docs/rtr-handoff/upstream-four-tests.log` and
+   `pr-four-tests.log` describe the older four-failure set; compare against the
+   2026-11-05 record for the current one. Expect 36 registered tests, 3 failing.
 3. **`--help` audit** — the fork's flags and the new upstream flags are both
    listed. This is the only check that catches a flag whose parser survived a
    merge while its help entry did not; it has already caught one (`-rtra`).
@@ -406,6 +422,8 @@ Every merge into `dev`, and every `upstream-sync` cycle, passes:
    artefacts when they are in play (`--token-timing`, `--moe-trace`).
 
 The last full run is recorded in
+`docs/sessions/2026-11-05-upstream-intake/gate-run-2026-11-05.md` (the upstream
+intake of 250 commits). The previous one, for the raptor-lake merge, is
 `docs/sessions/2026-09-08-upstream-merge/evidence-2-gate-results-2026-09-08.md`.
 
 ## Safe operating rules
