@@ -69,7 +69,44 @@ loading with the Unsloth server before considering a profile complete.
 The compact r2 no-mmap load used about 53.6 GiB of server working set; that
 observation motivated reducing `ram_safe` from an initial 83.39 GiB estimate
 to 81.70 GiB. These smoke tests establish format and runtime compatibility,
-not relative model quality; r2 perplexity has not been measured.
+not relative model quality.
+
+## r2 perplexity, measured 2026-11-05
+
+The first quality numbers for the r2 line. Identical conditions for every run:
+the first 65536 bytes of `E:\llama_cpp\corpora\wikitext-2-raw\wiki.test.raw`
+(sha256 `D400318E1AD6981E...`), `-c 512 -t 32 --seed 42`, mmap on, nothing else
+running on the host, runs strictly one after another.
+
+| Model | Binary | PPL over 29 chunks | Wall clock |
+|---|---|---:|---:|
+| `compact` 53.43 GiB | pre-intake (2026-10-04) | 10.7452 +/- 0.36233 | 10.9 min |
+| `compact` 53.43 GiB | post-intake (979debc90) | 10.7082 +/- 0.35996 | 10.7 min |
+| `ram_safe` 81.71 GiB | post-intake (979debc90) | **8.0115 +/- 0.26585** | 13.2 min |
+
+**The two binaries agree**, which is what made the third number trustworthy.
+Paired per chunk, reconstructed from the running estimates: mean difference
++0.00345 nats, SD 0.03719, paired SE 0.00691, so |t| = 0.50 - no detectable
+difference, worst single chunk 0.096 nats. That was the predicted outcome:
+upstream `b87bc8b35` (#2632) fixes the AVX-512 path for IQ4_XS/IQ4_K*/IQ5_K*/
+IQ6_K, and `compact` contains none of those types, so the cross-read had to come
+out flat. It did, so the post-intake binary is the reference from here on.
+
+**`ram_safe` is 25.2 % lower perplexity than `compact`** (2.6967 absolute, 6.0
+sigma against the combined uncertainty). That is a quality class apart, not a
+margin. The price is measured too: ~2.5 GiB free RAM after load against
+~30.8 GiB, i.e. roughly 28 GiB less room for context.
+
+Caveats, so these numbers are not over-read: 29 chunks give each figure about
+3 % uncertainty, which is fine for the 25 % gap and useless for anything
+smaller; they are not comparable to the M2.5-line figure 9.95 (different model,
+different corpus slice, different chunk count); and the deleted `balanced` was
+never measured, so its place between the two is inferred from its tensor plan,
+not observed. Logs: `E:\ppl-2026-11-05\`.
+
+Run duration was previously unrecorded anywhere in this project: **11 minutes**
+for a 53 GiB model and **13 minutes** for an 82 GiB one, at 29 chunks of 512
+tokens on 32 threads, load included.
 
 The active fork is this repository (origin is AndrewMoryakov/ik_llama.cpp).
 The parent project directory is a wrapper. The source is the ten-part BF16
