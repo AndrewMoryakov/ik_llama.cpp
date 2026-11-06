@@ -212,6 +212,10 @@ llama_build_and_test(test-regex-partial.cpp)
 llama_build_and_test(test-rtr-params.cpp)
 llama_build_and_test(test-cgroup-resolver.cpp)
 
+add_executable(test-hc-pre-transpose test-hc-pre-transpose.cpp)
+target_link_libraries(test-hc-pre-transpose PRIVATE ggml)
+add_test(NAME test-hc-pre-transpose COMMAND $<TARGET_FILE:test-hc-pre-transpose>)
+
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
     ../examples/main/moe-trace.cpp)
