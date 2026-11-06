@@ -22,7 +22,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/ikawrakow/ik_llama.cpp.git
-          git fetch upstream 0d5aaa826b24014dcd67fbdef6055410db7d8079
+          git fetch upstream main
+          test "$(git rev-parse upstream/main)" = "0d5aaa826b24014dcd67fbdef6055410db7d8079"
           git cherry-pick \
             6e390bde13db42b54f5e8eab101b729f7eb75d8e \
             719d709a65e5de4542a47d6adfa0b17cf0bc279f \
