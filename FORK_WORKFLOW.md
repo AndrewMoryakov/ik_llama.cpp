@@ -74,6 +74,15 @@ features: this fork is a personal environment, and there is no reason to keep
 its hardware work permanently on the side.
 
 ### `exp/<topic>` — unproven runtime behaviour
+
+> **Measured 2026-11-06:** the forward-sync rule below was not followed for
+> `exp/raptor-runtime`. Its last commit is 2026-05-21; it carries 134 commits of
+> its own and sits 899 behind `dev`. It is already preserved by the lightweight
+> tag `archive/exp/raptor-runtime-2026-09-08`, which points at the same commit as
+> the branch tip, so the branch itself holds nothing the tag does not. An `exp/*`
+> branch that is not synced forward becomes an archive whether or not anyone
+> decides to archive it; the decision that remains is only whether to delete the
+> branch or to pay the 899-commit forward-merge.
 The boundary between `feature/` and `exp/` is **not** the topic and **not** the
 size. It is one question:
 

@@ -1,5 +1,14 @@
 # MoE routing trace and cache-locality simulator (experimental v1)
 
+> **Status 2026-11-06: this simulator has served its purpose.** The upstream
+> intake of 2026-11-05 brought `--moe-cache-mib`, which implements in the runtime
+> the behaviour this package existed to estimate beforehand. Nothing here is
+> compiled — it is pure Python, referenced by no `CMakeLists.txt` — so it costs
+> only its own maintenance, and it is kept as the record of how the sizing
+> decisions were reached. Prefer a measurement with `--moe-cache-mib` over a new
+> simulation; extend the simulator only where the runtime cannot answer the
+> question at all.
+
 This package is a **prioritization tool** for the MiniMax/Qwen-style merged-MoE
 experiments. It answers questions about logical expert bytes and cache locality.
 It does **not** predict tokens/s, SSD latency, Windows page-cache behaviour, or
