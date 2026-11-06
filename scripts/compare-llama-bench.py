@@ -120,24 +120,33 @@ if input_file is None:
 connection = sqlite3.connect(input_file)
 cursor = connection.cursor()
 
-# The SQL printer used to write `test`, and now writes the immutable versioned
-# table `test_v2`.  Keep the consumer compatible with both without mutating the
-# user's database or guessing arbitrary table names.
-BENCH_TABLE_NAMES = ("test", "test_v2")
+# The SQL printer wrote `test`, then the immutable versioned `test_v2`, and now
+# writes `test_v3`.  Each released table is frozen: when the writer's field set
+# changes it moves to the next version instead of mutating a schema already on
+# disk.  Keep the consumer compatible with every released version without
+# mutating the user's database or guessing arbitrary table names.  Order matters
+# only for readability; rows are combined by UNION ALL below.
+BENCH_TABLE_NAMES = ("test", "test_v2", "test_v3")
 BENCH_SOURCE_COLUMNS = list(dict.fromkeys(
     ["build_commit", "test_time", "avg_ts"] + KEY_PROPERTIES + ["n_prompt", "n_gen"]
 ))
 
 
 def get_bench_source_query():
+    # The placeholder count follows BENCH_TABLE_NAMES; a literal "(?, ?)" here
+    # raises sqlite3.ProgrammingError the moment a version is added.
+    placeholders = ", ".join("?" * len(BENCH_TABLE_NAMES))
     tables = cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)",
+        f"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ({placeholders})",
         BENCH_TABLE_NAMES,
     ).fetchall()
     tables = {name for (name,) in tables}
 
     if not tables:
-        logger.error("No compatible llama-bench table found; expected `test` or `test_v2`.")
+        logger.error(
+            "No compatible llama-bench table found; expected one of %s.",
+            ", ".join(f"`{name}`" for name in BENCH_TABLE_NAMES),
+        )
         sys.exit(1)
 
     selects = []
@@ -172,6 +181,21 @@ try:
     repo = git.Repo(".", search_parent_directories=True)
 except git.InvalidGitRepositoryError:
     repo = None
+
+
+def get_default_head():
+    """The branch a baseline is inferred from when the user names none.
+
+    Upstream calls it `master`, this fork calls it `main`, and a bare
+    `repo.heads.master` raises AttributeError instead of reporting anything
+    useful when neither name exists.  Falls back to the checked-out branch, and
+    returns None on a detached HEAD so callers can ask for -b/-c explicitly.
+    """
+    heads_by_name = {head.name: head for head in repo.heads}
+    for name in ("master", "main"):
+        if name in heads_by_name:
+            return heads_by_name[name]
+    return None if repo.head.is_detached else repo.head.ref
 
 
 def find_parent_in_data(commit: git.Commit):
@@ -247,12 +271,24 @@ if known_args.baseline is not None:
     if hexsha8_baseline is None:
         logger.error(f"cannot find data for baseline={known_args.baseline}.")
         sys.exit(1)
-# Otherwise, search for the most recent parent of master for which there is data:
+# Otherwise, search for the most recent parent of the default branch for which
+# there is data.  Upstream names that branch `master`, this fork names it `main`,
+# and `repo.heads.master` raises AttributeError rather than reporting anything
+# useful when neither exists, so resolve by name and fall back to the checked-out
+# branch:
 elif repo is not None:
-    hexsha8_baseline = find_parent_in_data(repo.heads.master.commit)
+    default_head = get_default_head()
+    if default_head is None:
+        logger.error("No baseline was provided and this repository has no `master` "
+                     "or `main` branch to infer one from; pass -b <commit>.\n")
+        parser.print_help()
+        sys.exit(1)
+
+    hexsha8_baseline = find_parent_in_data(default_head.commit)
 
     if hexsha8_baseline is None:
-        logger.error("No baseline was provided and did not find data for any master branch commits.\n")
+        logger.error("No baseline was provided and did not find data for any "
+                     f"{default_head.name} branch commits.\n")
         parser.print_help()
         sys.exit(1)
 else:
@@ -277,9 +313,16 @@ if known_args.compare is not None:
         logger.error(f"cannot find data for compare={known_args.compare}.")
         sys.exit(1)
 # Otherwise, search for the commit for llama-bench was most recently run
-# and that is not a parent of master:
+# and that is not a parent of the default branch:
 elif repo is not None:
-    hexsha8s_master = get_all_parent_hexsha8s(repo.heads.master.commit)
+    default_head = get_default_head()
+    if default_head is None:
+        logger.error("No compare target was provided and this repository has no "
+                     "`master` or `main` branch to infer one from; pass -c <commit>.\n")
+        parser.print_help()
+        sys.exit(1)
+
+    hexsha8s_master = get_all_parent_hexsha8s(default_head.commit)
     builds_timestamp = cursor.execute(
         f"WITH bench AS ({bench_source_query}) "
         "SELECT build_commit, test_time FROM bench ORDER BY test_time;").fetchall()
@@ -289,7 +332,8 @@ elif repo is not None:
             break
 
     if hexsha8_compare is None:
-        logger.error("No compare target was provided and did not find data for any non-master commits.\n")
+        logger.error("No compare target was provided and did not find data for any "
+                     f"commit outside {default_head.name}.\n")
         parser.print_help()
         sys.exit(1)
 else:

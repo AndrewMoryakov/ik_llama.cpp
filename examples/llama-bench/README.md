@@ -240,12 +240,12 @@ $ ./llama-bench -o json
 
 ### SQL
 
-SQL output is suitable for importing into a SQLite database. The current writer uses the versioned `test_v2` table; it can be piped into the `sqlite3` command line tool to add results to a database.
+SQL output is suitable for importing into a SQLite database. The current writer uses the versioned `test_v3` table; it can be piped into the `sqlite3` command line tool to add results to a database.
 
 ```sh
 $ ./llama-bench -o sql | sqlite3 llama-bench.sqlite
-$ sqlite3 llama-bench.sqlite '.schema test_v2'
+$ sqlite3 llama-bench.sqlite '.schema test_v3'
 $ ./scripts/compare-llama-bench.py -i llama-bench.sqlite
 ```
 
-The compare script reads both legacy `test` data and current `test_v2` data. It combines the two only while the writer emits one table per run; a future dual-write schema must provide a stable run identifier and deduplication.
+The compare script reads legacy `test` and `test_v2` data alongside the current `test_v3`. It combines them only while the writer emits one table per run; a future dual-write schema must provide a stable run identifier and deduplication. The writer bumps the table version whenever its field set changes, because `CREATE TABLE IF NOT EXISTS` would otherwise leave an older schema in place and the following `INSERT` would fail on the column count.

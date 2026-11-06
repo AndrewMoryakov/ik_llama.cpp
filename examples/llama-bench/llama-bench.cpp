@@ -2235,8 +2235,17 @@ struct sql_printer : public printer {
     // Schema v2 adds the effective RTR decision fields. Keep a versioned table
     // name so SQL output can be appended to databases created by older builds
     // without failing on missing columns in the legacy `test` table.
+    // A released table is immutable. `CREATE TABLE IF NOT EXISTS` is a no-op on a
+    // database that already holds it, so a changed field set makes the following
+    // `INSERT` fail on the column count. When `get_fields()` changes, bump this
+    // name rather than mutate the released schema, and add the new name to
+    // `BENCH_TABLE_NAMES` in `scripts/compare-llama-bench.py`.
+    //
+    // test_v2 -> test_v3 on 2026-11-06: the upstream intake of 2026-11-05 added
+    // `extra_args` and `n_cpu_moe` to the field set, so this binary can no longer
+    // append to a `test_v2` written before it.
     static const char * table_name() {
-        return "test_v2";
+        return "test_v3";
     }
 
     static std::string escape_sql(const std::string & value) {
