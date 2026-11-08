@@ -192,6 +192,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_Q4_0_4_8      = 34, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q4_0_8_8      = 35, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4         = 38, // except 1d tensors, 38 to be compatible with mainline
+        LLAMA_FTYPE_MOSTLY_NVFP4         = 39,
         LLAMA_FTYPE_MOSTLY_Q1_0_G128     = 41, // except 1d tensors, 38 to be compatible with mainline
         //
         LLAMA_FTYPE_MOSTLY_Q6_0          = 135, // except 1d tensors
@@ -226,6 +227,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQP5          = 166, // except 1d tensors (trellis, group-128)
         LLAMA_FTYPE_MOSTLY_TQP6          = 167, // except 1d tensors (trellis, group-128)
         LLAMA_FTYPE_MOSTLY_TQP7          = 168, // except 1d tensors (trellis, group-128)
+        LLAMA_FTYPE_MOSTLY_NVFP4_KS      = 169,
         LLAMA_FTYPE_MOSTLY_Q4_0_R8       = 202, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q8_0_R8       = 207, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q5_0_R4       = 208, // except 1d tensors
@@ -454,6 +456,9 @@ extern "C" {
         const struct llama_model_kv_override * kv_overrides;
 
         const struct llama_model_tensor_buft_override * tensor_buft_overrides;
+
+        // separate GGUF with the n-gram tables (per-layer token embedding, Engram), NULL if none
+        const char * ngram_file;
 
         // Keep the booleans together to avoid misalignment during copy-by-value.
         bool vocab_only;    // only load the vocabulary, no weights

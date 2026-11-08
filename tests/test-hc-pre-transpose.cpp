@@ -1,5 +1,6 @@
 #include "ggml.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
@@ -22,7 +23,7 @@ static bool same(const float * expected, const float * actual, int64_t size) {
     return true;
 }
 
-static bool check(int streams, int tokens, int threads, float eps) {
+static bool check(int streams, int tokens, int threads, float eps, float clamp) {
     ggml_init_params params = { 8 * 1024 * 1024, nullptr, false };
     ggml_context * ctx = ggml_init(params);
     if (!ctx) {
@@ -40,8 +41,35 @@ static bool check(int streams, int tokens, int threads, float eps) {
     fill(x, 1.7f);
     fill(residual, 2.3f);
 
-    auto * original = ggml_hc_pre(ctx, mixes, scale, bias, streams, 3, eps);
-    auto * fused = ggml_hc_pre(ctx, mixes, scale, bias, streams, 3, eps);
+    auto * ref_mixes = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, width, tokens);
+    auto * ref_scale = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 3);
+    auto * ref_bias = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, width);
+    auto * values = static_cast<float *>(mixes->data);
+    auto * scales = static_cast<float *>(scale->data);
+    auto * biases = static_cast<float *>(bias->data);
+    auto * reference = static_cast<float *>(ref_mixes->data);
+    std::copy(scales, scales + 3, static_cast<float *>(ref_scale->data));
+    std::copy(biases, biases + width, static_cast<float *>(ref_bias->data));
+    static_cast<float *>(ref_scale->data)[2] = 1.0f;
+    for (int i = 2 * streams; i < width; ++i) {
+        static_cast<float *>(ref_bias->data)[i] = 0.0f;
+    }
+    for (int t = 0; t < tokens; ++t) {
+        for (int i = 0; i < width; ++i) {
+            const int offset = t * width + i;
+            if (i < 2 * streams) {
+                reference[offset] = values[offset];
+            } else {
+                if (clamp > 0.0f) {
+                    values[offset] *= 100.0f;
+                }
+                float logit = values[offset] * scales[2] + biases[i];
+                reference[offset] = clamp > 0.0f ? std::clamp(logit, -clamp, clamp) : logit;
+            }
+        }
+    }
+    auto * original = ggml_hc_pre(ctx, ref_mixes, ref_scale, ref_bias, streams, 3, eps, 0.0f);
+    auto * fused = ggml_hc_pre(ctx, mixes, scale, bias, streams, 3, eps, clamp);
     fused->op_params[3] = 1;
 
     const size_t post_offset = streams * tokens * sizeof(float);
@@ -67,7 +95,7 @@ static bool check(int streams, int tokens, int threads, float eps) {
         same(static_cast<float *>(expected_comb->data), static_cast<float *>(actual_comb->data), streams * streams * tokens) &&
         same(static_cast<float *>(expected->data), static_cast<float *>(actual->data), ggml_nelements(expected));
     if (!ok) {
-        std::fprintf(stderr, "streams=%d tokens=%d threads=%d eps=%g\n", streams, tokens, threads, eps);
+        std::fprintf(stderr, "streams=%d tokens=%d threads=%d eps=%g clamp=%g\n", streams, tokens, threads, eps, clamp);
     }
     ggml_free(ctx);
     return ok;
@@ -78,13 +106,15 @@ int main() {
         for (int tokens : { 1, 5 }) {
             for (int threads : { 1, 3 }) {
                 for (float eps : { 0.0f, 1e-6f }) {
-                    if (!check(streams, tokens, threads, eps)) {
-                        return 1;
+                    for (float clamp : { 0.0f, 30.0f }) {
+                        if (!check(streams, tokens, threads, eps, clamp)) {
+                            return 1;
+                        }
                     }
                 }
             }
         }
     }
-    std::puts("HC_PRE transpose matches explicit permutation and HC_POST in 64 CPU cases");
+    std::puts("HC_PRE clamp/transpose matches explicit reference and HC_POST in 128 CPU cases");
     return 0;
 }

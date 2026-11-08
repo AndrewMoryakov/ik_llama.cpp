@@ -6189,7 +6189,8 @@ static llama_rtr_auto_decision llama_rtr_auto_should_disable(
                 params.merge_up_gate_exps,
                 params.defer_experts,
                 params.kv_overrides,
-                params.tensor_buft_overrides);
+                params.tensor_buft_overrides,
+                params.ngram_file ? params.ngram_file : "");
 
         llama_model probe_model;
         probe_model.hparams.vocab_only = params.vocab_only;
@@ -6371,7 +6372,8 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
         llama_model_loader ml(fname, params.ncmoe, params.use_mmap, params.check_tensors,
                 params.repack_tensors, params.use_thp, params.merge_qkv, params.merge_up_gate_exps,
                 params.defer_experts,
-                params.kv_overrides, params.tensor_buft_overrides);
+                params.kv_overrides, params.tensor_buft_overrides,
+                params.ngram_file ? params.ngram_file : "");
 
         model.hparams.vocab_only = params.vocab_only;
 
@@ -9657,6 +9659,7 @@ struct llama_model_params llama_model_default_params() {
         /*.progress_callback_user_data =*/ nullptr,
         /*.kv_overrides                =*/ nullptr,
         /*.tensor_buft_overrides       =*/ nullptr,
+        /*.ngram_file                  =*/ nullptr,
         /*.vocab_only                  =*/ false,
         /*.use_mmap                    =*/ true,
         /*.use_mlock                   =*/ false,

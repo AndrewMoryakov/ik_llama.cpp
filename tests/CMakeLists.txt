@@ -216,6 +216,14 @@ add_executable(test-hc-pre-transpose test-hc-pre-transpose.cpp)
 target_link_libraries(test-hc-pre-transpose PRIVATE ggml)
 add_test(NAME test-hc-pre-transpose COMMAND $<TARGET_FILE:test-hc-pre-transpose>)
 
+add_executable(test-indexer-topk test-indexer-topk.cpp)
+target_link_libraries(test-indexer-topk PRIVATE ggml)
+add_test(NAME test-indexer-topk COMMAND $<TARGET_FILE:test-indexer-topk>)
+
+add_executable(test-nvfp4 test-nvfp4.cpp)
+target_link_libraries(test-nvfp4 PRIVATE ggml)
+add_test(NAME test-nvfp4 COMMAND $<TARGET_FILE:test-nvfp4>)
+
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
     ../examples/main/moe-trace.cpp)
@@ -234,6 +242,23 @@ set_property(TEST test-token-timing-writer PROPERTY LABELS main)
 
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
+    if (BUILD_SHARED_LIBS)
+        add_test(
+            NAME test-nvfp4-import
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-nvfp4-import.py
+                    --cli $<TARGET_FILE:llama-cli> --library $<TARGET_FILE:ggml>)
+        set_tests_properties(test-nvfp4-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    endif()
+    add_test(
+        NAME test-gpt2-layernorm
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-gpt2-layernorm.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-gpt2-layernorm PROPERTIES LABELS "model;python")
+    add_test(
+        NAME test-ngram-file
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-ngram-file.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-ngram-file PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     add_test(
         NAME test-moe-cache-sim
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}

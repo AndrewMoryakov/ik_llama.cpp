@@ -1,5 +1,6 @@
 #include "common.h"
 #include "llama.h"
+#include "speculative.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -63,6 +64,21 @@ int main() {
 #else
     unsetenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS");
 #endif
+    {
+        const gpt_params params = parse({ "--ngram-file", "first.gguf", "--ple-file", "tables.gguf" });
+        assert(params.ngram_file == "tables.gguf");
+        assert(params.protected_input_paths.size() == 2);
+        assert(params.protected_input_paths[0] == "first.gguf");
+        assert(params.protected_input_paths[1] == "tables.gguf");
+        const auto model_params = common_model_params_to_llama(params);
+        assert(model_params.ngram_file != nullptr);
+        assert(std::string(model_params.ngram_file) == params.ngram_file);
+        assert(llama_model_default_params().ngram_file == nullptr);
+        gpt_params draft = params;
+        common_speculative_reset_draft_offload_defaults(draft);
+        assert(draft.ngram_file.empty());
+        assert(params.ngram_file == "tables.gguf");
+    }
     {
         gpt_params params;
         assert(!parse_moe_trace({ "--moe-trace", "trace.ndjson" }, false, params));
