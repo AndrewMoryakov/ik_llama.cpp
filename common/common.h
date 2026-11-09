@@ -332,6 +332,7 @@ struct gpt_params {
     int32_t max_gpu               =       0; // max number of GPUs to use at a time for split mode "graph"
     int32_t ncmoe                 =       0; // number of layers in which MoE tensors are left in VRAM
     size_t moe_cache_size         =       0; // total GPU cache budget in bytes for CPU-resident MoE experts
+    enum llama_moe_cache_policy moe_cache_policy = LLAMA_MOE_CACHE_POLICY_LRU;
     int32_t fit_margin            =       0; // safety margin for auto-fit in MiB
     bool    fit                   =   false; // automatically fit model (for now just using MoE tensor overrides)
     int32_t worst_graph_tokens    =       0; // number of tokens to use when reserving the worst graph
@@ -452,6 +453,7 @@ struct gpt_params {
     bool multiline_input   = false; // reverse the usage of `\`
     bool simple_io         = false; // improves compatibility with subprocesses and limited consoles
     bool cont_batching     = true;  // insert new sequences for decoding on-the-fly
+    llama_nvfp4_precision nvfp4_precision = LLAMA_NVFP4_PRECISION_AUTO;
     bool flash_attn        = true;  // flash attention
     int  mla_attn          = 3;     // MLA 0: standard, 1: MLA with K and V^T cache, 2: MLA with just K cache, 3: the best of both worlds
     int  attn_max_batch    = 256;   // Max batch size to use when computing attention (only applicable if flash_attn = false)

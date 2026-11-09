@@ -65,6 +65,25 @@ int main() {
     unsetenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS");
 #endif
     {
+        const gpt_params defaults = parse({});
+        assert(defaults.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(defaults.nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+        assert(common_context_params_to_llama(defaults).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(common_model_params_to_llama(defaults).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+        assert(llama_context_default_params().moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(llama_model_default_params().nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+
+        const gpt_params classlru = parse({ "--moe-cache-mib", "256", "--moe-cache-policy", "classlru" });
+        assert(classlru.moe_cache_size == 256ULL * 1024ULL * 1024ULL);
+        assert(classlru.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_CLASSLRU);
+        assert(common_context_params_to_llama(classlru).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_CLASSLRU);
+
+        assert(parse({ "--moe-cache-policy", "lru" }).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(parse({ "--nvfp4-precision", "w4a4" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_W4A4);
+        assert(parse({ "--nvfp4-precision", "int8" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_INT8);
+        assert(parse({ "--nvfp4-precision", "auto" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+    }
+    {
         const gpt_params params = parse({ "--ngram-file", "first.gguf", "--ple-file", "tables.gguf" });
         assert(params.ngram_file == "tables.gguf");
         assert(params.protected_input_paths.size() == 2);

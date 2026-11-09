@@ -12,6 +12,9 @@ static bool check(int width, int columns) {
         return false;
     }
     auto * quant = ggml_new_tensor_2d(ctx, GGML_TYPE_NVFP4_KS, width, rows);
+    ggml_set_input_scale(quant, 0.125f);
+    auto * duplicate = ggml_dup_tensor(ctx, quant);
+    auto * view = ggml_view_2d(ctx, quant, width, rows, quant->nb[1], 0);
     auto * plain = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, width, rows);
     auto * input = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, width, columns);
     std::vector<float> weights(width * rows);
@@ -23,6 +26,8 @@ static bool check(int width, int columns) {
     const size_t bytes = ggml_quantize_chunk(GGML_TYPE_NVFP4_KS, weights.data(), quant->data,
                                               0, rows, width, nullptr, nullptr);
     bool ok = bytes == ggml_nbytes(quant) &&
+              ggml_get_input_scale(duplicate) == 0.125f &&
+              ggml_get_input_scale(view) == 0.125f &&
               quant->nb[1] == ggml_row_size(GGML_TYPE_NVFP4, width) + sizeof(float);
     const auto traits = ggml_internal_get_type_traits(GGML_TYPE_NVFP4_KS);
     auto * decoded = static_cast<float *>(plain->data);

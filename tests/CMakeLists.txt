@@ -224,6 +224,10 @@ add_executable(test-nvfp4 test-nvfp4.cpp)
 target_link_libraries(test-nvfp4 PRIVATE ggml)
 add_test(NAME test-nvfp4 COMMAND $<TARGET_FILE:test-nvfp4>)
 
+add_executable(test-fused-up-gate-work test-fused-up-gate-work.cpp)
+target_link_libraries(test-fused-up-gate-work PRIVATE ggml)
+add_test(NAME test-fused-up-gate-work COMMAND $<TARGET_FILE:test-fused-up-gate-work>)
+
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
     ../examples/main/moe-trace.cpp)
@@ -260,6 +264,11 @@ if (Python3_Interpreter_FOUND)
                 --cli $<TARGET_FILE:llama-cli>)
     set_tests_properties(test-ngram-file PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     add_test(
+        NAME test-analytical-imatrix
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-analytical-imatrix.py
+                --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-analytical-imatrix PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
         NAME test-moe-cache-sim
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-moe-cache-sim.py)
@@ -281,5 +290,9 @@ add_executable(${TEST_TARGET} test-c.c)
 target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
 add_executable(test-moe-cache-shares test-moe-cache-shares.cpp)
-target_include_directories(test-moe-cache-shares PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(test-moe-cache-shares PRIVATE llama)
+target_include_directories(test-moe-cache-shares PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)
