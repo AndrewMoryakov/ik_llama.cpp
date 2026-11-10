@@ -6191,7 +6191,8 @@ static llama_rtr_auto_decision llama_rtr_auto_should_disable(
                 params.defer_experts,
                 params.kv_overrides,
                 params.tensor_buft_overrides,
-                params.ngram_file ? params.ngram_file : "");
+                params.ngram_file ? params.ngram_file : "",
+                params.nvfp4_precision);
 
         llama_model probe_model;
         probe_model.hparams.vocab_only = params.vocab_only;
@@ -8090,6 +8091,7 @@ static void llama_graph_compute(
         ggml_backend_cpu_set_moe_expert_prefetch(lctx.backend_cpu, lctx.cparams.prefetch_experts);
     }
 
+    if (lctx.moe_cache) lctx.moe_cache->begin_compute();
     ggml_backend_sched_graph_compute_async(lctx.sched, gf);
 
     // fprintf(stderr, "splits: %d\n", ggml_backend_sched_get_n_splits(lctx.sched));
@@ -8112,6 +8114,7 @@ static void llama_graph_compute_sched(
         ggml_backend_cpu_set_moe_expert_prefetch(lctx.backend_cpu, lctx.cparams.prefetch_experts);
     }
 
+    if (lctx.moe_cache && sched == lctx.sched) lctx.moe_cache->begin_compute();
     ggml_backend_sched_graph_compute_async(sched, gf);
 }
 
@@ -9713,6 +9716,7 @@ struct llama_context_params llama_context_default_params() {
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
         /*.moe_cache_policy            =*/ LLAMA_MOE_CACHE_POLICY_LRU,
+        /*.moe_cache_cpu_share         =*/ 0.0f,
         /*.idx_type_k                  =*/ GGML_TYPE_F16,
         /*.type_reduce                 =*/ GGML_TYPE_F16,
         /*.type_graph_attn             =*/ GGML_TYPE_F16,
@@ -9739,7 +9743,7 @@ struct llama_context_params llama_context_default_params() {
         /*.dsa                         =*/ false,
         /*.fused_idx_topk              =*/ true,
         /*.swa_compress                =*/ false,
-        /*.dsv41_replay_keep           =*/ 0,
+        /*.dsv41_replay_keep           =*/ 256,
         /*.dsv4_legacy_state           =*/ false,
         /*.dsa_top_k                   =*/ -1,
         /*.min_experts                 =*/ -1,
@@ -10101,6 +10105,12 @@ struct llama_context * llama_init_from_model(
         LLAMA_LOG_ERROR("%s: invalid MoE cache policy value %d\n", __func__, (int) params.moe_cache_policy);
         return nullptr;
     }
+    if (!std::isfinite(params.moe_cache_cpu_share) || params.moe_cache_cpu_share < 0.0f ||
+            params.moe_cache_cpu_share > 1.0f) {
+        LLAMA_LOG_ERROR("%s: invalid MoE cache CPU share %.9g (expected finite value in [0,1])\n",
+                __func__, (double) params.moe_cache_cpu_share);
+        return nullptr;
+    }
 
     if (!model) {
         LLAMA_LOG_ERROR("%s: model cannot be NULL\n", __func__);
@@ -10268,7 +10278,7 @@ struct llama_context * llama_init_from_model(
     cparams.dsv41_replay_keep = params.dsv41_replay_keep;
     if (cparams.dsv41_replay_keep > 0) {
         if (model->arch != LLM_ARCH_DEEPSEEK41) {
-            LLAMA_LOG_WARN("%s: --dsv41-replay-keep is only implemented for DeepSeek-V4.1; ignoring\n", __func__);
+            //LLAMA_LOG_WARN("%s: --dsv41-replay-keep is only implemented for DeepSeek-V4.1; ignoring\n", __func__);
             cparams.dsv41_replay_keep = 0;
         } else if (!cparams.swa_compress) {
             LLAMA_LOG_WARN("%s: --dsv41-replay-keep requires --swa-compress; ignoring\n", __func__);
@@ -10320,6 +10330,7 @@ struct llama_context * llama_init_from_model(
     cparams.mtp              = params.mtp;
     cparams.moe_cache_size   = params.moe_cache_size;
     cparams.moe_cache_policy = params.moe_cache_policy;
+    cparams.moe_cache_cpu_share = params.moe_cache_cpu_share;
     cparams.worst_graph_tokens = params.worst_case_tokens;
     cparams.dflash_query_capacity = params.dflash_query_capacity;
 
@@ -10859,7 +10870,7 @@ struct llama_context * llama_init_from_model(
             if (cparams.moe_cache_size > 0) {
                 try {
                     ctx->moe_cache = std::make_unique<llama_moe_cache>(*model, ctx->backends, backend_buft,
-                            cparams.moe_cache_size, cparams.moe_cache_policy);
+                            cparams.moe_cache_size, cparams.moe_cache_policy, cparams.moe_cache_cpu_share);
                     ggml_backend_sched_set_copy_callback(ctx->sched, llama_context::sched_copy_moe_cache, ctx);
                 } catch (const std::exception & e) {
                     LLAMA_LOG_ERROR("%s: failed to initialize MoE cache: %s\n", __func__, e.what());

@@ -74,7 +74,51 @@ def main():
         assert "mmap is off" in error and "consumed" in error
         end = json.loads(timing.read_text().splitlines()[-1])
         assert end["complete"] and end["generated_tokens"] == 4
-    print(f"Imported {converted} raw NVFP4 tensors with scales; four-token smoke passed")
+
+        # Exercise the MXFP4 -> NVFP4_KS load-time path added for Blackwell.
+        # INT8 must retain the original MXFP4 tensors (and mmap eligibility),
+        # while AUTO may consume the static input scales and repack them.
+        mxfp4_fixture = Path(directory) / "mxfp4-with-input-scales.gguf"
+        writer = gguf.GGUFWriter(mxfp4_fixture, reader.fields["general.architecture"].contents())
+        for name, field in reader.fields.items():
+            if name.startswith("GGUF.") or name in ("general.architecture", "general.file_type"):
+                continue
+            subtype = field.types[-1] if field.types[0] == gguf.GGUFValueType.ARRAY else None
+            writer.add_key_value(name, field.contents(), field.types[0], subtype)
+        mxfp4_converted = 0
+        for tensor in reader.tensors:
+            if tensor.tensor_type == gguf.GGMLQuantizationType.F32 and tensor.data.ndim == 2 and tensor.data.shape[1] % 64 == 0:
+                data = np.array(tensor.data, copy=True)
+                rows, width = data.shape
+                packed = np.empty((rows, width // 32 * 17), dtype=np.uint8)
+                size = quantize(int(gguf.GGMLQuantizationType.MXFP4), data.ctypes.data,
+                                packed.ctypes.data, 0, rows, width, None, None)
+                assert size == packed.nbytes
+                writer.add_tensor(tensor.name, packed, raw_dtype=gguf.GGMLQuantizationType.MXFP4)
+                base = tensor.name.rsplit(".", 1)[0]
+                writer.add_tensor(base + ".input_scale", np.ones(1, dtype=np.float32))
+                mxfp4_converted += 1
+            else:
+                writer.add_tensor(tensor.name, tensor.data, raw_dtype=tensor.tensor_type)
+        assert mxfp4_converted > 0
+        writer.write_header_to_file()
+        writer.write_kv_data_to_file()
+        writer.write_tensors_to_file()
+        writer.close()
+
+        base_command = [args.cli, "-m", str(mxfp4_fixture), "-p", "hello", "-n", "1", "-c", "128",
+                        "-t", "2", "-ngl", "0", "-s", "42", "--ignore-eos", "--no-display-prompt"]
+        auto = subprocess.run(base_command, capture_output=True, timeout=60)
+        auto_error = auto.stderr.decode(errors="replace")
+        assert auto.returncode == 0, auto_error[-5000:]
+        auto_log = auto_error.lower()
+        assert "repacking" in auto_log and "mxfp4" in auto_log and "nvfp4_ks" in auto_log and "mmap is off" in auto_log, auto_error[-5000:]
+
+        int8 = subprocess.run(base_command + ["--nvfp4-precision", "int8"], capture_output=True, timeout=60)
+        int8_error = int8.stderr.decode(errors="replace")
+        assert int8.returncode == 0, int8_error[-5000:]
+        assert "repacking" not in int8_error, int8_error[-5000:]
+    print(f"Imported {converted} raw NVFP4 and {mxfp4_converted} MXFP4 tensors; precision-path smokes passed")
     return 0
 
 

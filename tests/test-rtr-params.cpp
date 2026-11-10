@@ -67,10 +67,16 @@ int main() {
     {
         const gpt_params defaults = parse({});
         assert(defaults.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(defaults.moe_cache_cpu_share == 0.0);
         assert(defaults.nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+        assert(defaults.dsv41_replay_keep == 256);
         assert(common_context_params_to_llama(defaults).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(common_context_params_to_llama(defaults).moe_cache_cpu_share == 0.0f);
+        assert(common_context_params_to_llama(defaults).dsv41_replay_keep == 256);
         assert(common_model_params_to_llama(defaults).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
         assert(llama_context_default_params().moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(llama_context_default_params().moe_cache_cpu_share == 0.0f);
+        assert(llama_context_default_params().dsv41_replay_keep == 256);
         assert(llama_model_default_params().nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
 
         const gpt_params classlru = parse({ "--moe-cache-mib", "256", "--moe-cache-policy", "classlru" });
@@ -79,6 +85,9 @@ int main() {
         assert(common_context_params_to_llama(classlru).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_CLASSLRU);
 
         assert(parse({ "--moe-cache-policy", "lru" }).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        const gpt_params cpu_share = parse({ "--moe-cache-cpu-share", "0.25" });
+        assert(cpu_share.moe_cache_cpu_share == 0.25);
+        assert(common_context_params_to_llama(cpu_share).moe_cache_cpu_share == 0.25f);
         assert(parse({ "--nvfp4-precision", "w4a4" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_W4A4);
         assert(parse({ "--nvfp4-precision", "int8" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_INT8);
         assert(parse({ "--nvfp4-precision", "auto" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
