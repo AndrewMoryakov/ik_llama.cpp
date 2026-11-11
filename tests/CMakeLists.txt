@@ -250,9 +250,15 @@ if (Python3_Interpreter_FOUND)
         add_test(
             NAME test-nvfp4-import
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-nvfp4-import.py
-                    --cli $<TARGET_FILE:llama-cli> --library $<TARGET_FILE:ggml>)
+                    --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>
+                    --library $<TARGET_FILE:ggml>)
         set_tests_properties(test-nvfp4-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     endif()
+    add_test(
+        NAME test-quantize-invariants
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-quantize-invariants.py
+                --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-quantize-invariants PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     add_test(
         NAME test-gpt2-layernorm
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-gpt2-layernorm.py

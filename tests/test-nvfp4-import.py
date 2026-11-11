@@ -18,6 +18,7 @@ import gguf
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cli", required=True)
+    parser.add_argument("--quantize", required=True)
     parser.add_argument("--library", required=True)
     args = parser.parse_args()
     model = os.getenv("LLAMACPP_TEST_MODELFILE")
@@ -74,6 +75,31 @@ def main():
         assert "mmap is off" in error and "consumed" in error
         end = json.loads(timing.read_text().splitlines()[-1])
         assert end["complete"] and end["generated_tokens"] == 4
+
+        copied = Path(directory) / "copied-nvfp4-ks.gguf"
+        copied_result = subprocess.run(
+            [args.quantize, str(fixture), str(copied), "COPY"],
+            capture_output=True, timeout=60,
+        )
+        copied_error = copied_result.stderr.decode(errors="replace")
+        assert copied_result.returncode == 0, copied_error[-5000:]
+        copied_reader = gguf.GGUFReader(copied)
+        copied_names = {tensor.name for tensor in copied_reader.tensors}
+        copied_scales = {name for name in copied_names if name.endswith(".input_scale")}
+        assert len(copied_scales) == converted
+        assert all(np.all(tensor.data == 1.0) for tensor in copied_reader.tensors
+                   if tensor.name in copied_scales)
+        wrong_types = [(tensor.name, tensor.tensor_type) for tensor in copied_reader.tensors
+                       if not tensor.name.endswith(".input_scale")
+                       and tensor.name.rsplit(".", 1)[0] + ".input_scale" in copied_scales
+                       and tensor.tensor_type != gguf.GGMLQuantizationType.NVFP4_KS]
+        assert not wrong_types, wrong_types
+        copied_smoke = subprocess.run(
+            [args.cli, "-m", str(copied), "-p", "hello", "-n", "1", "-c", "128",
+             "-t", "2", "-ngl", "0", "-s", "42", "--ignore-eos", "--no-display-prompt"],
+            capture_output=True, timeout=60,
+        )
+        assert copied_smoke.returncode == 0, copied_smoke.stderr.decode(errors="replace")[-5000:]
 
         # Exercise the MXFP4 -> NVFP4_KS load-time path added for Blackwell.
         # INT8 must retain the original MXFP4 tensors (and mmap eligibility),
