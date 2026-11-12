@@ -191,7 +191,7 @@ struct create_tensors_helper : public create_tensors_helper_interface {
 
     bool create_seedoss_tensors(const LLM_TN & tn);
 
-    bool create_step35_tensors(const LLM_TN & tn);
+    bool create_step5_tensors(const LLM_TN & tn);
 
     llama_model_loader & ml;
     llama_model        & model;
@@ -1388,7 +1388,7 @@ bool create_tensors_helper::create_seedoss_tensors(const LLM_TN & tn) {
     return use_mmap_buffer;
 }
 
-bool create_tensors_helper::create_step35_tensors(const LLM_TN & tn) {
+bool create_tensors_helper::create_step5_tensors(const LLM_TN & tn) {
     LOADING_PRELUDE
 
     model.tok_embd = create_tensor(ctx_input, tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
@@ -1401,7 +1401,7 @@ bool create_tensors_helper::create_step35_tensors(const LLM_TN & tn) {
                           ml.get_tensor_meta("blk.0.attn_norm.weight") == nullptr;
     const int trunk_flags = mtp_only
         ? llama_model_loader::TENSOR_SKIP | llama_model_loader::TENSOR_NOT_REQUIRED : 0;
-    // STEP35 supports per-layer partial RoPE dims; rope factors are stored as a single shared tensor
+    // STEP5 supports per-layer partial RoPE dims; rope factors are stored as a single shared tensor
     // ("rope_freqs.weight") and ggml uses only the first (n_rot_l/2) entries per layer.
     uint32_t n_rot_max = 0;
     for (int i = 0; i < n_layer; ++i) {
@@ -1448,7 +1448,7 @@ bool create_tensors_helper::create_step35_tensors(const LLM_TN & tn) {
         const std::string attn_gate_name = tn(LLM_TENSOR_ATTN_GATE, "weight", i);
         int64_t n_attn_gate = n_head_l;
         if (model.arch == LLM_ARCH_LAGUNA) {
-            // Step35-style models normally use a head-wise attention gate. Laguna
+            // Step5-style models normally use a head-wise attention gate. Laguna
             // XS.2 keeps that layout, but M.1 gates every attention output element,
             // so infer the width from GGUF metadata instead of baking in a model size.
             const ggml_tensor * meta = ml.get_tensor_meta(attn_gate_name.c_str());
@@ -1497,6 +1497,23 @@ bool create_tensors_helper::create_step35_tensors(const LLM_TN & tn) {
                     tn(LLM_TENSOR_NEXTN_SHARED_HEAD_HEAD, "weight", i), {n_embd, n_vocab}, optional_layer_flags);
             layer.nextn.shared_head_norm = create_tensor(ctx_split,
                     tn(LLM_TENSOR_NEXTN_SHARED_HEAD_NORM, "weight", i), {n_embd}, optional_layer_flags);
+        }
+
+        if (hparams.indexer_n_head > 0 && hparams.indexer_head_size > 0 &&
+                ml.get_tensor_meta(tn(LLM_TENSOR_INDEXER_Q_PROJ, "weight", i).c_str()) != nullptr) {
+            const int64_t idx_head   = hparams.indexer_head_size; // proxy_dim (sparse_config.proxy_dim)
+            const int64_t idx_n_head = hparams.indexer_n_head;    // sparse_config.sparse_indexer_num_heads
+            const int idx_flags = optional_layer_flags;
+            // Not in the split buffer: no prepare_split_tensors wiring exists for these (would fault under -sm graph).
+            ggml_context * ctx_idx = ctx_for_layer(i);
+            layer.indexer_q        = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_Q_PROJ, "weight", i), {n_embd, idx_head * idx_n_head}, idx_flags);
+            layer.indexer_k        = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_K_PROJ, "weight", i), {n_embd, idx_head}, idx_flags);
+            layer.indexer_z        = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_Z, "weight", i), {n_embd, idx_head}, idx_flags);
+            layer.indexer_w        = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_W, "weight", i), {n_embd, idx_n_head}, idx_flags);
+            layer.indexer_q_norm   = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_Q_NORM, "weight", i), {idx_head}, idx_flags);
+            layer.indexer_k_norm   = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_K_NORM, "weight", i), {idx_head}, idx_flags);
+            layer.indexer_k_norm_b = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_K_NORM, "bias", i), {idx_head}, idx_flags);
+            layer.indexer_ssmax_s  = create_tensor(ctx_idx, tn(LLM_TENSOR_INDEXER_SSMAX_S, i), {n_head_l}, idx_flags);
         }
     }
     return use_mmap_buffer;
@@ -5379,9 +5396,7 @@ bool create_tensors_helper::create_hunyuan_tensors(const LLM_TN & tn) {
 
         layer.attn_norm = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
 
-        layer.wq = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head}, 0);
-        layer.wk = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k_gqa}, 0);
-        layer.wv = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
+        use_mmap_buffer &= !merge_qkv(tn, i, 0);
         layer.wo = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0);
 
         layer.attn_k_norm = create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {n_embd_head_k}, 0);
@@ -5389,12 +5404,23 @@ bool create_tensors_helper::create_hunyuan_tensors(const LLM_TN & tn) {
 
         layer.ffn_norm = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
-        layer.ffn_gate_inp  = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), {n_embd, n_expert}, 0);
-        use_mmap_buffer &= !create_std_ffn_exps(n_embd, tn, i, 0, n_ff);
+        // optional dense FFN
+        layer.ffn_gate = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd, n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED);
+        layer.ffn_down = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, llama_model_loader::TENSOR_NOT_REQUIRED);
+        layer.ffn_up   = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED);
 
-        layer.ffn_gate_shexp = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, hparams.n_ff_shexp}, 0);
-        layer.ffn_up_shexp   = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, hparams.n_ff_shexp}, 0);
-        layer.ffn_down_shexp = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {hparams.n_ff_shexp, n_embd}, 0);
+        // MoE: routed + shared experts
+        if (!layer.ffn_gate) {
+            layer.ffn_gate_inp = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+            use_mmap_buffer &= !create_std_ffn_exps(n_embd, tn, i, 0,
+                    model.arch == LLM_ARCH_HY_V3 ? 0 : n_ff);
+            layer.ffn_exp_probs_b = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_EXP_PROBS_B, i), {n_expert},
+                    llama_model_loader::TENSOR_NOT_REQUIRED);
+
+            layer.ffn_gate_shexp = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, hparams.n_ff_shexp}, 0);
+            layer.ffn_up_shexp   = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, hparams.n_ff_shexp}, 0);
+            layer.ffn_down_shexp = create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {hparams.n_ff_shexp, n_embd}, 0);
+        }
     }
     return use_mmap_buffer;
 }
@@ -6565,6 +6591,8 @@ bool create_tensors_helper::create_tensors() {
             use_mmap_buffer = create_ernie45_tensors(tn); break;
         case LLM_ARCH_HUNYUAN_MOE:
             use_mmap_buffer = create_hunyuan_tensors(tn); break;
+        case LLM_ARCH_HY_V3:
+            use_mmap_buffer = create_hunyuan_tensors(tn); break;
         case LLM_ARCH_OPENAI_MOE:
             use_mmap_buffer = create_openai_moe_tensors(tn); break;
         case LLM_ARCH_BAILINGMOE2:
@@ -6589,10 +6617,11 @@ bool create_tensors_helper::create_tensors() {
             use_mmap_buffer = create_mimo2_tensors(tn); break;
         case LLM_ARCH_SEED_OSS:
             use_mmap_buffer = create_seedoss_tensors(tn); break;
+        case LLM_ARCH_STEP5:
         case LLM_ARCH_STEP35:
-            use_mmap_buffer = create_step35_tensors(tn); break;
+            use_mmap_buffer = create_step5_tensors(tn); break;
         case LLM_ARCH_LAGUNA:
-            use_mmap_buffer = create_step35_tensors(tn); break;
+            use_mmap_buffer = create_step5_tensors(tn); break;
         default:
             throw std::runtime_error("unknown architecture");
     }

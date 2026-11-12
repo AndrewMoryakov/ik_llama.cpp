@@ -193,6 +193,9 @@ llama_build_and_test(test-jinja.cpp)
 llama_test(test-jinja NAME test-jinja-py ARGS -py LABEL python)
 llama_build_and_test(test-chat-auto-parser.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 llama_build_and_test(test-chat-template.cpp )
+llama_test(test-chat-template
+    NAME test-chat-template-hy3
+    ARGS --no-common --stop-on-first-fail ${PROJECT_SOURCE_DIR}/models/templates/tencent-Hy3.jinja)
 llama_build_and_test(test-json-partial.cpp )
 llama_build_and_test(test-cpu-affinity.cpp )
 llama_build_and_test(test-nanbeige-loop.cpp )

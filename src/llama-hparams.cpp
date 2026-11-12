@@ -1998,6 +1998,27 @@ void llm_load_hparams(
                     default: model.type = e_model::MODEL_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_HY_V3:
+            {
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+                ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
+                ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
+                ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,               hparams.expert_weights_norm, false);
+                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
+                if (hparams.expert_gating_func == LLM_EXPERT_GATING_FUNC_TYPE_NONE) {
+                    hparams.expert_gating_func = LLM_EXPERT_GATING_FUNC_SIGMOID;
+                }
+                if (hparams.n_ff_shexp == 0) {
+                    hparams.n_ff_shexp = hparams.n_ff_exp;
+                }
+
+                switch (hparams.n_layer) {
+                    case 48: model.type = e_model::MODEL_30B_A3B; break;
+                    default: model.type = e_model::MODEL_UNKNOWN;
+                }
+            } break;
         case LLM_ARCH_OPENAI_MOE:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
@@ -2114,12 +2135,14 @@ void llm_load_hparams(
                     default: model.type = e_model::MODEL_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_STEP5:
         case LLM_ARCH_STEP35:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                if (hparams.f_norm_eps <= 0.0f) hparams.f_norm_eps = hparams.f_norm_rms_eps;
                 ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
                 if (hparams.nextn_predict_layers > hparams.n_layer) {
-                    throw std::runtime_error(format("step35.nextn_predict_layers (%u) exceeds block_count (%u)",
+                    throw std::runtime_error(format("step5.nextn_predict_layers (%u) exceeds block_count (%u)",
                             hparams.nextn_predict_layers, hparams.n_layer));
                 }
                 hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
@@ -2130,7 +2153,7 @@ void llm_load_hparams(
                 ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
                 ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
                 ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,               hparams.expert_weights_norm, false);
-                // Step35 uses sigmoid gating by default (if not set in GGUF)
+                // Step5 uses sigmoid gating by default (if not set in GGUF)
                 if (hparams.expert_gating_func == LLM_EXPERT_GATING_FUNC_TYPE_NONE) {
                     hparams.expert_gating_func = LLM_EXPERT_GATING_FUNC_SIGMOID;
                 }
@@ -2138,8 +2161,12 @@ void llm_load_hparams(
                 bool have_rfb_train_swa = ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA, hparams.rope_freq_base_train_swa, false);
                 ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
                 if (!ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_COUNT_PER_LAYER, hparams.rope_dim_per_layer, hparams.n_layer, false)) {
+                    // Mainline-style files: rope.dimension_count = full-attn rotary,
+                    // rope.dimension_count_swa = SWA-layer rotary (Step-5: 64 / 192).
+                    uint32_t n_rot_swa_file = hparams.n_rot;
+                    ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT_SWA, n_rot_swa_file, false);
                     for (int i = 0; i < hparams.n_layer; ++i) {
-                        hparams.rope_dim_per_layer[i] = hparams.swa_layers[i] ? hparams.n_rot : hparams.n_rot/2;
+                        hparams.rope_dim_per_layer[i] = hparams.swa_layers[i] ? n_rot_swa_file : hparams.n_rot;
                     }
                 }
                 // The following two parameters: one of the two versions must be present in the GGUF
@@ -2149,7 +2176,7 @@ void llm_load_hparams(
                 if (!ml.get_key_or_arr(LLM_KV_SWIGLU_LIMITS_SHARED, hparams.swiglu_limits_shared, hparams.n_layer, false)) {
                      ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_SHEXP,   hparams.swiglu_limits_shared, hparams.n_layer, true);
                 }
-                // Optional: Step35-only gating for applying rope scaling (HF: yarn_only_types).
+                // Optional: Step5-only gating for applying rope scaling (HF: yarn_only_types).
                 // Default is 3 (apply on all layers) if the key is absent.
                 //ml.get_key(format("%s.rope.scaling.apply_mask", ml.get_arch_name().c_str()),
                 //    hparams.rope_scaling_apply_mask, false);
@@ -2161,6 +2188,31 @@ void llm_load_hparams(
                 hparams.has_rope_freq_base_per_layer = ml.get_key_or_arr(LLM_KV_ROPE_FREQ_BASE_PER_LAYER,
                     hparams.rope_freq_base_per_layer, hparams.n_layer, false);
                 GGML_ASSERT(hparams.has_rope_freq_base_per_layer || have_rfb_train_swa);
+                {
+                    int il_full = -1;
+                    for (uint32_t il = 0; il < hparams.n_layer_kv_from_start; ++il) {
+                        if (!hparams.swa_layers[il] &&
+                                ml.get_tensor_meta(format("blk.%u.indexer.q.weight", il).c_str()) != nullptr) {
+                            il_full = (int) il;
+                            break;
+                        }
+                    }
+                    if (il_full >= 0) {
+                        const auto * q_norm_meta = ml.get_tensor_meta(format("blk.%d.indexer.q_norm.weight", il_full).c_str());
+                        const auto * w_meta      = ml.get_tensor_meta(format("blk.%d.indexer.w.weight", il_full).c_str());
+                        GGML_ASSERT(q_norm_meta && w_meta);
+                        hparams.indexer_head_size = q_norm_meta->ne[0]; // proxy_dim (256)
+                        hparams.indexer_n_head    = w_meta->ne[1];      // 16 indexer q heads
+                        hparams.indexer_top_k     = 512;                // HF sparse_config.topk
+                        hparams.indexer_rope_dim  = 32;                 // HF sparse_config.sparse_indexer_rope_dim
+                        hparams.indexer_csa_block = 8;                  // HF sparse_config.region_block_size
+                        for (uint32_t il = 0; il < hparams.n_layer_kv_from_start; ++il) {
+                            // full-attn layers carry indexer weights and compute their own top-k
+                            hparams.indexer_is_full[il] = !hparams.swa_layers[il] &&
+                                ml.get_tensor_meta(format("blk.%u.indexer.q.weight", il).c_str()) != nullptr;
+                        }
+                    }
+                }
             } break;
         case LLM_ARCH_LAGUNA:
             {
