@@ -317,6 +317,7 @@ struct MulMat {
             case GGML_TYPE_Q6_0   : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R16 : type;
             case GGML_TYPE_IQ4_NL : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R16 : type;
             case GGML_TYPE_MXFP4  : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R16 : type;
+            case GGML_TYPE_NVFP4_KS: return nrc_y >= 32 ? GGML_TYPE_Q8_0_R16 : type;
 #else
             case GGML_TYPE_Q4_0   : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ4_NL_R4: return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
@@ -326,6 +327,7 @@ struct MulMat {
             case GGML_TYPE_Q6_0   : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ4_NL : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_MXFP4  : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
+            case GGML_TYPE_NVFP4_KS: return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
 #endif
 #ifdef HAVE_FANCY_SIMD
             case GGML_TYPE_Q8_0   : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R16 : type;
@@ -370,6 +372,7 @@ struct MulMat {
             case GGML_TYPE_Q8_0   : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ4_NL : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_MXFP4  : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
+            case GGML_TYPE_NVFP4_KS: return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ1_KT : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ2_KT : return nrc_y >= 16 ? GGML_TYPE_Q8_0_R8 : type;
             case GGML_TYPE_IQ3_KT : return nrc_y >= 32 ? GGML_TYPE_Q8_0_R8 : type;
@@ -418,10 +421,7 @@ struct MulMat {
             case GGML_TYPE_Q5_K_R4:
             case GGML_TYPE_Q8_KV:
             case GGML_TYPE_Q8_KV_R8:
-            case GGML_TYPE_Q8_K_R8: return 8;
-            case GGML_TYPE_Q1_0_G128_R8: return 8;
-            case GGML_TYPE_PQ2_0_R8: return 8;
-            case GGML_TYPE_PTQ1_0_R8: return 8;
+            case GGML_TYPE_Q8_K_R8:
             case GGML_TYPE_Q2_0_R8: return 8;
             case GGML_TYPE_Q4_0_R8:
             case GGML_TYPE_Q8_0_R8:
@@ -432,6 +432,9 @@ struct MulMat {
             case GGML_TYPE_IQ4_KS_R16:
             case GGML_TYPE_IQ5_KS_R16:
             case GGML_TYPE_IQ3_KS_R16:
+            case GGML_TYPE_Q1_0_G128_R8:
+            case GGML_TYPE_PQ2_0_R8:
+            case GGML_TYPE_PTQ1_0_R8:
             case GGML_TYPE_BF16_R16: return 16;
             default: return 1;
         }
@@ -466,10 +469,10 @@ struct MulMat {
             case GGML_TYPE_Q8_KV_R8:
             case GGML_TYPE_Q8_1:
             case GGML_TYPE_MXFP4_R8:
-            case GGML_TYPE_Q8_K_R8: return 8;
-            case GGML_TYPE_Q1_0_G128_R8: return 8;
-            case GGML_TYPE_PQ2_0_R8: return 8;
-            case GGML_TYPE_PTQ1_0_R8: return 8;
+            case GGML_TYPE_Q8_K_R8:
+            case GGML_TYPE_Q1_0_G128_R8:
+            case GGML_TYPE_PQ2_0_R8:
+            case GGML_TYPE_PTQ1_0_R8:
             case GGML_TYPE_Q2_0_R8: return 8;
             case GGML_TYPE_Q8_K_R16:
             case GGML_TYPE_IQ4_KS_R16:
@@ -573,6 +576,7 @@ bool iqk_convert_repack(int typeA, int n, const void * vx, size_t bx, void * vy,
         case GGML_TYPE_Q8_0:
         case GGML_TYPE_IQ4_NL:
         case GGML_TYPE_MXFP4:
+        case GGML_TYPE_NVFP4_KS:
         case GGML_TYPE_Q4_0_R8:
         case GGML_TYPE_MXFP4_R8:
         case GGML_TYPE_Q5_0_R4:
@@ -1111,6 +1115,7 @@ bool MulMat::prepare(int typeA, int typeB, int ne00, MulMat& mm, int Ny) {
         case GGML_TYPE_IQ4_NL_R4:
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_MXFP4_R8:
+        case GGML_TYPE_NVFP4_KS:
         case GGML_TYPE_IQ4_KS_R16:
         case GGML_TYPE_IQ5_KS_R16:
             return iqk_set_kernels_legacy_quants(ne00, typeA, typeB, mm.funcs, mm.func16);
@@ -1211,6 +1216,7 @@ bool MulMat::prepare(int typeA, int typeB, int ne00, MulMat& m, int /*Ny*/) {
         case GGML_TYPE_Q8_1:
         case GGML_TYPE_IQ4_NL_R4:
         case GGML_TYPE_MXFP4:
+        case GGML_TYPE_NVFP4_KS:
         case GGML_TYPE_IQ4_KS_R16:
         case GGML_TYPE_IQ5_KS_R16:
             return iqk_set_kernels_legacy_quants(ne00, typeA, typeB, m.funcs, m.func16);
@@ -2155,6 +2161,8 @@ void iqk_bucket_topk(int nval, int ntop, float * values, int * idx, int * idx_in
         return;
     }
     if (max - min < 1e-6f) return; // we got basically the same values, so it doesn't matter which we pick
+    // bv is rounded, so for v close to max av*v + bv can be negative once |bv| >= 2^24 (values clustered
+    // tightly around a large magnitude). This is why the bucket index is clamped from below as well.
     float av = (nbucket - 0.75f)/(min - max);
     float bv = -av*max;
 #ifdef __AVX2__
@@ -2166,13 +2174,14 @@ void iqk_bucket_topk(int nval, int ntop, float * values, int * idx, int * idx_in
         auto xv = _mm256_fmadd_ps(v_av, v, v_bv);
         auto iv = _mm256_cvtps_epi32(xv);
         iv = _mm256_min_epi32(iv, _mm256_set1_epi32(nbucket-1));
+        iv = _mm256_max_epi32(iv, _mm256_setzero_si256());
         auto aux = idx_aux + 8*j;
         _mm256_storeu_si256((__m256i *)aux, iv);
         for (int k = 0; k < 8; ++k) ++counts[aux[k]];
     }
     for (int j = 8*(ngood/8); j < ngood; ++j) {
         int i = int(av*values[j] + bv);
-        i = std::min(i, nbucket-1);
+        i = std::max(0, std::min(i, nbucket-1));
         idx_aux[j] = i;
         ++counts[i];
     }
@@ -2180,7 +2189,7 @@ void iqk_bucket_topk(int nval, int ntop, float * values, int * idx, int * idx_in
     for (int i = 0; i < nbucket; ++i) counts[i] = 0;
     for (int j = 0; j < ngood; ++j) {
         int i = int(av*values[j] + bv);
-        i = std::min(i, nbucket-1);
+        i = std::max(0, std::min(i, nbucket-1));
         idx_aux[j] = i;
         ++counts[i];
     }
@@ -2190,6 +2199,12 @@ void iqk_bucket_topk(int nval, int ntop, float * values, int * idx, int * idx_in
     for (; last_bucket < nbucket-1; ++last_bucket) {
         sum += counts[last_bucket];
         if (sum >= ntop) break;
+    }
+    if (idx[ngood-1] != ngood-1) {
+        // Some -inf values were not at the end, so values[] (compacted above) no longer lines up with the
+        // indices the comparator below uses. Put the values back where they came from.
+        for (int j = ngood-1; j >= 0; --j) values[idx[j]] = values[j];
+        for (int j = 0; j < ninf; ++j) values[idx_inf[j]] = -INFINITY;
     }
     int nhave = 0, nlast = 0;
     for (int j = 0; j < ngood; ++j) {
@@ -2467,7 +2482,7 @@ bool iqk_indexer_topk(struct ggml_tensor * dst, void * work_buffer, barrier_t ba
 #endif
             if (!done) {
             if (from_float) {
-                from_float((const float *)this_q, work, q->ne[0] * q->ne[1]);
+                for (int ih = 0; ih < q->ne[1]; ++ih) from_float((const float *)(this_q + ih*q->nb[1]), work + ih*row_size_q, q->ne[0]);
                 this_q = work;
             }
             int n_step = (k->ne[1] + k_indexer_chunks - 1)/k_indexer_chunks;
@@ -2572,7 +2587,7 @@ bool iqk_indexer_topk(struct ggml_tensor * dst, void * work_buffer, barrier_t ba
         auto quantized = (char *)work_buffer;
         if (ith < q->ne[2]) {
             auto this_q = q_data + ith*q->nb[2];
-            from_float((const float *)this_q, quantized + quantize_size*ith, q->ne[0] * q->ne[1]);
+            for (int ih = 0; ih < q->ne[1]; ++ih) from_float((const float *)(this_q + ih*q->nb[1]), quantized + quantize_size*ith + ih*row_size_q, q->ne[0]);
         }
         qnb2 = quantize_size;
         q_data = quantized;

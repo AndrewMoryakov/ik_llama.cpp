@@ -2,6 +2,7 @@
 #include "mmq_id.cuh"
 #include "quantize_id.cuh"
 #include "quantize.cuh"
+#include "nvfp4.cuh"
 
 #include <vector>
 #include <climits>
@@ -122,6 +123,14 @@ static __global__ void mmq_ids_helper(
     expert_bounds[gridDim.x] = nex_prev + it_compact;
 }
 
+static size_t mmq_ids_helper_nbytes_shared(int n_tokens) {
+    return n_tokens*sizeof(mmq_ids_helper_store);
+}
+
+bool ggml_cuda_can_compute_row_ids(int device, int n_tokens) {
+    return mmq_ids_helper_nbytes_shared(n_tokens) <= ggml_cuda_info().devices[device].smpbo;
+}
+
 template <int n_expert_used_template>
 static void launch_mmq_ids_helper(
         const int32_t * __restrict__ ids, int32_t * __restrict__ ids_src1, int32_t * __restrict__ ids_dst, int32_t * __restrict__ expert_bounds,
@@ -136,7 +145,7 @@ static void launch_mmq_ids_helper(
 
     const dim3 num_blocks(n_experts, 1, 1);
     const dim3 block_size(warp_size, 1, 1);
-    const size_t nbytes_shared = n_tokens*sizeof(mmq_ids_helper_store);
+    const size_t nbytes_shared = mmq_ids_helper_nbytes_shared(n_tokens);
     mmq_ids_helper<n_expert_used_template><<<num_blocks, block_size, nbytes_shared, stream>>>
         (ids, ids_src1, ids_dst, expert_bounds, n_tokens, n_expert_used_var, nchannels_y, si1, sis1);
 }
@@ -163,6 +172,9 @@ static void ggml_cuda_mul_mat_q_switch_type_id(ggml_backend_cuda_context & ctx, 
             break;
         case GGML_TYPE_MXFP4:
             mul_mat_q_case_id<GGML_TYPE_MXFP4>(ctx, args, stream);
+            break;
+        case GGML_TYPE_NVFP4_KS:
+            mul_mat_q_case_id<GGML_TYPE_NVFP4_KS>(ctx, args, stream);
             break;
         case GGML_TYPE_Q2_K:
             mul_mat_q_case_id<GGML_TYPE_Q2_K>(ctx, args, stream);
@@ -489,6 +501,11 @@ void ggml_cuda_mul_mat_q_id(ggml_backend_cuda_context & ctx, const ggml_tensor *
     }
 
     const int64_t ne11_flat = ne12*n_expert_used;
+    if (ggml_cuda_can_mul_mat_nvfp4_id(src0, src1, cc)) {
+        nvfp4_input input(ctx, src1, ggml_get_input_scale(src0));
+        ggml_cuda_gemm_nvfp4_id(ctx, src0, src1, dst, ids_src1, ids_dst, expert_bounds, input);
+        return;
+    }
     const int64_t ne12_flat = 1;
     const int64_t ne13_flat = 1;
 
@@ -543,6 +560,7 @@ bool ggml_cuda_can_use_mmq_id(enum ggml_type type, int cc, int64_t ne11) {
         case GGML_TYPE_Q6_0:
         case GGML_TYPE_Q8_0:
         case GGML_TYPE_MXFP4:
+        case GGML_TYPE_NVFP4_KS:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
         case GGML_TYPE_Q4_K:

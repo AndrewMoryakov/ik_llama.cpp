@@ -166,7 +166,8 @@ size_t iqk_fa_work_buffer_size(const struct ggml_tensor * dst, int nth) {
         return nth*(K->ne[2] + 1)*size_part;
     }
     if (indexer && indexer->type == GGML_TYPE_I32 && indexer->ne[0] < K->ne[1] &&
-        Q->ne[3] == 1 && K->ne[3] == 1 && V->ne[3] == 1 && (K->ne[2] == 1 || Q->ne[1] > 1)) {
+        Q->ne[3] == 1 && K->ne[3] == 1 && V->ne[3] == 1 && (K->ne[2] == 1 || (Q->ne[1] > 1 &&
+        K->nb[2] == ggml_row_size(K->type, K->ne[0]) && V->nb[2] == ggml_row_size(V->type, V->ne[0])))) {
         auto row_size_k = ggml_row_size(K->type, K->ne[0])*K->ne[2];
         auto row_size_v = ggml_row_size(V->type, V->ne[0])*K->ne[2];
         auto work_size  = (row_size_k + row_size_v + 64) * indexer->ne[0];
@@ -283,7 +284,8 @@ extern "C" IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float 
                         (const char *)indexer->data, indexer->nb[1], indexer->nb[2], (const float *)sinks, scale, softcap, qkv,
                         (char *)work_buffer_in, ith, nth);
             }
-        } else if (indexer->ne[0] < nek1 && neq3 == 1 && nek3 == 1 && nev3 == 1 && (nek2 == 1 || neq1 > 1)) {
+        } else if (indexer->ne[0] < nek1 && neq3 == 1 && nek3 == 1 && nev3 == 1 && (nek2 == 1 || (neq1 > 1 &&
+            nbk2 == (long)ggml_row_size(ggml_type(int_type_k_in), Dk) && nbv2 == (long)ggml_row_size(ggml_type(int_type_v), Dv)))) {
             // Workbuffer: we need
             // * indexer->ne[0] * sizeof(ggml_half) to extract the mask for a row
             // * indexer->ne[0] * ggml_row_size(int_type_k_in, Dk) to extract the selected K cache entries
@@ -364,7 +366,7 @@ extern "C" IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float 
             auto work_m = (ggml_fp16_t *)(work_v + row_size_v*indexer->ne[0]);
             for (int iq = first; iq < first + neq1_this_thread; ++iq) {
                 auto idx = (const int *)((const char *)indexer->data + iq*indexer->nb[1]);
-                auto M = mask ? (const ggml_fp16_t *)((const char *)mask + iq*stride_m) : nullptr;
+                auto M = mask ? (const ggml_fp16_t *)((const char *)mask + iq*size_t(stride_m)) : nullptr;
                 int last_found = -1;
                 for (int j = 0; j < nkv; ++j) {
                     if (idx[j] >= 0) {
@@ -616,7 +618,9 @@ extern "C" IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float 
         }
     }
 
-    if (neq3 == 1 && rk2 > 1 && rk2 == rv2 && neq1 == 1 && nth >= 1 && nek2*nek1 >= 32*nth) {
+                                                                       // not sure why I wanted this to be true
+                                                                       // but it does not seem useful
+    if (neq3 == 1 && rk2 > 1 && rk2 == rv2 && neq1 == 1 && nth >= 1) { // && nek2*nek1 >= 32*nth) {
         auto result_size = (Dv + 16)*rk2*sizeof(float);
         int gcd = simple_gcd(nek2, nth);
         int nth_k  = nth/gcd;
@@ -724,7 +728,7 @@ extern "C" IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float 
                         (const float *)((const char *)q + iq2*nbq2 + iq3*nbq3 + iq1*stride_q),
                         (const void  *)((const char *)k + iq2/rk2*nbk2 + iq3/rk3*nbk3),
                         (const void  *)((const char *)v + iq2/rv2*nbv2 + iq3/rv3*nbv3),
-                        mask ? (const void  *)((const char *)mask + iq1*stride_m) : nullptr, sinksf, 0,
+                        mask ? (const void  *)((const char *)mask + size_t(iq1)*stride_m) : nullptr, sinksf, 0,
                         scale, softcap,
                         (float *)((char *)qkv + (iq3*ne2*ne1 + iq2 + iq1*ne1)*nb1), nullptr, nullptr)) return false;
                 }

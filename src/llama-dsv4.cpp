@@ -415,23 +415,33 @@ static bool dsv4_build_raw_context(
         const llama_seq_id seq_id = read_seq_ids[s];
         raw.sinfo_read.idxs[s].clear();
         int32_t count = 0;
-        for (uint32_t slot = 0; slot < kv.size; ++slot) {
-            const llama_kv_cell & cell = kv.cells[slot];
-            if (cell.is_empty() || cell.pos < 0) {
-                continue;
+        if (compacted && n_stream == 1) {
+            const uint32_t live = kv.live_swa() + (uint32_t) batch.n_tokens;
+            for (uint32_t i = 0; i < live; ++i) {
+                const uint32_t row = kv.sink_rows + i;
+                raw.sinfo_read.idxs[s].push_back(row);
+                raw.read_dst_idxs.push_back((int32_t) row);
             }
-            if (!cell.has_seq_id(seq_id)) {
-                continue;
+            count = (int32_t) live;
+        } else {
+            for (uint32_t slot = 0; slot < kv.size; ++slot) {
+                const llama_kv_cell & cell = kv.cells[slot];
+                if (cell.pos < 0 || cell.is_empty()) {
+                    continue;
+                }
+                if (!cell.has_seq_id(seq_id)) {
+                    continue;
+                }
+                if (compacted && cell.pos < kv.pos_base_swa) {
+                    // rows before the window base were overwritten by compaction
+                    continue;
+                }
+                const uint32_t row = compacted
+                    ? kv.sink_rows + (uint32_t) (cell.pos - kv.pos_base_swa) : slot;
+                raw.sinfo_read.idxs[s].push_back(row);
+                raw.read_dst_idxs.push_back((int32_t) row);
+                ++count;
             }
-            if (compacted && cell.pos < kv.pos_base_swa) {
-                // rows before the window base were overwritten by compaction
-                continue;
-            }
-            const uint32_t row = compacted
-                ? kv.sink_rows + (uint32_t) (cell.pos - kv.pos_base_swa) : slot;
-            raw.sinfo_read.idxs[s].push_back(row);
-            raw.read_dst_idxs.push_back((int32_t) row);
-            ++count;
         }
         raw.read_counts.push_back(count);
         raw.n_kv = std::max<int64_t>(raw.n_kv, count);
@@ -951,7 +961,7 @@ bool llama_context::ensure_dsv4_cache_tensors() {
     const uint32_t hca_ratio = hp.dsv4_hca_ratio;
     const uint32_t csa_kv = GGML_PAD(dsv4_comp_size(cparams.n_ctx, csa_ratio), 256u);
     const uint32_t hca_kv = GGML_PAD(dsv4_comp_size(cparams.n_ctx, hca_ratio), 256u);
-    const bool     v41_separate = getenv("V41_SEPARATE") != nullptr;
+    const bool     v41_separate = llama_hparams::is_v41_separate();
     const uint32_t lid_ratio    = std::min(csa_ratio, hca_ratio);
     const uint32_t lid_kv       = v41_separate ? GGML_PAD(dsv4_comp_size(cparams.n_ctx, lid_ratio), 256u) : csa_kv;
 
@@ -1179,7 +1189,7 @@ void llama_reset_dsv4_state(llama_context * ctx, int32_t seq_id) {
         return;
     }
 
-    if (seq_id < 0) {
+    if (seq_id < 0 || n_stream == 1) {
         for (ggml_backend_buffer_t buf : ctx->dsv4.cache.cache_bufs) {
             ggml_backend_buffer_clear(buf, 0);
         }
@@ -1425,7 +1435,7 @@ static bool dsv4_per_step_capture_group(
         }
         // A ring this graph persists into must be captured from the per-token rows: after the persist its slots can
         // hold a later token's row. Only a ring the graph does not write (e.g. the V4.1 LID rings under
-        // V41_SEPARATE) still holds the saved state, so its ring rows are exact.
+        // build_deepseek41()) still holds the saved state, so its ring rows are exact.
         if (rows == nullptr && ctx.dsv4.persisted_rings.count(state) != 0) {
             LLAMA_LOG_ERROR("%s: per-token state rows are missing for a ring this graph persists\n", __func__);
             return false;
@@ -1878,9 +1888,11 @@ bool llama_prepare_dsv4_graph_inputs(llama_context & lctx, const llama_batch & b
         lctx.model.hparams.nextn_predict_layers > 0 &&
         lctx.model.hparams.dsv4_compress_ratios[(size_t) (lctx.model.hparams.n_layer - lctx.model.hparams.nextn_predict_layers)] == 0;
     if (is_dsv4_mtp) {
-        lctx.dsv4.raw = {};
-        if (!reserve_plan && !dsv4_build_raw_context(lctx, batch, lctx.dsv4.raw)) {
-            return false;
+        if (!reserve_plan && !set_tensors) {
+            lctx.dsv4.raw = {};
+            if (!dsv4_build_raw_context(lctx, batch, lctx.dsv4.raw)) {
+                return false;
+            }
         }
         lctx.dsv4.csa_plan = {};
         lctx.dsv4.hca_plan = {};
@@ -1915,16 +1927,20 @@ bool llama_prepare_dsv4_graph_inputs(llama_context & lctx, const llama_batch & b
             : dsv4_build_comp_plan(batch, ratio, overlap, state_size, kv_size, n_stream, kv_size_lid);
     };
 
-    lctx.dsv4.raw = {};
-    if (!reserve_plan && !dsv4_build_raw_context(lctx, batch, lctx.dsv4.raw)) {
-        return false;
+    if (reserve_plan) {
+        lctx.dsv4.raw = {};
+    } else if (!set_tensors) {
+        lctx.dsv4.raw = {};
+        if (!dsv4_build_raw_context(lctx, batch, lctx.dsv4.raw)) {
+            return false;
+        }
     }
 
     //auto tim1 = ggml_time_us();
     const auto & hp = lctx.model.hparams;
     const uint32_t csa_ratio = hp.dsv4_csa_ratio, hca_ratio = hp.dsv4_hca_ratio;
     const bool csa_overlap = hp.dsv4_csa_overlap, hca_overlap = hp.dsv4_hca_overlap;
-    const bool v41_separate = getenv("V41_SEPARATE") != nullptr;
+    const bool v41_separate = llama_hparams::is_v41_separate();
     lctx.dsv4.csa_plan = build_plan(csa_ratio, csa_overlap, csa_state_size, csa_kv_size, cache_n_stream, v41_separate ? lid_kv_size : 0);
     lctx.dsv4.hca_plan = build_plan(hca_ratio, hca_overlap, hca_state_size, hca_kv_size, cache_n_stream, v41_separate ? lid_kv_size : 0);
     lctx.dsv4.lid_plan = (hp.dsv4_shared_streams && !v41_separate) ? lctx.dsv4.csa_plan

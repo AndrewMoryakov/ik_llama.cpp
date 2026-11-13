@@ -652,6 +652,11 @@ ggml_tensor * llm_build_context::build_swa_mask_for_graph(uint32_t window, bool 
         return nullptr;
     }
 
+    // non-causal image decode: full mask, not the causal-only windowed view
+    if (!cparams.causal_attn) {
+        return build_inp_KQ_mask_swa();
+    }
+
     const llama_kv_cache & cache = kv ? *kv : kv_self;
     const int32_t cache_n_kv = kv ? (int32_t) kv->n : n_kv;
 
@@ -1396,6 +1401,11 @@ ggml_tensor * llm_build_context::llm_build_ffn(
          ggml_tensor * post_norm, float post_norm_eps,
          post_norm_data * pnd) {
 
+    auto can_fuse_up_gate = [type_op] (const ggml_tensor * u, const ggml_tensor * g) {
+        if (type_op != LLM_FFN_SWIGLU_OAI && type_op != LLM_FFN_SITU) return true;
+        return ggml_is_quantized(u->type) && u->type == g->type;
+    };
+
     if (!up_b && !up_s && !gate_b && !gate_s && !down_b && !down_s &&
         up->extra && gate->extra && down->extra && type_gate == LLM_FFN_PAR &&
         (type_op == LLM_FFN_SILU || type_op == LLM_FFN_RELU || type_op == LLM_FFN_SWIGLU_OAI || (type_op == LLM_FFN_SITU && lctx.model.n_gpu_layers == 0) || (type_op == LLM_FFN_GELU && !act_scales))) {
@@ -1424,11 +1434,18 @@ ggml_tensor * llm_build_context::llm_build_ffn(
             if (input->op != GGML_OP_REDUCE) {
                 cur->op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t) - 1] = 0xff;
             }
-            cur = ggml_fused_up_gate(ctx, split_u, split_g, cur, unary_op);
-            cb(cur, "ffn_up_gate", il_cb);
-            *(float *)(cur->op_params + 1) = lctx.model.swiglu_limit(il, lctx.model.arch == LLM_ARCH_BAILINGMOE3);
-            *(float *)(cur->op_params + 2) = lctx.model.hparams.situ_beta;
-            *(float *)(cur->op_params + 3) = lctx.model.hparams.situ_linear_beta;
+            if (can_fuse_up_gate(split_u, split_g)) {
+                cur = ggml_fused_up_gate(ctx, split_u, split_g, cur, unary_op);
+                cb(cur, "ffn_up_gate", il_cb);
+                *(float *)(cur->op_params + 1) = lctx.model.swiglu_limit(il, lctx.model.arch == LLM_ARCH_BAILINGMOE3);
+                *(float *)(cur->op_params + 2) = lctx.model.hparams.situ_beta;
+                *(float *)(cur->op_params + 3) = lctx.model.hparams.situ_linear_beta;
+            } else {
+                auto up_cur   = llm_build_lora_mm(lctx, ctx, split_u, cur);
+                auto gate_cur = llm_build_lora_mm(lctx, ctx, split_g, cur);
+                cur = ggml_swiglu_oai(ctx, gate_cur, up_cur, 1.702f, 7.0f);
+                cb(cur, "ffn_swiglu_oai", il_cb);
+            }
             cur = llm_build_lora_mm(lctx, ctx, split_d, cur);
             cb(cur, "ffn_down", il_cb);
             if (lctx.model.arch == LLM_ARCH_GLM4 || lctx.model.arch == LLM_ARCH_GLM4_MOE) {
@@ -1484,7 +1501,7 @@ ggml_tensor * llm_build_context::llm_build_ffn(
     // the fused up/gate op consumes the activation as-is; Hadamard-folded (Prism) weights need
     // their activation transform, which is only applied by llm_build_lora_mm -> keep them separate
     if (lctx.cparams.fused_up_gate &&
-        up && gate && up->type != GGML_TYPE_PQ2_0 && up->type != GGML_TYPE_PQ2_0_R8 &&
+        up && gate && can_fuse_up_gate(up, gate) && up->type != GGML_TYPE_PQ2_0 && up->type != GGML_TYPE_PQ2_0_R8 &&
         up->type != GGML_TYPE_PTQ1_0 && up->type != GGML_TYPE_PTQ1_0_R8 &&
         !up_b && !up_s && !gate_b && !gate_s && type_gate == LLM_FFN_PAR &&
         (type_op == LLM_FFN_SILU || type_op == LLM_FFN_RELU || type_op == LLM_FFN_SWIGLU_OAI || (type_op == LLM_FFN_SITU && lctx.model.n_gpu_layers == 0) || (type_op == LLM_FFN_GELU && !act_scales))) {
@@ -1802,6 +1819,7 @@ llm_expert_gating_func_type   gating_op,
     }
 
     cb(selected_experts, "ffn_moe_topk", il);
+    n_expert_used = selected_experts->ne[0];
     ggml_tensor * weights = ggml_get_rows(ctx,
             ggml_reshape_3d(ctx, probs, 1, n_expert, n_tokens), selected_experts); // [1, n_expert_used, n_tokens]
     cb(weights, "ffn_moe_weights", il);
@@ -1846,8 +1864,13 @@ llm_expert_gating_func_type   gating_op,
     ggml_tensor * cached_up = nullptr;
     ggml_tensor * cached_gate = nullptr;
     ggml_tensor * cached_down = nullptr;
+    llama_moe_cache::cpu_share_maps share_maps;
+    ggml_tensor * share_gpu_ids = nullptr;
+    ggml_tensor * share_cpu_ids = nullptr;
+    ggml_tensor * share_gpu_bias_ids = nullptr;
+    ggml_tensor * share_cpu_bias_ids = nullptr;
+    bool share_ids_ready = false;
     if (lctx.moe_cache && lctx.lora_adapters.empty()) {
-        ggml_tensor * slot_map = lctx.moe_cache->get_slot_map(il, n_tokens, n_expert_used);
         cached_up_gate = lctx.moe_cache->get_experts(up_gate_exps);
         cached_up = lctx.moe_cache->get_experts(up_exps);
         cached_gate = lctx.moe_cache->get_experts(gate_exps);
@@ -1855,19 +1878,55 @@ llm_expert_gating_func_type   gating_op,
         const bool complete = (up_gate_exps ? cached_up_gate != nullptr :
                 (up_exps ? cached_up != nullptr : true) && (gate_exps ? cached_gate != nullptr : true)) &&
                 (down_exps ? cached_down != nullptr : true);
-        if (slot_map && complete) {
-            ggml_tensor * cache_lookup_ids = ggml_is_contiguous(selected_experts) ? selected_experts :
-                    ggml_cont(ctx, selected_experts);
-            cache_lookup_ids = ggml_reshape_1d(ctx, cache_lookup_ids, ggml_nelements(cache_lookup_ids));
-            ggml_tensor * cache_slot_ids = ggml_get_rows(ctx, slot_map, cache_lookup_ids);
-            ggml_backend_t backend = lctx.moe_cache->backend(il);
-            if (ggml_backend_supports_op(backend, cache_slot_ids)) {
-                ggml_backend_sched_set_tensor_backend(lctx.sched, cache_slot_ids, backend);
-                cache_ids = ggml_reshape_2d(ctx, cache_slot_ids, n_expert_used, n_tokens);
-            } else {
-                cached_up_gate = cached_up = cached_gate = cached_down = nullptr;
+        const ggml_backend_t cache_backend = lctx.moe_cache->backend(il);
+        share_maps = lctx.moe_cache->get_cpu_share_maps(il, n_tokens, selected_experts->ne[0]);
+        if (complete && cache_backend && share_maps.gpu && share_maps.cpu &&
+                share_maps.gpu_bias && share_maps.cpu_bias) {
+            auto lookup = [&](ggml_tensor * map, ggml_backend_t backend) {
+                ggml_tensor * lookup_ids = ggml_is_contiguous(selected_experts) ? selected_experts :
+                        ggml_cont(ctx, selected_experts);
+                if (n_tokens > 1) lookup_ids = ggml_reshape_1d(ctx, lookup_ids, ggml_nelements(lookup_ids));
+                ggml_tensor * ids = ggml_get_rows(ctx, map, lookup_ids);
+                const bool supported = ggml_backend_supports_op(backend, ids);
+                if (supported) {
+                    if (map == share_maps.cpu) {
+                        llm_moe_cache_detail::mark_share_lookup_boundary(ids);
+                    }
+                    ggml_backend_sched_set_tensor_backend(lctx.sched, ids, backend);
+                    return ggml_reshape_2d(ctx, ids, n_expert_used, n_tokens);
+                }
+                return (ggml_tensor *) nullptr;
+            };
+            ggml_backend_t cpu_backend = lctx.backend_cpu;
+            if (cpu_backend) {
+                share_gpu_ids = lookup(share_maps.gpu, cache_backend);
+                // Keep map lookups on the cache backend so CPU work waits for planning.
+                share_cpu_ids = lookup(share_maps.cpu, cache_backend);
+                share_gpu_bias_ids = lookup(share_maps.gpu_bias, cache_backend);
+                share_cpu_bias_ids = lookup(share_maps.cpu_bias, cache_backend);
+                share_ids_ready = share_gpu_ids && share_cpu_ids && share_gpu_bias_ids && share_cpu_bias_ids;
             }
-        } else {
+        }
+        ggml_tensor * slot_map = lctx.moe_cache->get_slot_map(il, n_tokens, n_expert_used);
+        if (slot_map && complete) {
+            ggml_tensor * cache_slot_ids = nullptr;
+            if (lctx.moe_cache->requires_token_geometry_maps()) {
+                ggml_tensor * lookup_ids = ggml_is_contiguous(selected_experts) ? selected_experts :
+                        ggml_cont(ctx, selected_experts);
+                if (n_tokens > 1) lookup_ids = ggml_reshape_1d(ctx, lookup_ids, ggml_nelements(lookup_ids));
+                cache_slot_ids = ggml_get_rows(ctx, slot_map, lookup_ids);
+            } else {
+                ggml_tensor * cache_lookup_ids = ggml_is_contiguous(selected_experts) ? selected_experts :
+                        ggml_cont(ctx, selected_experts);
+                cache_lookup_ids = ggml_reshape_1d(ctx, cache_lookup_ids, ggml_nelements(cache_lookup_ids));
+                cache_slot_ids = ggml_get_rows(ctx, slot_map, cache_lookup_ids);
+            }
+            if (cache_slot_ids && ggml_backend_supports_op(cache_backend, cache_slot_ids)) {
+                ggml_backend_sched_set_tensor_backend(lctx.sched, cache_slot_ids, cache_backend);
+                cache_ids = ggml_reshape_2d(ctx, cache_slot_ids, n_expert_used, n_tokens);
+            }
+        }
+        if (!share_ids_ready && !cache_ids) {
             cached_up_gate = cached_up = cached_gate = cached_down = nullptr;
         }
     }
@@ -1889,6 +1948,228 @@ llm_expert_gating_func_type   gating_op,
     bool can_use_fmoe = (type_op == LLM_FFN_SILU || type_op == LLM_FFN_GELU ||
                          type_op == LLM_FFN_SWIGLU_OAI ||
                          (type_op == LLM_FFN_SITU && lctx.model.n_gpu_layers == 0));
+
+    bool share_offload_eligible = false;
+    if (share_ids_ready && n_tokens <= 32) {
+        ggml_backend_t gpu_backend = lctx.moe_cache->backend(il);
+        ggml_backend_t cpu_backend = lctx.backend_cpu;
+        ggml_tensor * probe_input = ggml_reshape_3d(ctx, cur, n_embd, 1, n_tokens);
+        const bool have_bias = up_gate_exps_b || up_exps_b || gate_exps_b;
+        const bool use_fused = can_use_fmoe && !have_bias && (up_gate_exps ||
+                (lctx.cparams.fused_moe_up_gate && up_exps->type == gate_exps->type));
+        std::vector<ggml_tensor *> host_ops, cached_ops;
+        auto host_matmul = [&](ggml_tensor * weight, ggml_tensor * input) {
+            if (weight) host_ops.push_back(ggml_mul_mat_id(ctx, weight, input, selected_experts));
+        };
+        auto cached_matmul = [&](ggml_tensor * weight, ggml_tensor * input) {
+            if (weight) cached_ops.push_back(ggml_mul_mat_id(ctx, weight, input, share_gpu_ids));
+        };
+        if (up_gate_exps) {
+            host_matmul(up_gate_exps, probe_input);
+        } else {
+            host_matmul(up_exps, probe_input);
+            host_matmul(gate_exps, probe_input);
+        }
+        ggml_tensor * down_input = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, down_exps->ne[0], 1, n_tokens);
+        host_matmul(down_exps, down_input);
+
+        if (use_fused && up_gate_exps) {
+            cached_ops.push_back(ggml_moe_up_gate_ext(ctx, cached_up_gate, nullptr, probe_input,
+                    share_gpu_ids, nullptr, nullptr,
+                    type_op == LLM_FFN_SILU ? GGML_UNARY_OP_SILU :
+                    type_op == LLM_FFN_GELU ? GGML_UNARY_OP_GELU : GGML_UNARY_OP_SWIGLU_OAI));
+        } else if (use_fused) {
+            cached_ops.push_back(ggml_moe_up_gate_ext(ctx, cached_up, cached_gate, probe_input,
+                    share_gpu_ids, nullptr, nullptr,
+                    type_op == LLM_FFN_SILU ? GGML_UNARY_OP_SILU :
+                    type_op == LLM_FFN_GELU ? GGML_UNARY_OP_GELU : GGML_UNARY_OP_SWIGLU_OAI));
+        } else if (up_gate_exps) {
+            cached_matmul(cached_up_gate, probe_input);
+        } else {
+            cached_matmul(cached_up, probe_input);
+            cached_matmul(cached_gate, probe_input);
+        }
+        cached_matmul(cached_down, down_input);
+        share_offload_eligible = llm_moe_cache_detail::share_ops_eligible(
+                gpu_backend, cpu_backend, host_ops, cached_ops);
+    }
+
+    if (share_ids_ready && share_offload_eligible && can_use_fmoe && !weight_before_ffn && n_tokens <= 32 && lctx.model.hadamard_rotation(up_exps) == nullptr &&
+            lctx.model.hadamard_rotation(gate_exps) == nullptr &&
+            lctx.model.hadamard_rotation(up_gate_exps) == nullptr &&
+            lctx.model.hadamard_rotation(down_exps) == nullptr &&
+            type_op != LLM_FFN_SITU) {
+        ggml_backend_t gpu_backend = lctx.moe_cache->backend(il);
+        ggml_backend_t cpu_backend = lctx.backend_cpu;
+        ggml_tensor * share_cur = ggml_reshape_3d(ctx, cur, n_embd, 1, n_tokens);
+        ggml_tensor * share_weights = weights;
+        std::vector<ggml_tensor *> gpu_ops, cpu_ops;
+        auto force_op = [&](ggml_backend_t backend, ggml_tensor * op, std::vector<ggml_tensor *> & ops) {
+            if (!op) return false;
+            if (op->op != GGML_OP_NONE) {
+                ggml_backend_sched_set_tensor_backend(lctx.sched, op, backend);
+                ops.push_back(op);
+            }
+            return ggml_backend_supports_op(backend, op);
+        };
+        auto padded_bias = [&](ggml_tensor * bias) {
+            if (!bias) return (ggml_tensor *) nullptr;
+            ggml_tensor * padded = ggml_pad(ctx, bias, 0, 1, 0, 0);
+            ggml_backend_sched_set_tensor_backend(lctx.sched, padded, cpu_backend);
+            cpu_ops.push_back(padded);
+            return padded;
+        };
+        auto activate = [&](ggml_tensor * gate, ggml_tensor * up, std::vector<ggml_tensor *> & ops) {
+            ggml_tensor * value = nullptr;
+            if (type_op == LLM_FFN_SILU || type_op == LLM_FFN_GELU) {
+                value = ggml_fused_mul_unary(ctx, gate, up,
+                        type_op == LLM_FFN_SILU ? GGML_UNARY_OP_SILU : GGML_UNARY_OP_GELU);
+                *((float *)(value->op_params + 1)) = lctx.model.swiglu_limit(il, false);
+            } else if (type_op == LLM_FFN_SWIGLU_OAI) {
+                value = ggml_swiglu_oai(ctx, gate, up, 1.702f, 7.0f);
+            }
+            if (value) ops.push_back(value);
+            return value;
+        };
+        auto build_par = [&](bool gpu, std::vector<ggml_tensor *> & ops) {
+            ggml_tensor * ids_w = gpu ? share_gpu_ids : share_cpu_ids;
+            ggml_tensor * ids_b = gpu ? share_gpu_bias_ids : share_cpu_bias_ids;
+            ggml_tensor * w_up_gate = gpu ? cached_up_gate : up_gate_exps;
+            ggml_tensor * w_up = gpu ? cached_up : up_exps;
+            ggml_tensor * w_gate = gpu ? cached_gate : gate_exps;
+            const bool have_bias = up_gate_exps_b || up_exps_b || gate_exps_b;
+            const bool use_fused = gpu && can_use_fmoe && !have_bias && (up_gate_exps ||
+                    (lctx.cparams.fused_moe_up_gate && up_exps->type == gate_exps->type));
+            if (use_fused) {
+                ggml_tensor * value;
+                if (up_gate_exps) {
+                    value = ggml_moe_up_gate_ext(ctx, w_up_gate, nullptr, share_cur, ids_w, nullptr, nullptr,
+                            type_op == LLM_FFN_SILU ? GGML_UNARY_OP_SILU :
+                            type_op == LLM_FFN_GELU ? GGML_UNARY_OP_GELU : GGML_UNARY_OP_SWIGLU_OAI);
+                } else {
+                    value = ggml_moe_up_gate_ext(ctx, w_up, w_gate, share_cur, ids_w, nullptr, nullptr,
+                            type_op == LLM_FFN_SILU ? GGML_UNARY_OP_SILU :
+                            type_op == LLM_FFN_GELU ? GGML_UNARY_OP_GELU : GGML_UNARY_OP_SWIGLU_OAI);
+                }
+                *((float *)(value->op_params + 1)) = lctx.model.swiglu_limit(il, false);
+                *((float *)(value->op_params + 2)) = lctx.model.hparams.situ_beta;
+                *((float *)(value->op_params + 3)) = lctx.model.hparams.situ_linear_beta;
+                ops.push_back(value);
+                return value;
+            }
+
+            ggml_tensor * gate = nullptr;
+            ggml_tensor * up = nullptr;
+            if (up_gate_exps) {
+                ggml_tensor * gate_up = llm_build_lora_mm_id(lctx, ctx, up_gate_exps, share_cur,
+                        selected_experts, gpu ? cached_up_gate : nullptr, ids_w, true);
+                force_op(gpu ? gpu_backend : cpu_backend, gate_up, ops);
+                if (up_gate_exps_b) {
+                    ggml_tensor * bias = padded_bias(up_gate_exps_b);
+                    gate_up = ggml_add_id(ctx, gate_up, bias, ids_b);
+                    force_op(gpu ? gpu_backend : cpu_backend, gate_up, ops);
+                }
+                const int64_t n_ff = gate_up->ne[0] / 2;
+                gate = ggml_view_3d(ctx, gate_up, n_ff, gate_up->ne[1], gate_up->ne[2],
+                        gate_up->nb[1], gate_up->nb[2], 0);
+                up = ggml_view_3d(ctx, gate_up, n_ff, gate_up->ne[1], gate_up->ne[2],
+                        gate_up->nb[1], gate_up->nb[2], n_ff * gate_up->nb[0]);
+                if (!ggml_is_contiguous(gate)) {
+                    gate = ggml_cont(ctx, gate);
+                    force_op(gpu ? gpu_backend : cpu_backend, gate, ops);
+                    ops.push_back(gate);
+                }
+                if (!ggml_is_contiguous(up)) {
+                    up = ggml_cont(ctx, up);
+                    force_op(gpu ? gpu_backend : cpu_backend, up, ops);
+                    ops.push_back(up);
+                }
+                if (!up_gate_exps_b && (up_exps_b || gate_exps_b)) {
+                    if (gate_exps_b) gate = ggml_add_id(ctx, gate, padded_bias(gate_exps_b), ids_b);
+                    if (up_exps_b) up = ggml_add_id(ctx, up, padded_bias(up_exps_b), ids_b);
+                    if (gate_exps_b) force_op(gpu ? gpu_backend : cpu_backend, gate, ops);
+                    if (up_exps_b) force_op(gpu ? gpu_backend : cpu_backend, up, ops);
+                }
+            } else {
+                up = llm_build_lora_mm_id(lctx, ctx, up_exps, share_cur, selected_experts,
+                        gpu ? cached_up : nullptr, ids_w);
+                gate = llm_build_lora_mm_id(lctx, ctx, gate_exps, share_cur, selected_experts,
+                        gpu ? cached_gate : nullptr, ids_w);
+                force_op(gpu ? gpu_backend : cpu_backend, up, ops);
+                force_op(gpu ? gpu_backend : cpu_backend, gate, ops);
+                if (up_exps_b) {
+                    up = ggml_add_id(ctx, up, padded_bias(up_exps_b), ids_b);
+                    force_op(gpu ? gpu_backend : cpu_backend, up, ops);
+                }
+                if (gate_exps_b) {
+                    gate = ggml_add_id(ctx, gate, padded_bias(gate_exps_b), ids_b);
+                    force_op(gpu ? gpu_backend : cpu_backend, gate, ops);
+                }
+            }
+            return activate(gate, up, ops);
+        };
+
+        ggml_tensor * gpu_par = build_par(true, gpu_ops);
+        ggml_tensor * cpu_par = build_par(false, cpu_ops);
+        force_op(gpu_backend, gpu_par, gpu_ops);
+        force_op(cpu_backend, cpu_par, cpu_ops);
+        ggml_tensor * gpu_down = llm_build_lora_mm_id(lctx, ctx, down_exps, gpu_par,
+                selected_experts, cached_down, share_gpu_ids);
+        ggml_tensor * cpu_down = llm_build_lora_mm_id(lctx, ctx, down_exps, cpu_par,
+                selected_experts, nullptr, share_cpu_ids);
+        bool supported = force_op(gpu_backend, gpu_down, gpu_ops) && force_op(cpu_backend, cpu_down, cpu_ops);
+        if (down_exps_b) {
+            ggml_tensor * bias = padded_bias(down_exps_b);
+            gpu_down = ggml_add_id(ctx, gpu_down, bias, share_gpu_bias_ids);
+            cpu_down = ggml_add_id(ctx, cpu_down, bias, share_cpu_bias_ids);
+            supported &= force_op(gpu_backend, gpu_down, gpu_ops);
+            supported &= force_op(cpu_backend, cpu_down, cpu_ops);
+        }
+        // Visit CPU first so planning precedes GPU consumption of the paired map.
+        ggml_tensor * experts = ggml_add(ctx, cpu_down, gpu_down);
+        supported &= force_op(gpu_backend, experts, gpu_ops);
+
+        if (down_exps_s && !lctx.cparams.fused_mmad) {
+            GGML_ASSERT(!weight_before_ffn);
+            auto scale = ggml_reshape_3d(ctx, down_exps_s, 1, n_expert, 1);
+            scale = ggml_repeat_4d(ctx, scale, 1, n_expert, n_tokens, 1);
+            supported &= force_op(gpu_backend, scale, gpu_ops);
+            scale = ggml_get_rows(ctx, scale, selected_experts);
+            supported &= force_op(gpu_backend, scale, gpu_ops);
+            auto w_reshaped = ggml_reshape_2d(ctx, share_weights, n_expert_used, n_tokens);
+            auto s_reshaped = ggml_reshape_2d(ctx, scale, n_expert_used, n_tokens);
+            w_reshaped = ggml_mul(ctx, w_reshaped, s_reshaped);
+            supported &= force_op(gpu_backend, w_reshaped, gpu_ops);
+            share_weights = ggml_reshape_3d(ctx, w_reshaped, 1, n_expert_used, n_tokens);
+        }
+
+        ggml_tensor * result = nullptr;
+        if (lctx.cparams.fused_mmad) {
+            result = ggml_mul_multi_add(ctx, experts, share_weights);
+            if (down_exps_s) {
+                result->src[2] = down_exps_s;
+                result->src[3] = selected_experts;
+            }
+            if (add_input) result = ggml_add(ctx, result, input);
+        } else {
+            experts = ggml_mul(ctx, experts, share_weights);
+            result = ggml_multi_add(ctx, ggml_view_2d(ctx, experts, n_embd, n_tokens, experts->nb[2], 0), n_expert_used);
+            if (add_input) result = ggml_add(ctx, result, input);
+        }
+        supported &= force_op(gpu_backend, result, gpu_ops);
+        for (ggml_tensor * op : gpu_ops) supported &= ggml_backend_supports_op(gpu_backend, op);
+        for (ggml_tensor * op : cpu_ops) supported &= ggml_backend_supports_op(cpu_backend, op);
+        if (supported) {
+            cb(gpu_par, "ffn_moe_gate_par_gpu", il);
+            cb(cpu_par, "ffn_moe_gate_par_cpu", il);
+            cb(gpu_down, "ffn_moe_down_gpu", il);
+            cb(cpu_down, "ffn_moe_down_cpu", il);
+            cb(experts, "ffn_moe_down_merged", il);
+            cb(result, "ffn_moe_cpu_share_out", il);
+            return result;
+        }
+        if (!cache_ids) cached_up_gate = cached_up = cached_gate = cached_down = nullptr;
+    }
 
     ggml_tensor * par;
     if (can_use_fmoe && up_gate_exps && (!cache_ids || !up_gate_exps_b)) {
@@ -2711,7 +2992,7 @@ std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_context::llm_buil
             ggml_tensor * wq, ggml_tensor * bq,
             ggml_tensor * wk, ggml_tensor * bk,
             ggml_tensor * wv, ggml_tensor * bv,
-            float attention_scale, int il, bool add_graph_split) const {
+            float attention_scale, int il, bool add_graph_split, ggml_tensor * v_cur) const {
     auto Qcur = llm_build_lora_mm(lctx, ctx0, wq, cur);
     cb(Qcur, "Qcur", il);
     if (add_graph_split) {
@@ -2719,7 +3000,7 @@ std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_context::llm_buil
     }
     auto Kcur = llm_build_lora_mm(lctx, ctx0, wk, cur);
     cb(Kcur, "Kcur", il);
-    auto Vcur = llm_build_lora_mm(lctx, ctx0, wv, cur);
+    auto Vcur = llm_build_lora_mm(lctx, ctx0, wv, v_cur ? v_cur : cur);
     cb(Vcur, "Vcur", il);
     ggml_build_forward_expand(gf, Qcur);
     ggml_build_forward_expand(gf, Kcur);
@@ -2787,7 +3068,8 @@ std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_context::llm_buil
             ggml_tensor * wq, ggml_tensor * bq,
             ggml_tensor * wk, ggml_tensor * bk,
             ggml_tensor * wv, ggml_tensor * bv,
-            ggml_tensor * q_norm, ggml_tensor * k_norm, float attention_scale, int il, bool add_graph_split) const {
+            ggml_tensor * q_norm, ggml_tensor * k_norm, float attention_scale, int il, bool add_graph_split,
+            ggml_tensor * v_cur) const {
     int n_head    = hparams.n_head(il);
     int n_head_kv = hparams.n_head_kv(il);
     const int64_t n_embd_head_k = hparams.n_embd_head_k(il);
@@ -2863,7 +3145,7 @@ std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_context::llm_buil
 
     }
 
-    auto [Q, K, V] = llm_build_mul_mat_qkv(gf, cur, wq, bq, wk, bk, wv, bv, attention_scale, il, add_graph_split);
+    auto [Q, K, V] = llm_build_mul_mat_qkv(gf, cur, wq, bq, wk, bk, wv, bv, attention_scale, il, add_graph_split, v_cur);
     auto Qcur = ggml_reshape_3d(ctx0, Q, n_embd_head_k, Q->ne[0]/n_embd_head_k, n_tokens);
     // Command-R/R+ uses LayerNorm (not RMSNorm) for per-head Q/K normalization
     const auto qk_norm_type = (model.arch == LLM_ARCH_COMMAND_R) ? LLM_NORM : LLM_NORM_RMS;
@@ -3132,6 +3414,10 @@ ggml_cgraph * llm_build_context::llama_build_graph(
             {
                 result = llm.build_muse_glimmer();
             } break;
+        case LLM_ARCH_RICURSIVE:
+            {
+                result = llm.build_ricursive();
+            } break;
         case LLM_ARCH_DECI:
             {
                 result = llm.build_deci();
@@ -3350,7 +3636,7 @@ ggml_cgraph * llm_build_context::llama_build_graph(
             } break;
         case LLM_ARCH_DEEPSEEK41:
             {
-                static const bool v41_separate = getenv("V41_SEPARATE") != nullptr;
+                static const bool v41_separate = llama_hparams::is_v41_separate();
                 result = v41_separate ? llm.build_deepseek41() : llm.build_deepseek4();
             } break;
         case LLM_ARCH_OPENPANGU:
@@ -3415,6 +3701,7 @@ ggml_cgraph * llm_build_context::llama_build_graph(
             result = llm.build_ernie4_5_moe();
         } break;
         case LLM_ARCH_HUNYUAN_MOE:
+        case LLM_ARCH_HY_V3:
             {
                 result = llm.build_hunyuan_moe();
             } break;
@@ -3514,7 +3801,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
         ggml_tensor * KQ_mask, ggml_tensor * sinks, ggml_tensor * inp_attn_scale, float KQ_scale, float f_attn_scale,
         int n_swa, int il, bool do_rope, bool add_graph_split, bool add_input, bool is_norm, bool is_multi,
         ggml_tensor * post_norm, int kv_il, float post_norm_eps, post_norm_data * pnd,
-        ggml_tensor ** k_view, ggml_tensor ** v_view, ggml_tensor * kv_idx) {
+        ggml_tensor ** k_view, ggml_tensor ** v_view, ggml_tensor * kv_idx, ggml_tensor * v_res) {
 
     float freq_base_l  = n_swa > 0 ? hparams.rope_freq_base_train_swa : cparams.rope_freq_base;
     float freq_scale_l = n_swa > 0 ? hparams.rope_freq_scale_train_swa : hparams.rope_freq_scale_train;
@@ -3860,6 +4147,13 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
     }
     auto input_normed = cur;
 
+    ggml_tensor * v_cur = nullptr;
+    if (v_res) {
+        auto blend = ggml_sigmoid(ctx0, model.layers[il].attn_vres_lambda);
+        v_cur = ggml_add(ctx0, v_res, ggml_mul(ctx0, ggml_sub(ctx0, cur, v_res), blend));
+        cb(v_cur, "v_input", il);
+    }
+
     ggml_tensor *Qcur, *Kcur, *Vcur, *gate = nullptr;
     if (model.arch == LLM_ARCH_QWEN3NEXT || model.arch == LLM_ARCH_QWEN35 || model.arch == LLM_ARCH_QWEN35MOE || model.arch == LLM_ARCH_QWEN4EXP) {
         auto [Q, K, V, G] = llm_build_mul_mat_qkv_gated(gf, cur, model.layers[il].wq, model.layers[il].wk, model.layers[il].wv,
@@ -3870,7 +4164,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                 model.layers[il].wqkv, model.layers[il].bqkv,
                 model.layers[il].wqk,  model.layers[il].bqk,
                 model.layers[il].wq,   model.layers[il].bq, model.layers[il].wk, model.layers[il].bk, model.layers[il].wv, model.layers[il].bv,
-                model.layers[il].attn_q_norm, model.layers[il].attn_k_norm, f_attn_scale, il);
+                model.layers[il].attn_q_norm, model.layers[il].attn_k_norm, f_attn_scale, il, false, v_cur);
         Qcur = Q; Kcur = K; Vcur = V;
         if (model.arch == LLM_ARCH_MIMO2 && std::abs(model.hparams.f_attn_v_scale - 1) > 1e-4f) {
             Vcur = ggml_scale(ctx0, Vcur, model.hparams.f_attn_v_scale);
@@ -3954,13 +4248,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
             cur = llm_build_kv(ctx0, lctx, kv_self, gf, nullptr, nullptr,
                     Kcur, Vcur, Qcur, KQ_mask, n_tokens, kv_head, n_kv, KQ_scale, cb, il, sinks, n_swa, kv_il,
                     k_view, v_view, swa_head);
-            if (false && cur->ne[1] == 1) { // we need to add GGML_UNARY_OP_SIGMOID to the ops supported by ggml_fused_mul_unary
-                cur = ggml_fused_mul_unary(ctx0, cur, gate, GGML_UNARY_OP_SIGMOID);
-            } else {
-                gate = ggml_sigmoid(ctx0, gate);
-                cb(gate, "gate", il);
-                cur = ggml_mul(ctx0, cur, gate);
-            }
+            cur = ggml_fused_mul_unary(ctx0, gate, cur, GGML_UNARY_OP_SIGMOID);
             cb(cur, "qkv_gated", il);
             cur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wo, cur);
             if (model.layers[il].bo) {

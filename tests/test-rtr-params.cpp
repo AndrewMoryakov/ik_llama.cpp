@@ -1,5 +1,6 @@
 #include "common.h"
 #include "llama.h"
+#include "speculative.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -63,6 +64,49 @@ int main() {
 #else
     unsetenv("IK_LLAMA_IGNORE_UNKNOWN_ARGS");
 #endif
+    {
+        const gpt_params defaults = parse({});
+        assert(defaults.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(defaults.moe_cache_cpu_share == 0.0);
+        assert(defaults.nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+        assert(defaults.dsv41_replay_keep == 256);
+        assert(common_context_params_to_llama(defaults).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(common_context_params_to_llama(defaults).moe_cache_cpu_share == 0.0f);
+        assert(common_context_params_to_llama(defaults).dsv41_replay_keep == 256);
+        assert(common_model_params_to_llama(defaults).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+        assert(llama_context_default_params().moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        assert(llama_context_default_params().moe_cache_cpu_share == 0.0f);
+        assert(llama_context_default_params().dsv41_replay_keep == 256);
+        assert(llama_model_default_params().nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+
+        const gpt_params classlru = parse({ "--moe-cache-mib", "256", "--moe-cache-policy", "classlru" });
+        assert(classlru.moe_cache_size == 256ULL * 1024ULL * 1024ULL);
+        assert(classlru.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_CLASSLRU);
+        assert(common_context_params_to_llama(classlru).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_CLASSLRU);
+
+        assert(parse({ "--moe-cache-policy", "lru" }).moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
+        const gpt_params cpu_share = parse({ "--moe-cache-cpu-share", "0.25" });
+        assert(cpu_share.moe_cache_cpu_share == 0.25);
+        assert(common_context_params_to_llama(cpu_share).moe_cache_cpu_share == 0.25f);
+        assert(parse({ "--nvfp4-precision", "w4a4" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_W4A4);
+        assert(parse({ "--nvfp4-precision", "int8" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_INT8);
+        assert(parse({ "--nvfp4-precision", "auto" }).nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
+    }
+    {
+        const gpt_params params = parse({ "--ngram-file", "first.gguf", "--ple-file", "tables.gguf" });
+        assert(params.ngram_file == "tables.gguf");
+        assert(params.protected_input_paths.size() == 2);
+        assert(params.protected_input_paths[0] == "first.gguf");
+        assert(params.protected_input_paths[1] == "tables.gguf");
+        const auto model_params = common_model_params_to_llama(params);
+        assert(model_params.ngram_file != nullptr);
+        assert(std::string(model_params.ngram_file) == params.ngram_file);
+        assert(llama_model_default_params().ngram_file == nullptr);
+        gpt_params draft = params;
+        common_speculative_reset_draft_offload_defaults(draft);
+        assert(draft.ngram_file.empty());
+        assert(params.ngram_file == "tables.gguf");
+    }
     {
         gpt_params params;
         assert(!parse_moe_trace({ "--moe-trace", "trace.ndjson" }, false, params));

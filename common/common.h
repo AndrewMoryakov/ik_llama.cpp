@@ -332,6 +332,8 @@ struct gpt_params {
     int32_t max_gpu               =       0; // max number of GPUs to use at a time for split mode "graph"
     int32_t ncmoe                 =       0; // number of layers in which MoE tensors are left in VRAM
     size_t moe_cache_size         =       0; // total GPU cache budget in bytes for CPU-resident MoE experts
+    enum llama_moe_cache_policy moe_cache_policy = LLAMA_MOE_CACHE_POLICY_LRU;
+    double moe_cache_cpu_share   =     0.0; // fixed fraction of unique cache misses assigned to CPU
     int32_t fit_margin            =       0; // safety margin for auto-fit in MiB
     bool    fit                   =   false; // automatically fit model (for now just using MoE tensor overrides)
     int32_t worst_graph_tokens    =       0; // number of tokens to use when reserving the worst graph
@@ -452,6 +454,7 @@ struct gpt_params {
     bool multiline_input   = false; // reverse the usage of `\`
     bool simple_io         = false; // improves compatibility with subprocesses and limited consoles
     bool cont_batching     = true;  // insert new sequences for decoding on-the-fly
+    llama_nvfp4_precision nvfp4_precision = LLAMA_NVFP4_PRECISION_AUTO;
     bool flash_attn        = true;  // flash attention
     int  mla_attn          = 3;     // MLA 0: standard, 1: MLA with K and V^T cache, 2: MLA with just K cache, 3: the best of both worlds
     int  attn_max_batch    = 256;   // Max batch size to use when computing attention (only applicable if flash_attn = false)
@@ -464,7 +467,7 @@ struct gpt_params {
     bool dsa               = false; // enable GLM DSA sparse attention (off by default; opt-in via --dsa)
     bool fused_idx_topk    = true;  // enable the fused indexer topk op (on by default; -no-fidx or --no-fused-indexer-topk turns it off)
     bool swa_compress      = false;
-    int  dsv41_replay_keep = 0;     // DeepSeek-V4.1 prefill: run the decoder layers on the last N prompt tokens only (0 = off; requires --swa-compress)
+    int  dsv41_replay_keep = 256;   // DeepSeek-V4.1 prefill: run the decoder layers on the last N prompt tokens only (0 = off; requires --swa-compress)
     bool dsv4_legacy_state = false; // if true, write DeepSeek-V4 state in the legacy full-slice layout (no MAGIC), byte-identical to main
     int  dsa_top_k         = -1;    // DSA top-k override (<0 => use the model's configured indexer_top_k)
     int  min_experts       = -1;
@@ -492,6 +495,7 @@ struct gpt_params {
     bool merge_up_gate_exps= false; // if true, merge ffn_up_exps and ffn_gate_exps into a single, contiguous tensor
     bool defer_experts     = false; // if true, defer expert mmap residency to speed up model loading (Linux only)
     bool defer_ple         = false; // if true, keep the per-layer token embedding on the file (Linux and Windows only)
+    std::string ngram_file = "";    // separate GGUF with the n-gram tables (per-layer token embedding, Engram)
     bool prefetch_experts  = false; // if true, stream mmap'd MoE expert weights into the page cache (Linux only)
     int  prefetch_experts_threads = 0; // number of expert prefetch workers (<=0 = auto)
     bool k_cache_hadamard  = false; // if true, use Hadamard transform for the K-cache (only makes sense with quantized cache)

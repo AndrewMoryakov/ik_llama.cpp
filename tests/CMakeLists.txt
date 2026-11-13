@@ -193,6 +193,9 @@ llama_build_and_test(test-jinja.cpp)
 llama_test(test-jinja NAME test-jinja-py ARGS -py LABEL python)
 llama_build_and_test(test-chat-auto-parser.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 llama_build_and_test(test-chat-template.cpp )
+llama_test(test-chat-template
+    NAME test-chat-template-hy3
+    ARGS --no-common --stop-on-first-fail ${PROJECT_SOURCE_DIR}/models/templates/tencent-Hy3.jinja)
 llama_build_and_test(test-json-partial.cpp )
 llama_build_and_test(test-cpu-affinity.cpp )
 llama_build_and_test(test-nanbeige-loop.cpp )
@@ -212,6 +215,22 @@ llama_build_and_test(test-regex-partial.cpp)
 llama_build_and_test(test-rtr-params.cpp)
 llama_build_and_test(test-cgroup-resolver.cpp)
 
+add_executable(test-hc-pre-transpose test-hc-pre-transpose.cpp)
+target_link_libraries(test-hc-pre-transpose PRIVATE ggml)
+add_test(NAME test-hc-pre-transpose COMMAND $<TARGET_FILE:test-hc-pre-transpose>)
+
+add_executable(test-indexer-topk test-indexer-topk.cpp)
+target_link_libraries(test-indexer-topk PRIVATE ggml)
+add_test(NAME test-indexer-topk COMMAND $<TARGET_FILE:test-indexer-topk>)
+
+add_executable(test-nvfp4 test-nvfp4.cpp)
+target_link_libraries(test-nvfp4 PRIVATE ggml)
+add_test(NAME test-nvfp4 COMMAND $<TARGET_FILE:test-nvfp4>)
+
+add_executable(test-fused-up-gate-work test-fused-up-gate-work.cpp)
+target_link_libraries(test-fused-up-gate-work PRIVATE ggml)
+add_test(NAME test-fused-up-gate-work COMMAND $<TARGET_FILE:test-fused-up-gate-work>)
+
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
     ../examples/main/moe-trace.cpp)
@@ -230,6 +249,34 @@ set_property(TEST test-token-timing-writer PROPERTY LABELS main)
 
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
+    if (BUILD_SHARED_LIBS)
+        add_test(
+            NAME test-nvfp4-import
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-nvfp4-import.py
+                    --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>
+                    --library $<TARGET_FILE:ggml>)
+        set_tests_properties(test-nvfp4-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    endif()
+    add_test(
+        NAME test-quantize-invariants
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-quantize-invariants.py
+                --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-quantize-invariants PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
+        NAME test-gpt2-layernorm
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-gpt2-layernorm.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-gpt2-layernorm PROPERTIES LABELS "model;python")
+    add_test(
+        NAME test-ngram-file
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-ngram-file.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-ngram-file PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
+        NAME test-analytical-imatrix
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-analytical-imatrix.py
+                --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-analytical-imatrix PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     add_test(
         NAME test-moe-cache-sim
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
@@ -252,5 +299,9 @@ add_executable(${TEST_TARGET} test-c.c)
 target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
 add_executable(test-moe-cache-shares test-moe-cache-shares.cpp)
-target_include_directories(test-moe-cache-shares PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(test-moe-cache-shares PRIVATE llama)
+target_include_directories(test-moe-cache-shares PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)

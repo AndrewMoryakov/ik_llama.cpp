@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <tuple>
+#include <vector>
 
 struct llama_model;
 struct llama_context;
@@ -15,6 +16,26 @@ struct llama_kv_cache;
 
 struct ggml_cgraph;
 struct ggml_tensor;
+
+namespace llm_moe_cache_detail {
+inline bool mark_share_lookup_boundary(ggml_tensor * lookup) {
+    if (!lookup || lookup->op != GGML_OP_GET_ROWS) return false;
+    lookup->op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t) - 1] = 0xff;
+    return true;
+}
+
+inline bool share_ops_eligible(ggml_backend_t gpu_backend, ggml_backend_t cpu_backend,
+        const std::vector<ggml_tensor *> & host_ops, const std::vector<ggml_tensor *> & cached_ops) {
+    if (!gpu_backend || !cpu_backend) return false;
+    for (const ggml_tensor * op : host_ops) {
+        if (!op || !ggml_backend_supports_op(cpu_backend, op) || ggml_backend_offload_op(gpu_backend, op)) return false;
+    }
+    for (const ggml_tensor * op : cached_ops) {
+        if (!op || !ggml_backend_supports_op(gpu_backend, op)) return false;
+    }
+    return !host_ops.empty() && !cached_ops.empty();
+}
+}
 
 using llm_build_cb = std::function<void(struct ggml_tensor * cur, const char * name, int nl)>;
 
@@ -209,7 +230,7 @@ struct llm_build_context {
             ggml_tensor * wq, ggml_tensor * bq,
             ggml_tensor * wk, ggml_tensor * bk,
             ggml_tensor * wv, ggml_tensor * bv,
-            float attention_scale, int il, bool add_graph_split = false) const;
+            float attention_scale, int il, bool add_graph_split = false, ggml_tensor * v_cur = nullptr) const;
 
     std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_mul_mat_qkv(ggml_cgraph * gf, ggml_tensor * cur,
             ggml_tensor * wqkv, ggml_tensor * bqkv,
@@ -217,7 +238,8 @@ struct llm_build_context {
             ggml_tensor * wq, ggml_tensor * bq,
             ggml_tensor * wk, ggml_tensor * bk,
             ggml_tensor * wv, ggml_tensor * bv,
-            ggml_tensor * q_norm, ggml_tensor * k_norm, float attention_scale, int il, bool add_graph_split = false) const;
+            ggml_tensor * q_norm, ggml_tensor * k_norm, float attention_scale, int il, bool add_graph_split = false,
+            ggml_tensor * v_cur = nullptr) const;
 
     std::tuple<ggml_tensor*, ggml_tensor*, ggml_tensor*, ggml_tensor*> llm_build_mul_mat_qkv_gated(ggml_cgraph * gf, ggml_tensor * cur,
             ggml_tensor * wq, ggml_tensor * wk, ggml_tensor * wv, ggml_tensor * q_norm, ggml_tensor * k_norm, int il) const;
@@ -225,6 +247,8 @@ struct llm_build_context {
     ggml_cgraph * build_llama();
 
     ggml_cgraph * build_muse_glimmer();
+
+    ggml_cgraph * build_ricursive();
 
     ggml_cgraph * build_mistral3();
 
@@ -662,7 +686,7 @@ llm_expert_gating_func_type   gating_op,
             int n_swa, int il, bool do_rope = true, bool add_graph_split = false, bool add_input = false, bool is_norm = false,
             bool is_multi = false, ggml_tensor * post_norm = nullptr, int kv_il = -1, float post_norm_eps = 0.0f,
             post_norm_data * pnd = nullptr, ggml_tensor ** k_view = nullptr, ggml_tensor ** v_view = nullptr,
-            ggml_tensor * kv_idx = nullptr);
+            ggml_tensor * kv_idx = nullptr, ggml_tensor * v_res = nullptr);
 
     static ggml_tensor * build_output(llama_context & lctx, ggml_context * ctx, ggml_tensor * cur, ggml_tensor * output, const llm_build_cb & cb);
 

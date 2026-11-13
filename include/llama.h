@@ -192,6 +192,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_Q4_0_4_8      = 34, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q4_0_8_8      = 35, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4         = 38, // except 1d tensors, 38 to be compatible with mainline
+        LLAMA_FTYPE_MOSTLY_NVFP4         = 39,
         LLAMA_FTYPE_MOSTLY_Q1_0_G128     = 41, // except 1d tensors, 38 to be compatible with mainline
         //
         LLAMA_FTYPE_MOSTLY_Q6_0          = 135, // except 1d tensors
@@ -226,6 +227,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQP5          = 166, // except 1d tensors (trellis, group-128)
         LLAMA_FTYPE_MOSTLY_TQP6          = 167, // except 1d tensors (trellis, group-128)
         LLAMA_FTYPE_MOSTLY_TQP7          = 168, // except 1d tensors (trellis, group-128)
+        LLAMA_FTYPE_MOSTLY_NVFP4_KS      = 169,
         LLAMA_FTYPE_MOSTLY_Q4_0_R8       = 202, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q8_0_R8       = 207, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q5_0_R4       = 208, // except 1d tensors
@@ -397,6 +399,12 @@ extern "C" {
         ggml_backend_buffer_type_t buft;
     };
 
+    enum llama_nvfp4_precision {
+        LLAMA_NVFP4_PRECISION_AUTO = 0,
+        LLAMA_NVFP4_PRECISION_W4A4 = 1,
+        LLAMA_NVFP4_PRECISION_INT8 = 2,
+    };
+
     struct llama_model_params {
         // comma separated list of devices to use for offloading
         const char* devices;
@@ -455,6 +463,10 @@ extern "C" {
 
         const struct llama_model_tensor_buft_override * tensor_buft_overrides;
 
+        // separate GGUF with the n-gram tables (per-layer token embedding, Engram), NULL if none
+        const char * ngram_file;
+        enum llama_nvfp4_precision nvfp4_precision;
+
         // Keep the booleans together to avoid misalignment during copy-by-value.
         bool vocab_only;    // only load the vocabulary, no weights
         bool use_mmap;      // use mmap if possible
@@ -475,6 +487,11 @@ extern "C" {
         // Appended to preserve the source layout of all pre-existing fields.
         // The C ABI still requires callers and the library to use matching headers.
         bool repack_tensors_auto; // if true, may auto-disable run-time repack
+    };
+
+    enum llama_moe_cache_policy {
+        LLAMA_MOE_CACHE_POLICY_LRU = 0,
+        LLAMA_MOE_CACHE_POLICY_CLASSLRU = 1,
     };
 
     // NOTE: changing the default values of parameters marked as [EXPERIMENTAL] may cause crashes or incorrect results in certain configurations
@@ -510,6 +527,8 @@ extern "C" {
         enum ggml_type type_k; // data type for K cache [EXPERIMENTAL]
         enum ggml_type type_v; // data type for V cache [EXPERIMENTAL]
         size_t moe_cache_size; // total device-cache budget for host-resident MoE experts, split across GPUs [EXPERIMENTAL]
+        enum llama_moe_cache_policy moe_cache_policy; // replacement policy for the MoE cache
+        float moe_cache_cpu_share; // fixed fraction of unique cache misses assigned to CPU [EXPERIMENTAL]
         enum ggml_type idx_type_k; // data type for indexer K cache [EXPERIMENTAL]
         enum ggml_type type_reduce; // data type for reduce operations
         enum ggml_type type_graph_attn; // flash-attn precision under -sm graph
@@ -596,6 +615,7 @@ extern "C" {
         bool only_repack;                    // Only repack tensors
         bool dry_run;                        //
         bool partial_requant;                // quantize only missing split files in the split quantized .gguf destination directory
+        bool estimate_imatrix;               // If true, use an estimated imatrix, possibly combining with the input imatrix
         size_t slab_size;                    // tensors larger than this many bytes of f32 are processed in slabs of up to this size (at least one slice or row group), 0 = never
         bool cuda_quantize;                  // quantize IQ4_KT, IQ3_KT, IQ2_KT, IQ1_KT, IQ3_KS, IQ4_KS, IQ4_KS_R4, IQ4_KS_R16, IQ5_KS, and IQ5_KS_R4 on a CUDA device
         int  cuda_quantize_device;           // CUDA device index used by --cuda-quantize (default 0)
@@ -1766,6 +1786,11 @@ LLAMA_API struct llama_grammar* llama_sampler_init_grammar_lazy_patterns(
     LLAMA_API void llama_set_draft_input_hidden_state(struct llama_context * ctx, const float * hidden_state);
 
     LLAMA_API bool llama_reload_changed_tensors(struct llama_context * ctx);
+
+    LLAMA_API uint32_t llama_compute_analytical_imatrix(
+            const char * fname_inp,
+            const char * fname_out,
+            const llama_model_quantize_params * params);
 
 #ifdef __cplusplus
 }
