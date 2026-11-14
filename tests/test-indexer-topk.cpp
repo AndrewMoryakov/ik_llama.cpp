@@ -61,7 +61,57 @@ static bool check(int count, float center, float spread, int mode, int group, in
     return ok;
 }
 
+static bool check_qsa_cut_mask(ggml_type mask_type, int n_tokens) {
+    constexpr int n_keys = 8;
+    const int padded = GGML_PAD(n_tokens, GGML_KQ_MASK_PAD);
+    const bool pad_bias = n_tokens > GGML_KQ_MASK_PAD;
+    ggml_context * ctx = ggml_init({ 4 * 1024 * 1024, nullptr, false });
+    if (!ctx) {
+        return false;
+    }
+    auto * causal = ggml_new_tensor_2d(ctx, mask_type, n_keys, padded);
+    auto * bias = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, n_keys, pad_bias ? padded : n_tokens);
+    for (int i = 0; i < padded; ++i) {
+        for (int j = 0; j < n_keys; ++j) {
+            const int offset = i * n_keys + j;
+            ggml_set_f32_1d(causal, offset, i >= n_tokens || j % 4 == 0 ? -INFINITY : 0.0f);
+            if (i < bias->ne[1]) {
+                const float value = i >= n_tokens ? 0.0f : j % 4 == 1 ? -INFINITY : j % 4 == 3 ? 0.0f : 65504.0f;
+                ggml_set_f32_1d(bias, offset, value);
+            }
+        }
+    }
+    if (!pad_bias) {
+        causal = ggml_view_2d(ctx, causal, n_keys, n_tokens, causal->nb[1], 0);
+    }
+    auto * cut = ggml_add(ctx, causal, bias);
+    if (cut->ne[1] != n_tokens) {
+        cut = ggml_view_2d(ctx, cut, n_keys, n_tokens, cut->nb[1], 0);
+    }
+    auto * graph = ggml_new_graph(ctx);
+    ggml_build_forward_expand(graph, cut);
+    bool ok = ggml_graph_compute_with_ctx(ctx, graph, 2) == GGML_STATUS_SUCCESS;
+    for (int i = 0; ok && i < n_tokens; ++i) {
+        for (int j = 0; ok && j < n_keys; ++j) {
+            const float expected[] = { -INFINITY, -INFINITY, 65504.0f, 0.0f };
+            ok = ggml_get_f32_1d(cut, i * n_keys + j) == expected[j % 4];
+        }
+    }
+    if (!ok) {
+        std::fprintf(stderr, "wrong QSA cut mask for %s, %d tokens\n", ggml_type_name(mask_type), n_tokens);
+    }
+    ggml_free(ctx);
+    return ok;
+}
+
 int main() {
+    for (auto mask_type : { GGML_TYPE_F16, GGML_TYPE_F32 }) {
+        for (int n_tokens : { 3, GGML_KQ_MASK_PAD, GGML_KQ_MASK_PAD + 1 }) {
+            if (!check_qsa_cut_mask(mask_type, n_tokens)) {
+                return 1;
+            }
+        }
+    }
     // Two threads and one query exercise the bucket path; one thread uses
     // partial_sort. Ties at the cutoff may select any distinct index.
     for (int threads : { 1, 2 }) {

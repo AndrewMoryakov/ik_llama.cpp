@@ -60,6 +60,7 @@ def main():
         quantized = root / "estimated-iq2_kt.gguf"
         run([args.quantize, "--analytical-imatrix", str(imatrix), model])
         names = read_imatrix(imatrix)
+        assert "token_embd.weight" not in names, names
         run([args.quantize, "--estimate-imatrix", model, str(quantized), "IQ2_KT", "2"])
         assert quantized.stat().st_size > 0
         print(f"analytical imatrix: {len(names)} entries; estimated IQ2_KT quantization passed")

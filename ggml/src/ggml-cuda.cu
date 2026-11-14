@@ -1586,15 +1586,31 @@ GGML_CALL static size_t ggml_backend_cuda_host_buffer_type_get_max_size(ggml_bac
     GGML_UNUSED(buft);
 }
 
+GGML_CALL static size_t ggml_backend_cuda_host_buffer_type_get_alignment(ggml_backend_buffer_type_t buft) {
+    GGML_UNUSED(buft);
+    return 64;
+}
+
+GGML_CALL static void * ggml_backend_cuda_host_fallback_get_base(ggml_backend_buffer_t buffer) {
+    const size_t alignment = ggml_backend_buft_get_alignment(buffer->buft);
+    return (void *) GGML_PAD((uintptr_t) buffer->context, alignment);
+}
+
 GGML_CALL static ggml_backend_buffer_t ggml_backend_cuda_host_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
     void * ptr = ggml_cuda_host_malloc(size);
 
     if (ptr == nullptr) {
-        // fallback to cpu buffer
-        ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
         // a chunked buffer must not look CPU-typed: ~llama_model() calls get_base() on those
-        if (buffer != nullptr && ggml_backend_cuda_host_buffer_type_get_max_size(buft) != SIZE_MAX) {
+        const bool chunked = ggml_backend_cuda_host_buffer_type_get_max_size(buft) != SIZE_MAX;
+        const size_t padding = chunked ? ggml_backend_buft_get_alignment(buft) - 1 : 0;
+        if (size > SIZE_MAX - padding - ggml_backend_buft_get_alignment(ggml_backend_cpu_buffer_type())) {
+            return nullptr;
+        }
+        ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size + padding);
+        if (buffer != nullptr && chunked) {
             buffer->buft = buft;
+            // Keep the original malloc pointer for free, but satisfy the advertised CUDA-host alignment.
+            buffer->iface.get_base = ggml_backend_cuda_host_fallback_get_base;
         }
         return buffer;
     }
@@ -1612,7 +1628,7 @@ GGML_CALL ggml_backend_buffer_type_t ggml_backend_cuda_host_buffer_type() {
         /* .iface    = */ {
             /* .get_name         = */ ggml_backend_cuda_host_buffer_type_name,
             /* .alloc_buffer     = */ ggml_backend_cuda_host_buffer_type_alloc_buffer,
-            /* .get_alignment    = */ ggml_backend_cpu_buffer_type()->iface.get_alignment,
+            /* .get_alignment    = */ ggml_backend_cuda_host_buffer_type_get_alignment,
             /* .get_max_size     = */ ggml_backend_cuda_host_buffer_type_get_max_size,
             /* .get_alloc_size   = */ ggml_backend_cpu_buffer_type()->iface.get_alloc_size,
             /* .is_host          = */ ggml_backend_cpu_buffer_type()->iface.is_host,
