@@ -227,9 +227,21 @@ add_executable(test-nvfp4 test-nvfp4.cpp)
 target_link_libraries(test-nvfp4 PRIVATE ggml)
 add_test(NAME test-nvfp4 COMMAND $<TARGET_FILE:test-nvfp4>)
 
+add_executable(test-cuda-simple-gemm test-cuda-simple-gemm.cpp)
+target_link_libraries(test-cuda-simple-gemm PRIVATE ggml)
+add_test(NAME test-cuda-simple-gemm COMMAND $<TARGET_FILE:test-cuda-simple-gemm>)
+
 add_executable(test-fused-up-gate-work test-fused-up-gate-work.cpp)
 target_link_libraries(test-fused-up-gate-work PRIVATE ggml)
 add_test(NAME test-fused-up-gate-work COMMAND $<TARGET_FILE:test-fused-up-gate-work>)
+
+add_executable(test-server-tool-output
+    test-server-tool-output.cpp
+    ../examples/server/server-chat.cpp)
+target_include_directories(test-server-tool-output PRIVATE
+    ../examples/server ../examples/mtmd ${PROJECT_SOURCE_DIR})
+target_link_libraries(test-server-tool-output PRIVATE common)
+add_test(NAME test-server-tool-output COMMAND $<TARGET_FILE:test-server-tool-output>)
 
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
@@ -249,6 +261,13 @@ set_property(TEST test-token-timing-writer PROPERTY LABELS main)
 
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
+    add_executable(test-moe-warmup test-moe-warmup.cpp)
+    target_link_libraries(test-moe-warmup PRIVATE llama)
+    add_test(
+        NAME test-moe-warmup
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-moe-warmup.py
+                $<TARGET_FILE:test-moe-warmup>)
+    set_tests_properties(test-moe-warmup PROPERTIES LABELS "model;python")
     if (BUILD_SHARED_LIBS)
         add_test(
             NAME test-nvfp4-import

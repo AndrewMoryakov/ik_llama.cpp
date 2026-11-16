@@ -600,6 +600,7 @@ struct llama_context::Prev {
     int n_outputs;
     int n_kv;
     int n_tokens;
+    bool warmup;
     int save_per_step_ssm;
     int per_step_max_allocated;
     llama_mtp_op_type mtp_op_type;
@@ -697,6 +698,7 @@ static void why_not_reuse_previous(const llama_batch & u_batch, const llama_cont
     if (kv_self_used.n != the_prev->n_kv) { printf("    kv_self.n is not the same\n"); return; }
     if (ctx.n_outputs != the_prev->n_outputs) { printf("    n_outputs is not the same\n"); return; }
     if (u_batch.n_tokens != the_prev->n_tokens) { printf("    n_tokens is not the same\n"); return; }
+    if (ctx.cparams.warmup != the_prev->warmup) { printf("    warmup mode is not the same\n"); return; }
     if (ctx.cparams.mtp_op_type != the_prev->mtp_op_type) { printf("    mtp_op_type is not the same\n"); return; }
     if (ctx.mtp_step_idx != the_prev->mtp_step_idx) { printf("    mtp_step_idx is not the same\n"); return; }
     if (ctx.mtp_n_heads != the_prev->mtp_n_heads) { printf("    mtp_n_heads is not the same\n"); return; }
@@ -729,6 +731,7 @@ bool llama_context::can_reuse_graph(const llama_batch & u_batch, uint64_t seq_fi
            kv_self_used.n == the_prev->n_kv &&
            n_outputs == the_prev->n_outputs &&
            u_batch.n_tokens == the_prev->n_tokens &&
+           cparams.warmup == the_prev->warmup &&
            cparams.mtp_op_type == the_prev->mtp_op_type &&
            mtp_step_idx == the_prev->mtp_step_idx &&
            mtp_n_heads == the_prev->mtp_n_heads &&
@@ -934,6 +937,12 @@ bool llama_context::sched_copy_moe_cache(ggml_backend_t backend, const ggml_tens
         ggml_tensor * dst, ggml_cgraph * graph, ggml_backend_sched_copy_phase phase, void * user_data) {
     auto * ctx = static_cast<llama_context *>(user_data);
     return ctx->moe_cache && ctx->moe_cache->copy(backend, src, dst, graph, phase);
+}
+
+size_t llama_context::sched_copy_moe_cache_expert_range(ggml_backend_t backend, const ggml_tensor * src,
+        ggml_tensor * dst, int32_t first_expert, size_t max_experts, int64_t n_tokens, void * user_data) {
+    auto * ctx = static_cast<llama_context *>(user_data);
+    return ctx->moe_cache ? ctx->moe_cache->copy_expert_range(backend, src, dst, first_expert, max_experts, n_tokens) : 0;
 }
 
 static int llama_openpangu_chunked_graph_nodes(const llama_model & model, const llama_cparams & cparams, int n_tokens, int n_kv);
@@ -3825,14 +3834,18 @@ static void llm_prepare_mla(llama_model & model, int mla) {
     // preparation of wkv_b impossible. It also has the benefit that wkv_b will get automatically
     // run-time repacked if the rtr option is set.
     //
-    const int32_t n_head        = hparams.n_head(0);
     std::vector<uint8_t> work_data;
     LLAMA_LOG_INFO("============ %s: need to compute %d wkv_b tensors\n", __func__, n_to_compute);
+    // only require uniform head counts among the expanded layers
+    int32_t n_head = -1;
     for (int il = 1; il < n_layer; ++il) {
-        // Somehow the number of heads is being defined as being per layer. Not sure why this is the
-        // case, but for now we do not support strange models that have different numbers of heads
-        // in different model layers.
-        if ((int)hparams.n_head(il) != n_head) throw std::runtime_error("Unsupported configuration");
+        const auto & l = model.layers[il];
+        if (l.wkv_b || !l.wk_b || !l.wv_b) continue;
+        if (n_head < 0) {
+            n_head = (int32_t) hparams.n_head(il);
+        } else if ((int32_t) hparams.n_head(il) != n_head) {
+            throw std::runtime_error("Unsupported configuration");
+        }
     }
 
     size_t context_size = ggml_tensor_overhead()*16*n_layer;
@@ -4450,7 +4463,7 @@ static std::pair<std::vector<double>, double> get_layer_sizes(const llama_model_
             ow_size += size;
             continue;
         }
-        if (model.arch == LLM_ARCH_GEMMA4) {
+        if (model.arch == LLM_ARCH_GEMMA4 || model.arch == LLM_ARCH_RAON1_NANO) {
             if (name == "per_layer_token_embd.weight" ||
                 name == "per_layer_model_proj.weight" ||
                 name == "per_layer_proj_norm.weight") {
@@ -8506,7 +8519,7 @@ static int llama_decode_internal(
                                       lctx.mtp_target_ctx != nullptr ? lctx.mtp_target_ctx->kv_self : lctx.kv_self;
                 prev = std::make_unique<llama_context::Prev>(llama_context::Prev{
                         (int)u_batch.all_seq_id, (int)lctx.n_outputs, (int)kv_self_used.n,
-                        (int)u_batch.n_tokens,
+                        (int)u_batch.n_tokens, cparams.warmup,
                         kv_self_used.save_per_step_ssm, kv_self_used.ckpt.per_step_max_allocated,
                         cparams.mtp_op_type, lctx.mtp_step_idx, lctx.mtp_n_heads,
                         lctx.swa_window_view.w_view,
@@ -10464,6 +10477,7 @@ struct llama_context * llama_init_from_model(
         model->arch != LLM_ARCH_GEMMA4_ASSISTANT &&
         model->arch != LLM_ARCH_OPENPANGU &&
         model->arch != LLM_ARCH_QWEN4EXP &&
+        model->arch != LLM_ARCH_RAON1_NANO &&
         cparams.mtp != 0) {
         cparams.mtp = 0;
     }
@@ -10881,6 +10895,9 @@ struct llama_context * llama_init_from_model(
                     ctx->moe_cache = std::make_unique<llama_moe_cache>(*model, ctx->backends, backend_buft,
                             cparams.moe_cache_size, cparams.moe_cache_policy, cparams.moe_cache_cpu_share);
                     ggml_backend_sched_set_copy_callback(ctx->sched, llama_context::sched_copy_moe_cache, ctx);
+                    ggml_backend_sched_set_expert_range_copy_callback(ctx->sched,
+                            llama_context::sched_copy_moe_cache_expert_range,
+                            ctx->moe_cache->copy_expert_range_min_tokens(), ctx);
                 } catch (const std::exception & e) {
                     LLAMA_LOG_ERROR("%s: failed to initialize MoE cache: %s\n", __func__, e.what());
                     llama_free(ctx);
@@ -10911,6 +10928,9 @@ struct llama_context * llama_init_from_model(
                     ctx->sched = ggml_backend_sched_new(ctx->backends.data(), backend_buft.data(), ctx->backends.size(), max_nodes, false);
                     if (ctx->moe_cache) {
                         ggml_backend_sched_set_copy_callback(ctx->sched, llama_context::sched_copy_moe_cache, ctx);
+                        ggml_backend_sched_set_expert_range_copy_callback(ctx->sched,
+                                llama_context::sched_copy_moe_cache_expert_range,
+                                ctx->moe_cache->copy_expert_range_min_tokens(), ctx);
                     }
                     gf_success = ggml_backend_sched_reserve(ctx->sched, gf);
                 }
@@ -11238,6 +11258,8 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
         case LLM_ARCH_JAIS:
         case LLM_ARCH_GLM5NEXT:
         case LLM_ARCH_GLM5NEXT_DASHED:
+        case LLM_ARCH_RAON1_NANO:
+        case LLM_ARCH_RAON1:
             return LLAMA_ROPE_TYPE_NONE;
 
         // use what we call a normal RoPE, operating on pairs of consecutive head values
@@ -11319,6 +11341,7 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
         case LLM_ARCH_MINIMAX_M3:
         case LLM_ARCH_MIMO2:
         case LLM_ARCH_SEED_OSS:
+        case LLM_ARCH_STEP5:
         case LLM_ARCH_STEP35:
         case LLM_ARCH_LAGUNA:
         case LLM_ARCH_GEMMA4:
@@ -11342,9 +11365,6 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
         case LLM_ARCH_QWEN35:
         case LLM_ARCH_QWEN4EXP:
             return LLAMA_ROPE_TYPE_IMROPE;
-
-        case LLM_ARCH_RAON1:
-            return LLAMA_ROPE_TYPE_NONE;
 
         // all model arches should be listed explicitly here
         case LLM_ARCH_UNKNOWN:
@@ -11932,8 +11952,12 @@ int llama_spec_ckpt_init(struct llama_context * ctx, llama_ckpt_data ckpt_type, 
         if (prepare_gpu_fallback()) {
             resolved = LLAMA_SPEC_CKPT_GPU_FALLBACK;
         } else if (mode == LLAMA_SPEC_CKPT_GPU_FALLBACK) {
-            LLAMA_LOG_ERROR("%s: failed to preallocate gpu-fallback checkpoint shadows at startup; --spec-ckpt-mode=%s requires startup allocation\n",
-                    __func__, llama_spec_ckpt_mode_name(mode));
+            if (ckpt_type.type == LLAMA_CHECKPOINT_REWIND) {
+                LLAMA_LOG_ERROR("%s: request-time ban rewind checkpoint allocation failed\n", __func__);
+            } else {
+                LLAMA_LOG_ERROR("%s: failed to preallocate gpu-fallback checkpoint shadows at startup; --spec-ckpt-mode=%s requires startup allocation\n",
+                        __func__, llama_spec_ckpt_mode_name(mode));
+            }
             return (int)LLAMA_SPEC_CKPT_NONE;
         } else {
             LLAMA_LOG_WARN("%s: auto checkpoint mode could not preallocate gpu-fallback checkpoint shadows; falling back to cpu\n",
@@ -12005,6 +12029,9 @@ bool llama_rewind_ckpt_save(struct llama_context * ctx, llama_ckpt_data ckpt_typ
     auto success = llama_spec_ckpt_save(ctx, ckpt_type, seq_id);
     if (!success) {
         llama_spec_ckpt_discard(ctx, ckpt_type);
+        if (ckpt_type.type == LLAMA_CHECKPOINT_REWIND) {
+            ctx->kv_self.ckpt_rewind_map.erase(ckpt_type.pos1);
+        }
     }
     return success;
 }
@@ -12045,6 +12072,13 @@ llama_pos llama_rewind_ckpt_pos(struct llama_context * ctx, llama_ckpt_data ckpt
         if (it->first > ckpt_type.pos1) {
             break;
         } else {
+            if (llm_arch_is_dsv4(ctx->model.arch)) {
+                const auto & ckpt = *it->second;
+                if (!ckpt.dsv4_shadow_saved && !ckpt.dsv4_per_step_saved && ckpt.dsv4_state_data.empty()) {
+                    ++it;
+                    continue;
+                }
+            }
             pos = it->first;
             ++it;
         }
@@ -14414,6 +14448,10 @@ void llama_set_embeddings(struct llama_context * ctx, bool embeddings) {
 
 void llama_set_causal_attn(struct llama_context * ctx, bool causal_attn) {
     ctx->cparams.causal_attn = causal_attn;
+}
+
+void llama_set_warmup(struct llama_context * ctx, bool warmup) {
+    ctx->cparams.warmup = warmup;
 }
 
 struct llama_batch llama_batch_get_one(

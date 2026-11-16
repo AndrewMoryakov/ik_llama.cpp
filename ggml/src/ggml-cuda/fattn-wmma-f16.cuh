@@ -363,7 +363,8 @@ static __global__ void flash_attn_ext_f16(
 
         const int offset_k = (threadIdx.y % VKQ_ratio) * (ncols*Dk_padded);
 #pragma unroll
-        for (int i_KQ_0 = 0; i_KQ_0 < Dk; i_KQ_0 += VKQ_stride) {
+        // Only store the value fragments initialized by the multiply above.
+        for (int i_KQ_0 = 0; i_KQ_0 < Dv; i_KQ_0 += VKQ_stride) {
 #pragma unroll
             for (int j0 = 0; j0 < ncols; j0 += frag_n) {
                 nvcuda::wmma::store_matrix_sync(

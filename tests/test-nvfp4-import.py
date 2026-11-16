@@ -1,4 +1,4 @@
-"""Generate a type-40 fixture with shared row scales and smoke its import."""
+"""Exercise NVFP4 import in a single GGUF and with a separate tensor file."""
 
 import argparse
 import ctypes
@@ -13,6 +13,21 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gguf-py"))
 import gguf
+
+
+def write_fixture(path, reader, tensors):
+    writer = gguf.GGUFWriter(path, reader.fields["general.architecture"].contents())
+    for name, field in reader.fields.items():
+        if name.startswith("GGUF.") or name == "general.architecture":
+            continue
+        subtype = field.types[-1] if field.types[0] == gguf.GGUFValueType.ARRAY else None
+        writer.add_key_value(name, field.contents(), field.types[0], subtype)
+    for tensor in tensors:
+        writer.add_tensor(tensor.name, tensor.data, raw_dtype=tensor.tensor_type)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
 
 
 def main():
@@ -73,6 +88,29 @@ def main():
         error = result.stderr.decode(errors="replace")
         assert result.returncode == 0, error[-5000:]
         assert "mmap is off" in error and "consumed" in error
+
+        raw = gguf.GGUFReader(fixture)
+        sidecar_names = {"token_embd.weight", "token_embd.scale", "token_embd.input_scale"}
+        tables = [tensor for tensor in raw.tensors if tensor.name in sidecar_names]
+        assert {tensor.name for tensor in tables} == sidecar_names
+        assert next(tensor.tensor_type for tensor in tables if tensor.name == "token_embd.weight") == gguf.GGMLQuantizationType.NVFP4
+        trunk = [tensor for tensor in raw.tensors if tensor.name not in sidecar_names]
+        detached = Path(directory) / "detached.gguf"
+        sidecar = Path(directory) / "tables.gguf"
+        write_fixture(detached, raw, trunk)
+        write_fixture(sidecar, raw, tables)
+        command = [args.cli, "-m", str(detached), "--ngram-file", str(sidecar),
+                   "-p", "hello", "-n", "4", "-c", "128", "-t", "2", "-ngl", "0",
+                   "-s", "42", "--ignore-eos", "--no-display-prompt"]
+        separate = subprocess.run(command, capture_output=True, timeout=60)
+        assert separate.returncode == 0, separate.stderr.decode(errors="replace")[-5000:]
+        assert separate.stdout == result.stdout
+
+        duplicate = next(tensor for tensor in tables if tensor.name == "token_embd.scale")
+        write_fixture(detached, raw, trunk + [duplicate])
+        rejected = subprocess.run(command, capture_output=True, timeout=60)
+        assert rejected.returncode != 0 and b"token_embd.scale' is in both" in rejected.stderr
+
         end = json.loads(timing.read_text().splitlines()[-1])
         assert end["complete"] and end["generated_tokens"] == 4
 
