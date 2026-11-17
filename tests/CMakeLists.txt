@@ -324,3 +324,7 @@ target_include_directories(test-moe-cache-shares PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)
+
+llama_target_and_test(test-kq-mask-fill.cpp LABEL "model")
+target_include_directories(test-kq-mask-fill PRIVATE
+    ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/ggml/src)
