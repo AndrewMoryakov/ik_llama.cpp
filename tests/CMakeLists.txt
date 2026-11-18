@@ -261,6 +261,11 @@ set_property(TEST test-token-timing-writer PROPERTY LABELS main)
 
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
+    add_test(
+        NAME test-fp8-import
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-fp8-import.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-fp8-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
     add_executable(test-moe-warmup test-moe-warmup.cpp)
     target_link_libraries(test-moe-warmup PRIVATE llama)
     add_test(
@@ -324,6 +329,20 @@ target_include_directories(test-moe-cache-shares PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)
+
+find_package(Threads REQUIRED)
+add_executable(test-context-allocation test-context-allocation.cpp)
+target_link_libraries(test-context-allocation PRIVATE ggml Threads::Threads)
+add_test(NAME test-context-allocation COMMAND $<TARGET_FILE:test-context-allocation>)
+
+add_executable(test-multi-add-fusion test-multi-add-fusion.cpp)
+target_include_directories(test-multi-add-fusion PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
+target_link_libraries(test-multi-add-fusion PRIVATE ggml)
+add_test(NAME test-multi-add-fusion COMMAND $<TARGET_FILE:test-multi-add-fusion>)
+
+add_executable(test-fp8-matmul test-fp8-matmul.cpp)
+target_link_libraries(test-fp8-matmul PRIVATE ggml)
+add_test(NAME test-fp8-matmul COMMAND $<TARGET_FILE:test-fp8-matmul>)
 
 llama_target_and_test(test-kq-mask-fill.cpp LABEL "model")
 target_include_directories(test-kq-mask-fill PRIVATE
