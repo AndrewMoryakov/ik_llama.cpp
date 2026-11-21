@@ -2,6 +2,9 @@
 #include "llama-moe-cache-policy.h"
 #include "llama.h"
 
+#include <random>
+#include "llama-context.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -139,8 +142,51 @@ static bool check_cpu_share_plan() {
     return true;
 }
 
+static bool check_periodic_refresh_policy() {
+    using llama_moe_cache_policy_detail::kind;
+    using llama_moe_cache_policy_detail::state;
+    for (kind policy : {kind::lru, kind::classlru}) {
+        state cache;
+        cache.init(1, 8, 3, policy);
+        std::vector<int32_t> slots(8, -1);
+        cache.slot_map[0] = slots.data();
+        const int32_t routes[] = {0, 1, 2};
+        std::vector<state::fill> fills;
+        size_t hits = 0, evictions = 0;
+        if (!cache.plan(0, routes, 3, 1, fills, hits, evictions) ||
+                cache.try_protected_victim({0, 1, 2}) != -1) return false;
+        const int32_t victim = cache.try_protected_victim({0});
+        if (victim < 0 || victim >= 3 || cache.key_of[victim] == 0) return false;
+        slots[cache.key_of[victim]] = -1;
+        cache.key_of[victim] = cache.make_key(0, 3);
+        slots[3] = victim;
+        // The periodic path only admits experts already observed on the CPU.
+        // Its ClassLRU score must exist before the replacement is published.
+        if (policy == kind::classlru) {
+            cache.use(0, cache.key_of[victim]);
+        }
+        cache.replacement_published(victim);
+        if (cache.filled_real_slots != 3 || slots[0] < 0 ||
+                cache.try_protected_victim({0, 1, 2, 3}) != -1) return false;
+        const int32_t next = cache.try_protected_victim({0, 3});
+        if (next < 0 || cache.key_of[next] == 0 || cache.key_of[next] == 3) return false;
+    }
+
+    llama_context::periodic_tg_completion_state completion;
+    if (completion.consume(true)) return false;
+    completion.arm(false, true);  // warmup/prefill/non-cache work
+    completion.arm(true, false); // failed submission
+    if (completion.consume(true)) return false;
+    completion.arm(true, true);
+    if (completion.consume(false) || completion.consume(true)) return false;
+    completion.arm(true, true);
+    completion.arm(true, true);
+    return completion.consume(true) && !completion.consume(true);
+}
+
 int main() {
     bool ok = true;
+    if (!check_periodic_refresh_policy()) { std::fprintf(stderr, "periodic refresh regression failed\n"); ok = false; }
     if (!check_cache_policy()) { std::fprintf(stderr, "cache policy regression failed\n"); ok = false; }
     if (!check_cpu_share_plan()) { std::fprintf(stderr, "CPU-share plan regression failed\n"); ok = false; }
     if (llama_context_default_params().moe_cache_policy != LLAMA_MOE_CACHE_POLICY_LRU) {

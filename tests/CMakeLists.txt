@@ -125,6 +125,9 @@ llama_test(test-sampling-history)
 llama_build(test-ngram-cache.cpp)
 llama_test(test-ngram-cache)
 
+llama_build(test-mamba2.cpp)
+llama_test(test-mamba2)
+
 # build test-tokenizer-0 target once and add many tests
 add_executable(test-tokenizer-0 test-tokenizer-0.cpp)
 target_link_libraries(test-tokenizer-0 PRIVATE common)
@@ -329,6 +332,14 @@ target_include_directories(test-moe-cache-shares PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)
+
+add_executable(test-offload-device-hint test-offload-device-hint.cpp)
+target_link_libraries(test-offload-device-hint PRIVATE ggml)
+add_test(NAME test-offload-device-hint COMMAND $<TARGET_FILE:test-offload-device-hint>)
+
+add_executable(test-intake-nov21 test-intake-nov21.cpp)
+target_link_libraries(test-intake-nov21 PRIVATE ggml)
+add_test(NAME test-intake-nov21 COMMAND $<TARGET_FILE:test-intake-nov21>)
 
 find_package(Threads REQUIRED)
 add_executable(test-context-allocation test-context-allocation.cpp)

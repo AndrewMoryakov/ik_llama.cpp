@@ -57,6 +57,8 @@
 #include "ggml-cuda/set-rows.cuh"
 #include "ggml-cuda/solve_tri.cuh"
 #include "ggml-cuda/ssm-conv.cuh"
+#include "ggml-cuda/ssm-conv-m2.cuh"
+#include "ggml-cuda/ssm-scan.cuh"
 #include "ggml-cuda/argmax.cuh"
 #include "ggml-cuda/multiadd.cuh"
 #include "ggml-cuda/hadamard.cuh"
@@ -864,9 +866,7 @@ GGML_CALL static bool ggml_backend_cuda_copy_all_inputs([[maybe_unused]] ggml_ba
     if (!backend || !ggml_backend_is_cuda(backend)) return false;
     if (!node0) return false;
     if (has_lru_cache && (node0->op == GGML_OP_MUL_MAT_ID || node0->op == GGML_OP_MOE_FUSED_UP_GATE)) return false;
-    //printf("%s(%s, %s, %d)\n", __func__, node0->name, ggml_op_name(node0->op), n_inputs);
     if (has_lru_cache && node0->op == GGML_OP_GET_ROWS) return false;
-    //if (node0->op == GGML_OP_MUL_MAT_ID || node0->op == GGML_OP_MOE_FUSED_UP_GATE) return false;
     if (node0->op == GGML_OP_MUL_MAT_ID || node0->op == GGML_OP_MOE_FUSED_UP_GATE) {
         if (has_lru_cache && node0->ne[2] <= 32) return false;
         auto all_good = [&inputs, &input_copies, n_inputs] (const ggml_tensor * t) {
@@ -889,6 +889,7 @@ GGML_CALL static bool ggml_backend_cuda_copy_all_inputs([[maybe_unused]] ggml_ba
         }
     }
 
+    bool sync_after_copy = false;
     auto & ctx = *(ggml_backend_cuda_context *)backend->context;
     for (int j = 0; j < n_inputs; ++j) {
         if (!inputs[j] || !inputs[j]->buffer) return false;
@@ -897,6 +898,7 @@ GGML_CALL static bool ggml_backend_cuda_copy_all_inputs([[maybe_unused]] ggml_ba
         if (!ggml_backend_buffer_is_cuda(inputs[j]->buffer) && !ggml_backend_buffer_is_host(inputs[j]->buffer)) return false;
         auto cuda_ctx = (ggml_backend_cuda_buffer_context *)input_copies[j]->buffer->context;
         if (!cuda_ctx || cuda_ctx->device != ctx.device) return false;
+        if (inputs[j]->flags & GGML_TENSOR_FLAG_INPUT) sync_after_copy = true;
     }
     ggml_tensor * experts[2] = { nullptr, nullptr };
     if (node0->op == GGML_OP_MUL_MAT_ID || node0->op == GGML_OP_MOE_FUSED_UP_GATE) {
@@ -910,6 +912,10 @@ GGML_CALL static bool ggml_backend_cuda_copy_all_inputs([[maybe_unused]] ggml_ba
         if (!ggml_backend_buffer_is_host(inputs[j]->buffer)) continue;
         if (input_copies[j] == experts[0] || input_copies[j] == experts[1]) continue;
         CUDA_CHECK(cudaMemcpyAsync(input_copies[j]->data, inputs[j]->data, ggml_nbytes(inputs[j]), cudaMemcpyHostToDevice, ctx.stream()));
+        // The scheduler can reuse host intermediates as soon as this split is submitted.
+        if (ggml_backend_buffer_get_usage(inputs[j]->buffer) != GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
+            sync_after_copy = true;
+        }
         copied.insert(j);
     }
     // Then copy all device inputs that are on the same device
@@ -948,6 +954,9 @@ GGML_CALL static bool ggml_backend_cuda_copy_all_inputs([[maybe_unused]] ggml_ba
         } else {
             GGML_ABORT("Fatal error");
         }
+    }
+    if (sync_after_copy || !event_recorded.empty()) {
+        CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
     }
     if (int(copied.size()) == n_inputs) return true;
 
@@ -2874,8 +2883,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
         //printf("Using cublasGemmStridedBatchedEx for %s\n", dst->name);
         // with a [0, 2, 1, 3] perm. and ne02==1 the matrix strides need to be determined from dim 3:
         const int64_t sma = ne02 == 1 ? nb03/nb00 : nb02/nb00;
-        //const int64_t smb = ne12 == 1 ? s13       : s12;
-        const int64_t smb = ne12 == 1 ? nb13/nb10 : nb12/nb10;
+        const int64_t smb = ne12 == 1 ? s13 : s12;
 
         // there is no broadcast and src0, src1 are contiguous across dims 2, 3
         // use cublasGemmStridedBatchedEx
@@ -3945,7 +3953,8 @@ static int ggml_cuda_moe_up_gate_unary(ggml_backend_cuda_context & ctx, ggml_ten
     dst_row.nb[2] = nb1;
     dst_row.nb[3] = nb1;
 
-    bool fuse_down = next && !hada && next->op == GGML_OP_MUL_MAT_ID;
+    bool fuse_down = next && !hada && next->op == GGML_OP_MUL_MAT_ID && next->src[1]->data == dst->data && next->src[2] == ids &&
+        f8_readers(ctx, graph, next->src[1]) == 1;
     // The down result of an expert is written to next before the up/gate data of the remaining experts is read.
     // If the up/gate experts are copies of host tensors, next may have been allocated on top of them.
     for (int j = 0; fuse_down && j < GGML_MAX_SRC; ++j) {
@@ -4415,6 +4424,9 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
         case GGML_OP_FUSED_MUL_UNARY:
             ggml_cuda_op_fused_mul_unary(ctx, dst);
             break;
+        case GGML_OP_MULTI_ADD_UNARY:
+            ggml_cuda_op_multi_add_unary(ctx, dst);
+            break;
         case GGML_OP_DIV:
             ggml_cuda_op_div(ctx, dst);
             break;
@@ -4871,7 +4883,15 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
             ggml_cuda_op_grouped_topk(ctx, dst);
             break;
         case GGML_OP_SSM_CONV:
-            ggml_cuda_op_ssm_conv(ctx, dst);
+            if (dst->src[3] == nullptr) {
+                // Mamba-2 layout (Nemotron-H etc.)
+                ggml_cuda_op_ssm_conv_m2(ctx, dst);
+            } else {
+                ggml_cuda_op_ssm_conv(ctx, dst);
+            }
+            break;
+        case GGML_OP_SSM_SCAN:
+            ggml_cuda_op_ssm_scan(ctx, dst);
             break;
         case GGML_OP_TRI:
             ggml_cuda_op_tri(ctx, dst);
@@ -5519,6 +5539,7 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                     return false;
             }
             break;
+        case GGML_OP_MULTI_ADD_UNARY: return true;
         case GGML_OP_FUSED_MUL_UNARY: return ggml_is_contiguous(op->src[0]);
         case GGML_OP_MUL_MAT:
         case GGML_OP_MUL_MAT_ID:
@@ -5842,7 +5863,23 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                    op->src[0]->ne[2] == op->src[1]->ne[2] &&
                    op->src[0]->ne[3] == op->src[1]->ne[3];
         case GGML_OP_SSM_CONV:
-            return op->src[0]->type == GGML_TYPE_F32 &&
+            if (op->src[3] == nullptr) {
+                // Mamba-2 layout: sx = conv_x {d_conv - 1 + n_t, d_inner, n_s}, c = conv1d.weight.
+                // The kernel is instantiated for d_conv 3/4/5/9/15 and requires d_inner % 128 == 0;
+                // anything else has to run on the CPU instead of aborting in the launcher.
+                const int64_t nc = op->src[1]->ne[0];
+                const bool d_conv_ok = nc == 3 || nc == 4 || nc == 5 || nc == 9 || nc == 15;
+                return d_conv_ok &&
+                       op->src[0]->ne[1] % 128 == 0 &&
+                       op->src[0]->type == GGML_TYPE_F32 &&
+                       op->src[1]->type == GGML_TYPE_F32 &&
+                       op->type == GGML_TYPE_F32 &&
+                       op->src[0]->nb[0] == sizeof(float) &&
+                       op->src[1]->nb[0] == sizeof(float) &&
+                       op->src[0]->nb[1] == op->src[0]->ne[0] * sizeof(float);
+            }
+            return op->src[3] != nullptr &&
+                   op->src[0]->type == GGML_TYPE_F32 &&
                    op->src[1]->type == GGML_TYPE_F32 &&
                    op->src[2]->type == GGML_TYPE_F32 &&
                    op->src[3]->type == GGML_TYPE_I32 &&
@@ -5855,6 +5892,21 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                    op->src[2]->ne[1] == op->src[0]->ne[1] &&
                    op->src[1]->ne[0] == op->src[0]->ne[1] &&
                    op->src[3]->ne[0] == op->src[0]->ne[2];
+        case GGML_OP_SSM_SCAN: {
+            const int32_t K = ((const int32_t *) op->op_params)[0];
+            if (K < 1) {
+                return false; // legacy layout runs on the CPU
+            }
+            // Mamba-2 only: the kernel instantiates d_state 96/128/256 and takes A as one scalar
+            // per head with the contiguous stride the launcher dispatches on. Anything else -
+            // including the legacy 2-D A - falls back to the CPU.
+            if (op->src[3] == nullptr || op->src[3]->ne[0] != 1 || op->src[3]->nb[1] != sizeof(float)) {
+                return false;
+            }
+            const int64_t d_state = op->src[0]->ne[0];
+            return (d_state == 96 || d_state == 128 || d_state == 256) && op->src[0]->ne[1] % 16 == 0 &&
+                   op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        }
         case GGML_OP_DELTA_NET:
         case GGML_OP_INDEXER_TOPK:
         case GGML_OP_MASK_TOPK:

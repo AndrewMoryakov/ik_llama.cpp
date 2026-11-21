@@ -66,6 +66,14 @@ int main() {
 #endif
     {
         const gpt_params defaults = parse({});
+        assert(!defaults.feod);
+        assert(!common_context_params_to_llama(defaults).force_experts_offload_device);
+        assert(!llama_context_default_params().force_experts_offload_device);
+        for (const char * flag : { "-feod", "--force-expert-offload-device" }) {
+            const gpt_params forced = parse({ flag });
+            assert(forced.feod);
+            assert(common_context_params_to_llama(forced).force_experts_offload_device);
+        }
         assert(defaults.moe_cache_policy == LLAMA_MOE_CACHE_POLICY_LRU);
         assert(defaults.moe_cache_cpu_share == 0.0);
         assert(defaults.nvfp4_precision == LLAMA_NVFP4_PRECISION_AUTO);
