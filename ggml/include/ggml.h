@@ -755,6 +755,7 @@ extern "C" {
 
         GGML_OP_FMA,
         GGML_OP_MULTI_ADD_UNARY,
+        GGML_OP_INKLING2_CLIP,
 
         GGML_OP_COUNT,
     };
@@ -1503,6 +1504,13 @@ extern "C" {
             struct ggml_tensor  * c,
             struct ggml_tensor  * a,
             struct ggml_tensor  * b);
+
+    GGML_API struct ggml_tensor * ggml_inkling2_clip(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float scale, float bias,
+            float limit,
+            float clamp_min, float clamp_max);
 
     //
     // *** from mainline begin ***
@@ -2616,6 +2624,14 @@ extern "C" {
     GGML_API void ggml_flash_attn_ext_add_sinks(
             struct ggml_tensor * a,
             struct ggml_tensor * sinks);
+
+    // table: [distance, query head, query row]; the last distance entry applies beyond the table extent.
+    // positions follow query and KV view order.
+    GGML_API void ggml_flash_attn_ext_add_rel_bias(
+            struct ggml_tensor * a,
+            struct ggml_tensor * table,
+            struct ggml_tensor * pos_q,
+            struct ggml_tensor * pos_k);
 
     // Latent attention over a packed K/V cache with an independently-visible K/V prefix.
     // The value vector of cache row n is cache[dv_off .. dv_off+dv, n] (MLA "absorbed"

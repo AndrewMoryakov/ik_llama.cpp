@@ -202,6 +202,11 @@ llama_test(test-chat-template
 llama_build_and_test(test-json-partial.cpp )
 llama_build_and_test(test-cpu-affinity.cpp )
 llama_build_and_test(test-nanbeige-loop.cpp )
+llama_build_and_test(test-sensenova-loop.cpp )
+
+add_executable(test-inkling-ops test-inkling-ops.cpp)
+target_link_libraries(test-inkling-ops PRIVATE ggml)
+add_test(NAME test-inkling-ops COMMAND $<TARGET_FILE:test-inkling-ops>)
 #llama_build_and_test(test-log.cpp)
 llama_build_and_test(
     test-peg-parser.cpp
