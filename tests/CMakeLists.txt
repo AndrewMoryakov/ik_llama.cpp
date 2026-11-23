@@ -207,6 +207,23 @@ llama_build_and_test(test-sensenova-loop.cpp )
 add_executable(test-inkling-ops test-inkling-ops.cpp)
 target_link_libraries(test-inkling-ops PRIVATE ggml)
 add_test(NAME test-inkling-ops COMMAND $<TARGET_FILE:test-inkling-ops>)
+
+add_executable(test-cpu-intake-nov23 test-cpu-intake-nov23.cpp)
+target_link_libraries(test-cpu-intake-nov23 PRIVATE ggml)
+add_test(NAME test-cpu-intake-nov23 COMMAND $<TARGET_FILE:test-cpu-intake-nov23>)
+
+# The loader is internal and is not DLL-exported on Windows.
+if (NOT WIN32)
+    add_executable(test-expert-scale-reload test-expert-scale-reload.cpp)
+    target_include_directories(test-expert-scale-reload PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(test-expert-scale-reload PRIVATE llama)
+    add_test(NAME test-expert-scale-reload COMMAND $<TARGET_FILE:test-expert-scale-reload>)
+    add_executable(test-tied-embedding test-tied-embedding.cpp)
+    target_include_directories(test-tied-embedding PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(test-tied-embedding PRIVATE llama)
+    add_test(NAME test-tied-embedding COMMAND $<TARGET_FILE:test-tied-embedding>)
+    set_tests_properties(test-tied-embedding PROPERTIES SKIP_RETURN_CODE 77 LABELS model)
+endif()
 #llama_build_and_test(test-log.cpp)
 llama_build_and_test(
     test-peg-parser.cpp

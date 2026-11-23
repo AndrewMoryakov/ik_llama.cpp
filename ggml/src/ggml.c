@@ -21882,10 +21882,6 @@ static void ggml_compute_forward_clamp_f32(
 
     const struct ggml_tensor * src0 = dst->src[0];
 
-    if (params->ith != 0) {
-        return;
-    }
-
     float min;
     float max;
     memcpy(&min, (float *) dst->op_params + 0, sizeof(float));
@@ -24346,7 +24342,9 @@ void ggml_compute_forward_flash_attn_ext_f16(
 #if GGML_USE_IQK_MULMAT
     // For now we do not implement sinks in the iqk FA implementation
     // DSV4 marks its FA nodes with the shared generic-FA backend hint.
-    const bool use_iqk_fa = dst->op_params[4] != GGML_FLASH_ATTN_EXT_IQK_DISABLED;
+    // GQA=3 still leaves output rows unwritten for multi-query, multi-worker
+    // batches in the IQK route. Use the existing generic path until validated.
+    const bool use_iqk_fa = dst->op_params[4] != GGML_FLASH_ATTN_EXT_IQK_DISABLED && rk2 != 3;
     if (use_iqk_fa && iqk_flash_attn_noalibi(q->type, mask ? mask->type : GGML_TYPE_F16, max_bias,
                 q->ne[3], q->ne[2], q->nb[3], q->nb[2],
                 k->ne[3], k->ne[2], k->nb[3], k->nb[2],
