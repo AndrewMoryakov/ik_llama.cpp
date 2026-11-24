@@ -208,6 +208,10 @@ add_executable(test-inkling-ops test-inkling-ops.cpp)
 target_link_libraries(test-inkling-ops PRIVATE ggml)
 add_test(NAME test-inkling-ops COMMAND $<TARGET_FILE:test-inkling-ops>)
 
+add_executable(test-inkling-bias-control test-inkling-bias-control.cpp)
+target_link_libraries(test-inkling-bias-control PRIVATE ggml)
+add_test(NAME test-inkling-bias-control COMMAND $<TARGET_FILE:test-inkling-bias-control>)
+
 add_executable(test-cpu-intake-nov23 test-cpu-intake-nov23.cpp)
 target_link_libraries(test-cpu-intake-nov23 PRIVATE ggml)
 add_test(NAME test-cpu-intake-nov23 COMMAND $<TARGET_FILE:test-cpu-intake-nov23>)
@@ -335,6 +339,9 @@ endif()
 
 llama_build_and_test(test-iq4-ks-kt-decode.cpp)
 target_include_directories(test-iq4-ks-kt-decode PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
+
+llama_build_and_test(test-quant-scale.cpp)
+target_include_directories(test-quant-scale PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
 
 # llama_target_and_test(test-opt.cpp) # SLOW
 
