@@ -4912,7 +4912,7 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
             break;
         case GGML_OP_SSM_CONV:
             if (dst->src[3] == nullptr) {
-                // Mamba-2 layout (Nemotron-H etc.)
+                // Mamba-2 layout (Nemotron-H, Inkling2, etc.)
                 ggml_cuda_op_ssm_conv_m2(ctx, dst);
             } else {
                 ggml_cuda_op_ssm_conv(ctx, dst);

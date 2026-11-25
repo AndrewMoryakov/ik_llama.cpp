@@ -62,9 +62,11 @@ static ggml_tensor * inkling_row(ggml_context * ctx, ggml_tensor * mixed, int in
 
 static ggml_tensor * inkling_control(ggml_context * ctx, ggml_tensor * dest, ggml_tensor * message, ggml_tensor * down,
         ggml_tensor * forget, ggml_tensor * gain, float eps) {
-    auto d = ggml_rms_norm(ctx, dest, eps);
-    auto m = ggml_rms_norm(ctx, message, eps);
-    auto h = ggml_mul_mat(ctx, down, ggml_concat(ctx, d, m, 0));
+    auto dm = ggml_concat(ctx, dest, message, 0);
+    dm = ggml_reshape_2d(ctx, dm, dest->ne[0], 2*dest->ne[1]);
+    dm = ggml_rms_norm(ctx, dm, eps);
+    dm = ggml_reshape_2d(ctx, dm, 2*dest->ne[0], dest->ne[1]);
+    auto h = ggml_mul_mat(ctx, down, dm);
     ggml_mul_mat_set_prec(h, GGML_PREC_F32);
     auto f = ggml_mul_mat(ctx, forget, h);
     auto g = ggml_mul_mat(ctx, gain, h);
@@ -91,7 +93,7 @@ static ggml_tensor * inkling_conv(llm_build_context & llm, ggml_cgraph * gf, int
     if (batch.pos && batch.pos[0] == 0) {
         past = ggml_fill(ctx, past, 0.0f);
     }
-    auto window = ggml_concat(ctx, past, ggml_cont(ctx, ggml_transpose(ctx, x)), 0);
+    auto window = llm.build_conv_window(gf, past, x, il, channel_offset);
     auto tail = ggml_view_2d(ctx, window, history, channels, window->nb[1], tokens * window->nb[0]);
     const int sequences = batch.n_seq_id ? batch.n_seq_id[0] : 1;
     for (int i = 0; i < sequences; ++i) {
@@ -102,22 +104,10 @@ static ggml_tensor * inkling_conv(llm_build_context & llm, ggml_cgraph * gf, int
     ggml_tensor * sum = nullptr;
     if (!delta) {
         sum = ggml_ssm_conv_m2(ctx, window, weight);
+        llm.cb(sum, "ssm_conv", il);
     } else {
-        const int heads = llm.hparams.n_head_kv(il);
-        const int width = channels / heads;
-        delta = ggml_reshape_3d(ctx, delta, kernel, heads, tokens);
-        auto columns = ggml_cont(ctx, ggml_transpose(ctx, window));
-        for (int lag = 0; lag < kernel; ++lag) {
-            const int tap = history - lag;
-            auto samples = ggml_view_3d(ctx, columns, width, heads, tokens, columns->nb[0] * width, columns->nb[1], tap * columns->nb[1]);
-            auto base = ggml_view_2d(ctx, weight, 1, channels, weight->nb[1], tap * weight->nb[0]);
-            base = ggml_reshape_2d(ctx, ggml_cont(ctx, base), width, heads);
-            auto changes = ggml_view_3d(ctx, delta, 1, heads, tokens, delta->nb[1], delta->nb[2], lag * delta->nb[0]);
-            auto taps = ggml_add(ctx, ggml_repeat(ctx, base, samples), changes);
-            auto product = ggml_mul(ctx, taps, samples);
-            sum = sum ? ggml_add(ctx, sum, product) : product;
-        }
-        sum = ggml_reshape_2d(ctx, sum, channels, tokens);
+        sum = ggml_ssm_conv(ctx, window, delta, weight, nullptr, nullptr);
+        llm.cb(sum, "ssm_conv_delta", il);
     }
     return ggml_scale(ctx, ggml_add(ctx, sum, x), 1.0f / std::sqrt(float((delta ? 2 : 1) * kernel + 1)));
 }
@@ -128,11 +118,6 @@ static ggml_tensor * inkling_clip(ggml_context * ctx, ggml_tensor * x, ggml_tens
     }
     float scale = 1.0f, eps = 1e-6f, min = 0.0f, max = 1.0f;
     return ggml_inkling2_clip(ctx, x, scale, eps, limit, min, max);
-    //auto length = ggml_sqrt(ctx, ggml_sum_rows(ctx, ggml_sqr(ctx, x)));
-    //length = ggml_scale_bias(ctx, length, 1.0f, 1e-6f);
-    //auto factor = ggml_div(ctx, ggml_fill(ctx, length, limit), length);
-    //auto flat = ggml_reshape_1d(ctx, factor, ggml_nelements(factor));
-    //return ggml_mul(ctx, x, ggml_reshape(ctx, ggml_clamp(ctx, flat, 0.0f, 1.0f), factor));
 }
 
 struct inkling_shared {
@@ -363,18 +348,36 @@ ggml_cgraph * llm_build_context::build_inkling2_loop() {
         const int offset = (hparams.n_embd_k_gqa(il) + hparams.n_embd_v_gqa(il) + hparams.n_embd);
         x = ggml_add(ctx0, residual, inkling_conv(*this, gf, il, ffn, offset, layer.ffn_post_conv));
         x = lctx.cvec.apply_to(ctx0, x, il);
-        cb(x, "l_out", il);
+        if (!(lctx.dflash.capture && il == n_layer - 1)) {
+            cb(x, "l_out", il);
+        }
     }
 
-    if (n_outputs == 0 && !cparams.embeddings) {
+    const bool skip_head = n_outputs == 0 && !cparams.embeddings;
+    if (skip_head && !lctx.dflash.capture) {
         ggml_build_forward_expand(gf, x);
         return gf;
     }
     x = inkling_row(ctx0, inkling_mix(ctx0, blocks, x, model.output_res_query), 0);
+    auto norm = model.output_norm;
+    if (lctx.dflash.capture) {
+        x = ggml_fused_rms_norm(ctx0, x, norm, norm_rms_eps);
+        cb(x, "l_out", n_layer - 1);
+        ggml_build_forward_expand(gf, x);
+        if (skip_head) {
+            return gf;
+        }
+        norm = nullptr;
+    }
     if (inp_out_ids) {
         x = ggml_get_rows(ctx0, x, inp_out_ids);
+    } else if (lctx.dflash.capture) {
+        x = ggml_view_tensor(ctx0, x);
     }
-    auto logits = build_output(lctx, ctx0, x, model.output, model.output_norm, cb, true);
+    if (lctx.dflash.capture) {
+        cb(x, "result_norm", -1);
+    }
+    auto logits = build_output(lctx, ctx0, x, model.output, norm, cb, true);
     const float cap = hparams.f_final_logit_softcapping;
     logits = ggml_softcap(ctx0, logits, 1.0f / cap, cap);
     cb(logits, "result_output", -1);

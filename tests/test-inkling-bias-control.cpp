@@ -53,6 +53,14 @@ int main() {
         ok &= std::abs(((float *)keep->data)[i]-k) < 1e-6f;
         ok &= std::abs(((float *)other->data)[i]-2*k) < 1e-6f;
     }
+    // Combined RMSNorm must still normalize each half independently per token.
+    auto * dm = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 10, 3);
+    for (int i=0;i<30;++i) ((float*)dm->data)[i]=(i%13-6)*.125f;
+    auto * norms=ggml_reshape_2d(ctx,ggml_rms_norm(ctx,ggml_reshape_2d(ctx,dm,5,6),1e-5f),10,3);
+    auto * ng=ggml_new_graph(ctx);ggml_build_forward_expand(ng,norms);
+    ok &= ggml_graph_compute_with_ctx(ctx,ng,4)==GGML_STATUS_SUCCESS;
+    for(int row=0;row<6;++row){float sq=0;for(int j=0;j<5;++j){float v=((float*)dm->data)[row*5+j];sq+=v*v;}
+        for(int j=0;j<5;++j)ok &= std::abs(((float*)norms->data)[row*5+j]-((float*)dm->data)[row*5+j]/std::sqrt(sq/5+1e-5f))<1e-5f;}
     ggml_free(ctx);
     if (!ok) std::fprintf(stderr, "Inkling padded bias or retained control graph mismatch\n");
     return ok ? 0 : 1;
