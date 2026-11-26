@@ -39,6 +39,12 @@ IQK_API bool iqk_moe_fused_up_gate(long Nx, long Ny, long ne00, int ne11, int un
 
 IQK_API int iqk_dequant_type(int type, int Ny);
 
+IQK_API void iqk_vec_dot_f8_e4m3_ks(int n, float * s, size_t bs, const void * x, size_t bx,
+        const void * y, size_t by, int nrc);
+IQK_API void iqk_vec_dot_f8_e4m3_b128(int n, float * s, size_t bs, const void * x, size_t bx,
+        const void * y, size_t by, int nrc);
+
+
 struct ggml_tensor;
 
 IQK_API size_t iqk_fa_work_buffer_size(const struct ggml_tensor * dst, int nthread);
@@ -69,7 +75,7 @@ IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float max_bias,
                             float         softcap,  // if > 0, a "soft-cap" operation is applied before softmax
                             float       * qkv,      // v*softmax(scale*(k*q))
                             void * work_buffer, barrier_t barrier, void * barrier_data,
-                            int ith, int nth, int n_swa, struct ggml_tensor * indexer);
+                            int ith, int nth, int n_swa, const struct ggml_tensor * dst);
 
 IQK_API void iqk_topk_moe(int n_experts, int n_experts_used, int nrows, const float * logits,
         float * weights, int32_t * ids, int ith, int nth);

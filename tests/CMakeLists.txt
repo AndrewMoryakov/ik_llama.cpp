@@ -125,6 +125,9 @@ llama_test(test-sampling-history)
 llama_build(test-ngram-cache.cpp)
 llama_test(test-ngram-cache)
 
+llama_build(test-mamba2.cpp)
+llama_test(test-mamba2)
+
 # build test-tokenizer-0 target once and add many tests
 add_executable(test-tokenizer-0 test-tokenizer-0.cpp)
 target_link_libraries(test-tokenizer-0 PRIVATE common)
@@ -193,9 +196,38 @@ llama_build_and_test(test-jinja.cpp)
 llama_test(test-jinja NAME test-jinja-py ARGS -py LABEL python)
 llama_build_and_test(test-chat-auto-parser.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 llama_build_and_test(test-chat-template.cpp )
+llama_test(test-chat-template
+    NAME test-chat-template-hy3
+    ARGS --no-common --stop-on-first-fail ${PROJECT_SOURCE_DIR}/models/templates/tencent-Hy3.jinja)
 llama_build_and_test(test-json-partial.cpp )
 llama_build_and_test(test-cpu-affinity.cpp )
 llama_build_and_test(test-nanbeige-loop.cpp )
+llama_build_and_test(test-sensenova-loop.cpp )
+
+add_executable(test-inkling-ops test-inkling-ops.cpp)
+target_link_libraries(test-inkling-ops PRIVATE ggml)
+add_test(NAME test-inkling-ops COMMAND $<TARGET_FILE:test-inkling-ops>)
+
+add_executable(test-inkling-bias-control test-inkling-bias-control.cpp)
+target_link_libraries(test-inkling-bias-control PRIVATE ggml)
+add_test(NAME test-inkling-bias-control COMMAND $<TARGET_FILE:test-inkling-bias-control>)
+
+add_executable(test-cpu-intake-nov23 test-cpu-intake-nov23.cpp)
+target_link_libraries(test-cpu-intake-nov23 PRIVATE ggml)
+add_test(NAME test-cpu-intake-nov23 COMMAND $<TARGET_FILE:test-cpu-intake-nov23>)
+
+# The loader is internal and is not DLL-exported on Windows.
+if (NOT WIN32)
+    add_executable(test-expert-scale-reload test-expert-scale-reload.cpp)
+    target_include_directories(test-expert-scale-reload PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(test-expert-scale-reload PRIVATE llama)
+    add_test(NAME test-expert-scale-reload COMMAND $<TARGET_FILE:test-expert-scale-reload>)
+    add_executable(test-tied-embedding test-tied-embedding.cpp)
+    target_include_directories(test-tied-embedding PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(test-tied-embedding PRIVATE llama)
+    add_test(NAME test-tied-embedding COMMAND $<TARGET_FILE:test-tied-embedding>)
+    set_tests_properties(test-tied-embedding PROPERTIES SKIP_RETURN_CODE 77 LABELS model)
+endif()
 #llama_build_and_test(test-log.cpp)
 llama_build_and_test(
     test-peg-parser.cpp
@@ -211,6 +243,34 @@ llama_build_and_test(
 llama_build_and_test(test-regex-partial.cpp)
 llama_build_and_test(test-rtr-params.cpp)
 llama_build_and_test(test-cgroup-resolver.cpp)
+
+add_executable(test-hc-pre-transpose test-hc-pre-transpose.cpp)
+target_link_libraries(test-hc-pre-transpose PRIVATE ggml)
+add_test(NAME test-hc-pre-transpose COMMAND $<TARGET_FILE:test-hc-pre-transpose>)
+
+add_executable(test-indexer-topk test-indexer-topk.cpp)
+target_link_libraries(test-indexer-topk PRIVATE ggml)
+add_test(NAME test-indexer-topk COMMAND $<TARGET_FILE:test-indexer-topk>)
+
+add_executable(test-nvfp4 test-nvfp4.cpp)
+target_link_libraries(test-nvfp4 PRIVATE ggml)
+add_test(NAME test-nvfp4 COMMAND $<TARGET_FILE:test-nvfp4>)
+
+add_executable(test-cuda-simple-gemm test-cuda-simple-gemm.cpp)
+target_link_libraries(test-cuda-simple-gemm PRIVATE ggml)
+add_test(NAME test-cuda-simple-gemm COMMAND $<TARGET_FILE:test-cuda-simple-gemm>)
+
+add_executable(test-fused-up-gate-work test-fused-up-gate-work.cpp)
+target_link_libraries(test-fused-up-gate-work PRIVATE ggml)
+add_test(NAME test-fused-up-gate-work COMMAND $<TARGET_FILE:test-fused-up-gate-work>)
+
+add_executable(test-server-tool-output
+    test-server-tool-output.cpp
+    ../examples/server/server-chat.cpp)
+target_include_directories(test-server-tool-output PRIVATE
+    ../examples/server ../examples/mtmd ${PROJECT_SOURCE_DIR})
+target_link_libraries(test-server-tool-output PRIVATE common)
+add_test(NAME test-server-tool-output COMMAND $<TARGET_FILE:test-server-tool-output>)
 
 add_executable(test-moe-trace-writer
     test-moe-trace-writer.cpp
@@ -231,6 +291,46 @@ set_property(TEST test-token-timing-writer PROPERTY LABELS main)
 find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
     add_test(
+        NAME test-fp8-import
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-fp8-import.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-fp8-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_executable(test-moe-warmup test-moe-warmup.cpp)
+    target_link_libraries(test-moe-warmup PRIVATE llama)
+    add_test(
+        NAME test-moe-warmup
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-moe-warmup.py
+                $<TARGET_FILE:test-moe-warmup>)
+    set_tests_properties(test-moe-warmup PROPERTIES LABELS "model;python")
+    if (BUILD_SHARED_LIBS)
+        add_test(
+            NAME test-nvfp4-import
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-nvfp4-import.py
+                    --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>
+                    --library $<TARGET_FILE:ggml>)
+        set_tests_properties(test-nvfp4-import PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    endif()
+    add_test(
+        NAME test-quantize-invariants
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-quantize-invariants.py
+                --cli $<TARGET_FILE:llama-cli> --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-quantize-invariants PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
+        NAME test-gpt2-layernorm
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-gpt2-layernorm.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-gpt2-layernorm PROPERTIES LABELS "model;python")
+    add_test(
+        NAME test-ngram-file
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-ngram-file.py
+                --cli $<TARGET_FILE:llama-cli>)
+    set_tests_properties(test-ngram-file PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
+        NAME test-analytical-imatrix
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-analytical-imatrix.py
+                --quantize $<TARGET_FILE:llama-quantize>)
+    set_tests_properties(test-analytical-imatrix PROPERTIES SKIP_RETURN_CODE 77 LABELS "model;python")
+    add_test(
         NAME test-moe-cache-sim
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-moe-cache-sim.py)
@@ -239,6 +339,9 @@ endif()
 
 llama_build_and_test(test-iq4-ks-kt-decode.cpp)
 target_include_directories(test-iq4-ks-kt-decode PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
+
+llama_build_and_test(test-quant-scale.cpp)
+target_include_directories(test-quant-scale PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
 
 # llama_target_and_test(test-opt.cpp) # SLOW
 
@@ -252,5 +355,49 @@ add_executable(${TEST_TARGET} test-c.c)
 target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
 add_executable(test-moe-cache-shares test-moe-cache-shares.cpp)
-target_include_directories(test-moe-cache-shares PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(test-moe-cache-shares PRIVATE llama)
+target_include_directories(test-moe-cache-shares PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/ggml/include)
 add_test(NAME test-moe-cache-shares COMMAND $<TARGET_FILE:test-moe-cache-shares>)
+
+add_executable(test-offload-device-hint test-offload-device-hint.cpp)
+target_link_libraries(test-offload-device-hint PRIVATE ggml)
+add_test(NAME test-offload-device-hint COMMAND $<TARGET_FILE:test-offload-device-hint>)
+
+add_executable(test-intake-nov21 test-intake-nov21.cpp)
+target_link_libraries(test-intake-nov21 PRIVATE ggml)
+add_test(NAME test-intake-nov21 COMMAND $<TARGET_FILE:test-intake-nov21>)
+
+find_package(Threads REQUIRED)
+add_executable(test-context-allocation test-context-allocation.cpp)
+target_link_libraries(test-context-allocation PRIVATE ggml Threads::Threads)
+add_test(NAME test-context-allocation COMMAND $<TARGET_FILE:test-context-allocation>)
+
+add_executable(test-multi-add-fusion test-multi-add-fusion.cpp)
+target_include_directories(test-multi-add-fusion PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
+target_link_libraries(test-multi-add-fusion PRIVATE ggml)
+add_test(NAME test-multi-add-fusion COMMAND $<TARGET_FILE:test-multi-add-fusion>)
+
+add_executable(test-fp8-matmul test-fp8-matmul.cpp)
+target_link_libraries(test-fp8-matmul PRIVATE ggml)
+add_test(NAME test-fp8-matmul COMMAND $<TARGET_FILE:test-fp8-matmul>)
+
+llama_target_and_test(test-kq-mask-fill.cpp LABEL "model")
+target_include_directories(test-kq-mask-fill PRIVATE
+    ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/ggml/src)
+
+add_executable(test-conv-delta test-conv-delta.cpp)
+target_link_libraries(test-conv-delta PRIVATE ggml)
+add_test(NAME test-conv-delta COMMAND $<TARGET_FILE:test-conv-delta>)
+if (NOT WIN32)
+    add_executable(test-kv-holes test-kv-holes.cpp)
+    target_include_directories(test-kv-holes PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(test-kv-holes PRIVATE llama)
+    add_test(NAME test-kv-holes COMMAND $<TARGET_FILE:test-kv-holes>)
+    set_tests_properties(test-kv-holes PROPERTIES SKIP_RETURN_CODE 77 LABELS model)
+endif()
+add_executable(test-inplace-backend test-inplace-backend.cpp)
+target_link_libraries(test-inplace-backend PRIVATE ggml)
+add_test(NAME test-inplace-backend COMMAND $<TARGET_FILE:test-inplace-backend>)

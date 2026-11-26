@@ -74,6 +74,7 @@ add_library(llama
             # graphs
             graphs/build_llama.cpp
             graphs/build_muse_glimmer.cpp
+            graphs/build_ricursive.cpp
             graphs/build_mistral3.cpp
             graphs/build_deci.cpp
             graphs/build_baichuan.cpp
@@ -85,12 +86,14 @@ add_library(llama
             graphs/build_starcoder2.cpp
             graphs/build_refact.cpp
             graphs/build_bert.cpp
+            graphs/build_inkling2.cpp
             graphs/build_bloom.cpp
             graphs/build_mpt.cpp
             graphs/build_stablelm.cpp
             graphs/build_seedoss.cpp
             graphs/build_laguna.cpp
             graphs/build_k2horizon.cpp
+            graphs/build_step5.cpp
             graphs/build_step35.cpp
             graphs/build_qwen.cpp
             graphs/build_qwen2.cpp
@@ -116,6 +119,7 @@ add_library(llama
             graphs/build_gemma4.cpp
             graphs/build_dflash.cpp
             graphs/build_mamba.cpp
+            graphs/build_nemotron_h.cpp
             graphs/build_command_r.cpp
             graphs/build_olmo.cpp
             graphs/build_openelm.cpp

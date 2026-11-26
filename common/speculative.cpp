@@ -1251,10 +1251,7 @@ bool common_speculative_is_compat(llama_context * ctx_tgt) {
     const llama_model * model = llama_get_model(ctx_tgt);
     if (model != nullptr) {
         const std::string arch = llama_model_arch_string(model);
-        // LFM2 has a short-conv state (no SSM term): the CPU checkpoint rolls it back
-        if (arch == "lfm2") {
-            LOG_WRN("%s: LFM2 spec uses the CPU checkpoint for its short-conv state (--spec-ckpt-mode cpu)\n", __func__);
-        } else if (arch == "lfm2moe") {
+        if (arch == "lfm2moe") {
             LOG_WRN("%s: LFM2-MoE spec is lossless but the n-gram drafter accepts little here; usually not a win\n", __func__);
         }
     }
@@ -2029,6 +2026,7 @@ void common_speculative_reset_draft_offload_defaults(gpt_params & params) {
     params.tensor_buft_overrides.clear();
     params.offload_policy.clear();
     params.moe_cache_size = 0;
+    params.ngram_file.clear();
 }
 
 // apply -td/--threads-draft to a draft params copy
@@ -2833,6 +2831,8 @@ bool common_speculative_commit(
         }
     }
 
+    const llama_pos feature_pos_base = common_speculative_has_dflash_family(spec) ? pos_base - 1 : pos_base;
+
     if (any_rejected && ckpt.valid) {
         const bool restored = common_speculative_checkpoint_restore(
             ckpt,
@@ -2845,7 +2845,7 @@ bool common_speculative_commit(
             ids,
             n_draft,
             mtp_hidden_state_pre,
-            pos_base);
+            feature_pos_base);
         return restored;
     }
 
@@ -2855,7 +2855,7 @@ bool common_speculative_commit(
                 ctx,
                 spec_type_used,
                 seq_id,
-                pos_base,
+                feature_pos_base,
                 sampled_before,
                 ids,
                 accepted_output_indices)) {
@@ -3685,7 +3685,7 @@ common_speculative_round_result common_speculative_run_round(
     }
 
     if (!ids.empty()) {
-        common_speculative_commit(
+        if (!common_speculative_commit(
             spec,
             ctx,
             sampler,
@@ -3694,7 +3694,12 @@ common_speculative_round_result common_speculative_run_round(
             ids,
             (int) draft.size(),
             n_past + 1,
-            accepted_output_indices);
+            accepted_output_indices)) {
+            llama_batch_free(verify_batch);
+            result.failed = true;
+            result.error = "speculative checkpoint commit failed";
+            return result;
+        }
         result.ids = std::move(ids);
         result.used_speculative = true;
     }

@@ -9,6 +9,7 @@
 #include "ggml-backend.h"
 
 #include <algorithm>
+#include <array>
 #include <vector>
 #include <unordered_map>
 #include <set>
@@ -172,6 +173,7 @@ struct llama_layer {
     struct ggml_tensor * attn_norm_cross = nullptr;
     struct ggml_tensor * attn_norm_enc = nullptr;
     struct ggml_tensor * wqkv_gate = nullptr;
+    struct ggml_tensor * attn_vres_lambda = nullptr;
     struct ggml_tensor * ffn_post_norm_1 = nullptr; // gemma4
     struct ggml_tensor * ffn_post_norm_2 = nullptr; // gemma4
     struct ggml_tensor * ffn_pre_norm_2  = nullptr; // gemma4
@@ -208,6 +210,21 @@ struct llama_layer {
     struct ggml_tensor * wv_enc = nullptr;
     struct ggml_tensor * wo_enc = nullptr;
     struct ggml_tensor * attn_sinks = nullptr;
+
+    struct ggml_tensor * attn_rel = nullptr;
+    struct ggml_tensor * attn_sink_proj = nullptr;
+    struct ggml_tensor * attn_rel_bias = nullptr;
+    struct ggml_tensor * attn_q_clip = nullptr;
+    struct ggml_tensor * attn_rel_clip = nullptr;
+    struct ggml_tensor * attn_k_conv = nullptr;
+    struct ggml_tensor * attn_v_conv = nullptr;
+    struct ggml_tensor * attn_k_conv_proj = nullptr;
+    struct ggml_tensor * attn_v_conv_proj = nullptr;
+    struct ggml_tensor * attn_post_conv = nullptr;
+    struct ggml_tensor * attn_q_inp_norm = nullptr;
+    struct ggml_tensor * attn_k_inp_norm = nullptr;
+    struct ggml_tensor * attn_v_inp_norm = nullptr;
+    struct ggml_tensor * attn_res_query = nullptr;
 
     // DFlash2 dynamic grouped-convolution parameters.
     struct ggml_tensor * dflash_attn_conv_base = nullptr;
@@ -286,6 +303,8 @@ struct llama_layer {
     struct ggml_tensor * layer_out_norm_b = nullptr;
     struct ggml_tensor * ffn_norm_exps = nullptr;
     struct ggml_tensor * ffn_norm_enc = nullptr;
+    struct ggml_tensor * ffn_res_query = nullptr;
+    struct ggml_tensor * ffn_post_conv = nullptr;
 
     // ff
     struct ggml_tensor * ffn_gate = nullptr; // w1
@@ -334,6 +353,8 @@ struct llama_layer {
     struct ggml_tensor * ffn_gate_shexp = nullptr;
     struct ggml_tensor * ffn_down_shexp = nullptr;
     struct ggml_tensor * ffn_up_shexp = nullptr;
+    struct ggml_tensor * ffn_latent_down = nullptr;
+    struct ggml_tensor * ffn_latent_up = nullptr;
 
     // K2 Horizon MoVA
     struct ggml_tensor * attn_v_gate   = nullptr;
@@ -361,6 +382,11 @@ struct llama_layer {
     struct ggml_tensor * ffn_exp_probs_b = nullptr;
     struct ggml_tensor * ffn_exp_probs_b_vl = nullptr;
     struct ggml_tensor * ffn_gate_tid2eid = nullptr;
+
+    struct ggml_tensor * loop_msg_query = nullptr;
+    std::array<struct ggml_tensor *, 4> loop_ctrl_down = {};
+    std::array<struct ggml_tensor *, 4> loop_ctrl_forget = {};
+    std::array<struct ggml_tensor *, 4> loop_ctrl_gain = {};
 
     llama_split_tensor split_ffn_gate_b;
     llama_split_tensor split_ffn_down_b;
@@ -416,9 +442,11 @@ struct llama_layer {
     struct ggml_tensor * hc_attn_base     = nullptr;
     struct ggml_tensor * hc_attn_fn       = nullptr;
     struct ggml_tensor * hc_attn_scale    = nullptr;
+    struct ggml_tensor * hc_attn_chart    = nullptr; // Raon-1 nano: folded mHC selector
     struct ggml_tensor * hc_ffn_base      = nullptr;
     struct ggml_tensor * hc_ffn_fn        = nullptr;
     struct ggml_tensor * hc_ffn_scale     = nullptr;
+    struct ggml_tensor * hc_ffn_chart     = nullptr; // Raon-1 nano: folded mHC selector
 
     // qwen4exp low-rank hyper-connections
     struct ggml_tensor * hc_attn_norm     = nullptr;
@@ -492,6 +520,10 @@ struct llama_layer {
     struct ggml_tensor * mhc_mlp_alpha    = nullptr;
     struct ggml_tensor * mhc_mlp_beta     = nullptr;
     struct ggml_tensor * mhc_mlp_gamma    = nullptr;
+    struct ggml_tensor * mhc_attn_w       = nullptr;
+    struct ggml_tensor * mhc_attn_b       = nullptr;
+    struct ggml_tensor * mhc_ffn_w        = nullptr;
+    struct ggml_tensor * mhc_ffn_b        = nullptr;
 
     // shared_ptr so a looped model can alias the layers.
     std::shared_ptr<ggml_tensor> computed_wk_b;
@@ -543,10 +575,10 @@ struct llama_model {
     std::unordered_map<std::string, llama_hadamard_transform> hadamard_map;
     const llama_hadamard_transform * hadamard_rotation(const struct ggml_tensor * t) const;
 
-    struct ggml_tensor * tok_embd;
+    struct ggml_tensor * tok_embd = nullptr;
     struct ggml_tensor * type_embd;
     struct ggml_tensor * pos_embd;
-    struct ggml_tensor * tok_norm;
+    struct ggml_tensor * tok_norm = nullptr;
     struct ggml_tensor * tok_norm_b;
 
     struct ggml_tensor * tok_embd_per_layer = nullptr;
@@ -572,6 +604,9 @@ struct llama_model {
     struct ggml_tensor * output_norm_b;
     struct ggml_tensor * output;
     struct ggml_tensor * output_b;
+    struct ggml_tensor * output_res_query = nullptr;
+    struct ggml_tensor * loop_res_query = nullptr;
+    struct ggml_tensor * loop_kv_res_query = nullptr;
     struct ggml_tensor * output_norm_enc;
     struct ggml_tensor * output_mtp = nullptr;
     struct ggml_tensor * hc_head_base = nullptr;
@@ -685,7 +720,8 @@ struct llama_model {
         if (arch == LLM_ARCH_QWEN3NEXT || arch == LLM_ARCH_QWEN35MOE || arch == LLM_ARCH_QWEN35 || arch == LLM_ARCH_QWEN4EXP || arch == LLM_ARCH_GLM5NEXT) {
             return std::max<size_t>(n_tokens * 40, 32u * n_tensors);
         }
-        if (arch == LLM_ARCH_XING4_0) {
+        if (arch == LLM_ARCH_XING4_0 || arch == LLM_ARCH_RAON1 || arch == LLM_ARCH_RAON1_NANO) {
+            // heavy 4-stream mHC + PLE graph
             return std::max<size_t>(n_tokens * 160, 64u * n_tensors);
         }
         //return std::max<size_t>(1024, 8*n_tensors);
@@ -697,11 +733,11 @@ struct llama_model {
     }
 
     bool is_mla_model() const {
-        return arch == LLM_ARCH_DEEPSEEK2 || arch == LLM_ARCH_GLM_DSA || arch == LLM_ARCH_MISTRAL4 || arch == LLM_ARCH_BAILINGMOE3 || arch == LLM_ARCH_GLM5NEXT || arch == LLM_ARCH_RAON1 || arch == LLM_ARCH_XING4_0;
+        return arch == LLM_ARCH_DEEPSEEK2 || arch == LLM_ARCH_GLM_DSA || arch == LLM_ARCH_MISTRAL4 || arch == LLM_ARCH_BAILINGMOE3 || arch == LLM_ARCH_GLM5NEXT || arch == LLM_ARCH_RAON1 || arch == LLM_ARCH_RAON1_NANO || arch == LLM_ARCH_XING4_0;
     }
 
     float swiglu_limit(uint32_t il, bool shared) const {
-        if (arch != LLM_ARCH_STEP35 && arch != LLM_ARCH_BAILINGMOE3 && !llm_arch_is_dsv4(arch) && arch != LLM_ARCH_GLM5NEXT && arch != LLM_ARCH_MAPLE && !hparams.dflash_dsv4) {
+        if (arch != LLM_ARCH_STEP35 && arch != LLM_ARCH_BAILINGMOE3 && !llm_arch_is_dsv4(arch) && arch != LLM_ARCH_GLM5NEXT && arch != LLM_ARCH_MAPLE && arch != LLM_ARCH_RICURSIVE && !hparams.dflash_dsv4) {
             return 0.0f;
         }
         return shared ? hparams.swiglu_limits_shared[il] : hparams.swiglu_limits[il];
@@ -735,6 +771,8 @@ struct llama_model {
             || arch == LLM_ARCH_SPARK2_5
             || arch == LLM_ARCH_LFM3
             || arch == LLM_ARCH_MAPLE     || arch == LLM_ARCH_FLINT
+            || arch == LLM_ARCH_RICURSIVE
+            || arch == LLM_ARCH_INKLING2_LOOP
             || supports_dflash_swa_compress() ;
     }
 
@@ -770,6 +808,7 @@ struct llama_model {
     ggml_backend_buffer_type_t split_buft = nullptr;
 
     std::unique_ptr<reload_info> reload;
+    bool fp8_w8a8 = false;
 };
 
 // Recompute the load-time-derived combined wkv_b (computed_wkv_b) of layer il

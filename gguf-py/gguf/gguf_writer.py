@@ -137,7 +137,7 @@ class GGUFWriter:
 
                 size = prod(shape)
 
-                if "_exps." in name:
+                if "_exps." in name and not name.endswith((".scale", ".input_scale")):
                     expert_count = shape[-2 if ".bias" in name else -3]
                     expert_params += (size // expert_count)
                     expert_sum += expert_count
@@ -373,7 +373,7 @@ class GGUFWriter:
         raw_dtype: GGMLQuantizationType | None = None,
     ) -> None:
         if self.endianess == GGUFEndian.BIG:
-            tensor.byteswap(inplace=True)
+            tensor = tensor.byteswap(inplace=True)
         if self.use_temp_file and self.temp_file is None:
             fp = tempfile.SpooledTemporaryFile(mode="w+b", max_size=256 * 1024 * 1024)
             fp.seek(0)
@@ -400,7 +400,7 @@ class GGUFWriter:
         assert self.fout is not None
 
         if self.endianess == GGUFEndian.BIG:
-            tensor.byteswap(inplace=True)
+            tensor = tensor.byteswap(inplace=True)
 
         file_id = -1
         for i, tensors in enumerate(self.tensors):
@@ -622,6 +622,52 @@ class GGUFWriter:
     def add_languages(self, languages: Sequence[str]) -> None:
         self.add_array(Keys.General.LANGUAGES, languages)
 
+    def add_tensor_extra_prec_a4(self, tensor_names: Sequence[str], values: Sequence[bool]) -> None:
+        self.add_array('general.tensor_extra.name', list(tensor_names))
+        self.add_array('general.tensor_extra.prec_a4', list(values))
+
+    def add_full_attention_interval(self, interval: int) -> None:
+        self.add_uint32('{arch}.full_attention_interval'.format(arch=self.arch), interval)
+
+    def add_recurrent_layers(self, value: Sequence[bool]) -> None:
+        self.add_array('{arch}.attention.recurrent_layers'.format(arch=self.arch), value)
+
+    def add_attention_compress_ratios(self, values: Sequence[int]) -> None:
+        self.add_array('{arch}.attention.compress_ratios'.format(arch=self.arch), values)
+
+    def add_hyper_connection_low_rank(self, value: int) -> None:
+        self.add_uint32('{arch}.hyper_connection.low_rank'.format(arch=self.arch), value)
+
+    def add_ple_layers(self, values: Sequence[int]) -> None:
+        self.add_array('{arch}.ple.layers'.format(arch=self.arch), values)
+
+    def add_ple_ngram_size(self, value: int) -> None:
+        self.add_uint32('{arch}.ple.ngram_size'.format(arch=self.arch), value)
+
+    def add_ple_heads_per_ngram(self, value: int) -> None:
+        self.add_uint32('{arch}.ple.heads_per_ngram'.format(arch=self.arch), value)
+
+    def add_ple_conv_kernel(self, value: int) -> None:
+        self.add_uint32('{arch}.ple.conv_kernel'.format(arch=self.arch), value)
+
+    def _add_u64_array(self, key: str, values: Sequence[int]) -> None:
+        self.add_key_value(key, list(values), GGUFValueType.ARRAY, GGUFValueType.UINT64)
+
+    def add_ple_layer_multipliers(self, values: Sequence[int]) -> None:
+        self._add_u64_array('{arch}.ple.layer_multipliers'.format(arch=self.arch), values)
+
+    def add_ple_head_offsets(self, values: Sequence[int]) -> None:
+        self._add_u64_array('{arch}.ple.head_offsets'.format(arch=self.arch), values)
+
+    def add_ple_head_vocab_sizes(self, values: Sequence[int]) -> None:
+        self._add_u64_array('{arch}.ple.head_vocab_sizes'.format(arch=self.arch), values)
+
+    def add_ple_eos_token_id(self, value: int) -> None:
+        self.add_uint32('{arch}.ple.eos_token_id'.format(arch=self.arch), value)
+
+    def add_ple_image_token_id(self, value: int) -> None:
+        self.add_uint32('{arch}.ple.image_token_id'.format(arch=self.arch), value)
+
     def add_tensor_data_layout(self, layout: str) -> None:
         self.add_string(Keys.LLM.TENSOR_DATA_LAYOUT.format(arch=self.arch), layout)
 
@@ -651,6 +697,15 @@ class GGUFWriter:
 
     def add_convnext_block_count(self, length: int) -> None:
         self.add_uint32(Keys.ConvNext.BLOCK_COUNT.format(arch=self.arch), length)
+
+    def add_loop_start(self, start: int) -> None:
+        self.add_uint32(Keys.Loop.START.format(arch=self.arch), start)
+
+    def add_loop_end(self, end: int) -> None:
+        self.add_uint32(Keys.Loop.END.format(arch=self.arch), end)
+
+    def add_loop_count(self, count: int) -> None:
+        self.add_uint32(Keys.Loop.COUNT.format(arch=self.arch), count)
 
     def add_shortconv_l_cache(self, length: int) -> None:
         self.add_uint32(Keys.ShortConv.L_CACHE.format(arch=self.arch), length)
@@ -711,6 +766,24 @@ class GGUFWriter:
 
     def add_num_loops(self, n: int) -> None:
         self.add_uint32(Keys.Nanbeige.NUM_LOOPS.format(arch=self.arch), n)
+
+    def add_mhc_start(self, value: int) -> None:
+        self.add_uint32(Keys.MHC.START.format(arch=self.arch), value)
+
+    def add_mhc_end(self, value: int) -> None:
+        self.add_uint32(Keys.MHC.END.format(arch=self.arch), value)
+
+    def add_mhc_streams(self, value: int) -> None:
+        self.add_uint32(Keys.MHC.STREAMS.format(arch=self.arch), value)
+
+    def add_mhc_iterations(self, value: int) -> None:
+        self.add_uint32(Keys.MHC.ITERATIONS.format(arch=self.arch), value)
+
+    def add_mhc_fixed_identity(self, value: bool) -> None:
+        self.add_bool(Keys.MHC.FIXED_IDENTITY.format(arch=self.arch), value)
+
+    def add_mhc_pre_scale(self, value: float) -> None:
+        self.add_float32(Keys.MHC.PRE_SCALE.format(arch=self.arch), value)
 
     def add_skip_loop_final_norm(self, value: bool) -> None:
         self.add_bool(Keys.Nanbeige.SKIP_LOOP_FINAL_NORM.format(arch=self.arch), value)

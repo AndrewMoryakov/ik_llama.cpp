@@ -91,6 +91,14 @@ struct llama_kv_cache {
     // openPangu s_l holds position-strict MoME conv state, not per-sequence recurrent slots: qnext
     // seq ops and generic serialization skip it, the openPangu state layouts carry it instead.
     bool s_l_position_strict = false;
+    bool s_l_direct_seq_cp = false;
+
+    // standard Mamba-2 (Nemotron-H): the rolling conv window in k_l is keyed by absolute position,
+    // so a cell shift would corrupt it. Set when such a cache is created.
+    bool conv_state_position_strict = false;
+    // row width of the rolling conv state (k-side slot); 0 when this cache has none. The
+    // checkpoint shadows only rows of this width, so attention layers' K caches are skipped.
+    uint32_t conv_state_width = 0;
 
     // Note: The value of head isn't only used to optimize searching
     // for a free KV slot. llama_decode_internal also uses it, so it
@@ -98,6 +106,7 @@ struct llama_kv_cache {
     uint32_t head = 0;
     uint32_t size = 0;
     uint32_t used = 0; // used cells (i.e. at least one seq_id)
+    uint32_t used_max = 0; // no cell at or above this index is used
 
     std::vector<uint32_t> row_count;
 
@@ -169,8 +178,12 @@ struct llama_kv_cache {
         std::vector<llama_kv_cell> cells_snapshot;
         uint32_t head_snapshot = 0;
         uint32_t used_snapshot = 0;
+        uint32_t used_max_snapshot = 0;
 
         std::vector<ggml_tensor *> s_l_shadow;
+        // the standard Mamba-2 layout keeps the rolling conv window in the k-side cache, so a
+        // full-state checkpoint has to shadow that row as well
+        std::vector<ggml_tensor *> k_l_shadow;
 
         std::vector<std::vector<ggml_tensor *>> split_s_l_shadow;
 
@@ -187,6 +200,10 @@ struct llama_kv_cache {
         std::vector<int64_t> per_step_ple_dim;
         std::vector<int64_t> per_step_ple_offset;
 
+        std::vector<ggml_tensor *> conv_windows;
+        std::map<std::pair<llama_seq_id, int32_t>, std::vector<std::pair<ggml_backend_t, ggml_cgraph *>>> conv_restore_graphs;
+        llama_seq_id conv_slot = -1;
+        int32_t conv_offset = -1;
         int32_t per_step_n_tokens = 0;
         int32_t per_step_max_allocated = 0;
         int64_t per_step_ssm_state_size = 0;
@@ -255,6 +272,8 @@ struct llama_kv_cache {
             per_step_ple.clear();
             per_step_ple_dim.clear();
             per_step_ple_offset.clear();
+            conv_windows.clear();
+            conv_restore_graphs.clear();
             per_step_n_tokens = 0;
             per_step_max_allocated = 0;
             per_step_ssm_state_size = 0;
@@ -276,6 +295,7 @@ struct llama_kv_cache {
             }
             shadow_bufs.clear();
             s_l_shadow.clear();
+            k_l_shadow.clear();
             split_s_l_shadow.clear();
             allocated = false;
             saved = false;
@@ -362,6 +382,20 @@ struct llama_control_vector {
 
 struct llama_context {
 
+    struct periodic_tg_completion_state {
+        bool pending = false;
+
+        void arm(bool eligible, bool submitted) {
+            pending |= eligible && submitted;
+        }
+
+        bool consume(bool synchronization_eligible) {
+            const bool completed = pending && synchronization_eligible;
+            pending = false;
+            return completed;
+        }
+    };
+
     llama_context(const llama_model & model);
 
     ~llama_context();
@@ -394,6 +428,7 @@ struct llama_context {
 
     int64_t t_compute_start_us = 0;
     int64_t n_queued_tokens = 0;
+    periodic_tg_completion_state periodic_tg_completion;
 
     int32_t n_p_eval = 0; // number of tokens in eval calls for the prompt (with batch size > 1)
     int32_t n_eval   = 0; // number of eval calls
@@ -434,6 +469,8 @@ struct llama_context {
 
     static bool sched_copy_moe_cache(ggml_backend_t backend, const ggml_tensor * src,
             ggml_tensor * dst, ggml_cgraph * graph, ggml_backend_sched_copy_phase phase, void * user_data);
+    static size_t sched_copy_moe_cache_expert_range(ggml_backend_t backend, const ggml_tensor * src,
+            ggml_tensor * dst, int32_t first_expert, size_t max_experts, int64_t n_tokens, void * user_data);
 
     ggml_abort_callback abort_callback      = nullptr;
     void *              abort_callback_data = nullptr;
@@ -692,6 +729,12 @@ struct llama_context {
     struct ggml_tensor * inp_s_mask;      // F32 [1, n_kv]
     struct ggml_tensor * inp_s_seq;       // I32 [n_kv, n_batch]
     struct ggml_tensor * inp_s_seq_qnext; // I32 [1, n_batch]
+    struct ggml_tensor * inp_ssm_ids;     // I32 [n_seqs] — ssm_scan source state ids (Mamba-2 / Nemotron-H)
+    struct ggml_tensor * inp_pos_q = nullptr;
+    struct ggml_tensor * inp_pos_k = nullptr;
+    struct ggml_tensor * inp_pos_k_swa = nullptr;
+    struct ggml_tensor * inp_rel_pos = nullptr;
+    struct ggml_tensor * inp_rel_pos_swa = nullptr;
     struct ggml_tensor * inp_ple_rows = nullptr; // I32 [ple_n_heads * n_batch], qwen4exp n-gram rows
     struct ggml_tensor * inp_pos_bucket;    // I32 [n_batch|n_kv, n_batch]
     struct ggml_tensor * inp_embd_enc;      // F32 [n_embd, n_outputs_enc]

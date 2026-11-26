@@ -7,6 +7,7 @@
 static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LLAMA,           "llama"        },
     { LLM_ARCH_NANBEIGE,        "nanbeige"     },
+    { LLM_ARCH_INKLING2_LOOP,   "inkling2_loop" },
     { LLM_ARCH_K2_HORIZON,      "k2-horizon"   },
     { LLM_ARCH_LLAMA4,          "llama4"       },
     { LLM_ARCH_DECI,            "deci"         },
@@ -36,6 +37,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_QWEN3VLMOE,      "qwen3vlmoe"   },
     { LLM_ARCH_QWEN35MOE,       "qwen35moe"    },
     { LLM_ARCH_QWEN35,          "qwen35"       },
+    { LLM_ARCH_SENSENOVA_LOOP,  "sensenova_loop" },
     { LLM_ARCH_QWEN4EXP,        "qwen4exp"     },
     { LLM_ARCH_MELLUM,          "mellum"       },
     { LLM_ARCH_PHI2,            "phi2"         },
@@ -50,6 +52,8 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_GEMMA3,          "gemma3"       },
     { LLM_ARCH_STARCODER2,      "starcoder2"   },
     { LLM_ARCH_MAMBA,           "mamba"        },
+    { LLM_ARCH_NEMOTRON_H,      "nemotron_h"   },
+    { LLM_ARCH_NEMOTRON_H_MOE,  "nemotron_h_moe" },
     { LLM_ARCH_XVERSE,          "xverse"       },
     { LLM_ARCH_COMMAND_R,       "command-r"    },
     { LLM_ARCH_DBRX,            "dbrx"         },
@@ -76,6 +80,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_ERNIE4_5,        "ernie4_5"     },
     { LLM_ARCH_ERNIE4_5_MOE,    "ernie4_5-moe" },
     { LLM_ARCH_HUNYUAN_MOE,     "hunyuan-moe"  },
+    { LLM_ARCH_HY_V3,           "hy_v3"        },
     { LLM_ARCH_OPENAI_MOE,      "gpt-oss"      },
     { LLM_ARCH_BAILINGMOE2,     "bailingmoe2"  },
     { LLM_ARCH_BAILINGMOE3,     "bailingmoe3"  },
@@ -85,6 +90,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_MISTRAL3,        "mistral3"     },
     { LLM_ARCH_MIMO2,           "mimo2"        },
     { LLM_ARCH_SEED_OSS,        "seed_oss"     },
+    { LLM_ARCH_STEP5,           "step5"        },
     { LLM_ARCH_STEP35,          "step35"       },
     { LLM_ARCH_LAGUNA,          "laguna"       },
     { LLM_ARCH_GLM_DSA,         "glm-dsa"      },
@@ -99,12 +105,14 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_GEMMA4_ASSISTANT,"gemma4-assistant"   },
     { LLM_ARCH_OPENPANGU,       "openpangu"    },
     { LLM_ARCH_MUSE_GLIMMER,    "muse-glimmer" },
+    { LLM_ARCH_RICURSIVE,       "ricursive"    },
     { LLM_ARCH_LFM2,            "lfm2"         },
     { LLM_ARCH_LFM2MOE,         "lfm2moe"      },
     { LLM_ARCH_LFM3,            "lfm3"         },
     { LLM_ARCH_MAPLE,           "maple"        },
     { LLM_ARCH_SPARK2_5,        "spark2_5"     },
     { LLM_ARCH_RAON1,           "raon1"        },
+    { LLM_ARCH_RAON1_NANO,      "raon1nano"    },
     { LLM_ARCH_XING4_0,         "xing4_0"      },
     { LLM_ARCH_UNKNOWN,         "(unknown)"    },
 };
@@ -162,6 +170,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_EXPERT_GROUP_COUNT,                "%s.expert_group_count"                },
     { LLM_KV_EXPERT_GROUP_USED_COUNT,           "%s.expert_group_used_count"           },
     { LLM_KV_EXPERT_WEIGHTS_SCALE,              "%s.expert_weights_scale"              },
+    { LLM_KV_MOE_LATENT_SIZE,                   "%s.moe_latent_size"                   },
     { LLM_KV_EXPERT_WEIGHTS_NORM,               "%s.expert_weights_norm"               },
     { LLM_KV_EXPERT_GATING_FUNC,                "%s.expert_gating_func"                },
     // K2 Horizon MoVA
@@ -185,6 +194,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_SWIGLU_LIMITS_SHARED,              "%s.swiglu_limits_shared"              },
     { LLM_KV_SWIGLU_CLAMP_EXP,                  "%s.swiglu_clamp_exp"                  },
     { LLM_KV_SWIGLU_CLAMP_SHEXP,                "%s.swiglu_clamp_shexp"                },
+    { LLM_KV_SWIGLU_CLAMP,                      "%s.swiglu_clamp"                      },
     { LLM_KV_MTP_BACKBONE_EMBEDDING_LENGTH,     "%s.backbone_embedding_length"         },
     { LLM_KV_MTP_USE_ORDERED_EMBEDDINGS,        "%s.use_ordered_embeddings"            },
     { LLM_KV_MTP_CENTROID_COUNT,                "%s.centroid_count"                    },
@@ -240,9 +250,21 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
     { LLM_KV_HYPER_CONNECTION_COUNT,               "%s.hyper_connection.count"               },
     { LLM_KV_HYPER_CONNECTION_SINKHORN_ITERATIONS, "%s.hyper_connection.sinkhorn_iterations" },
+    { LLM_KV_HYPER_CONNECTION_START,            "%s.hyper_connection.start"            },
+    { LLM_KV_HYPER_CONNECTION_END,              "%s.hyper_connection.end"              },
+    { LLM_KV_HYPER_CONNECTION_PRE_SCALE,        "%s.hyper_connection.pre_scale"        },
+    { LLM_KV_HYPER_CONNECTION_FIXED_IDENTITY,   "%s.hyper_connection.fixed_identity"   },
     { LLM_KV_HYPER_CONNECTION_EPSILON,          "%s.hyper_connection.epsilon"          },
     { LLM_KV_HYPER_CONNECTION_MAGNITUDE,        "%s.hyper_connection.magnitude"        },
     { LLM_KV_HYPER_CONNECTION_LOW_RANK,         "%s.hyper_connection.low_rank"         },
+    { LLM_KV_MHC_START,                         "%s.mhc.start"                         },
+    { LLM_KV_MHC_END,                           "%s.mhc.end"                           },
+    { LLM_KV_MHC_STREAMS,                       "%s.mhc.streams"                       },
+    { LLM_KV_MHC_ITERATIONS,                    "%s.mhc.iterations"                    },
+    { LLM_KV_MHC_FIXED_IDENTITY,                "%s.mhc.fixed_identity"                },
+    { LLM_KV_MHC_PRE_SCALE,                     "%s.mhc.pre_scale"                     },
+    { LLM_KV_MHC_LAYER_KINDS,                   "%s.mhc.layer_kinds"                   },
+    { LLM_KV_ATTENTION_RECURRENT_LAYERS,        "%s.attention.recurrent_layers"        },
 
     { LLM_KV_PLE_LAYERS,                       "%s.ple.layers"                      },
     { LLM_KV_PLE_NGRAM_SIZE,                   "%s.ple.ngram_size"                  },
@@ -348,12 +370,26 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_OPENPANGU_MHC_NUM_STREAM,      "%s.mhc_num_stream"     },
     { LLM_KV_OPENPANGU_MHC_RECUR_NORM,      "%s.mhc_recur_norm"     },
     { LLM_KV_OPENPANGU_PARAM_SINK_NUMBER,   "%s.param_sink_number"  },
+
+    { LLM_KV_VOCAB_SIZE_UNPADDED,            "%s.vocab_size_unpadded"          },
+    { LLM_KV_ATTN_RES_BLOCK_SIZE,            "%s.attn_res.block_size"          },
+    { LLM_KV_ATTENTION_RELATIVE_LENGTH,      "%s.attention.relative_length"     },
+    { LLM_KV_ATTENTION_RELATIVE_EXTENT,      "%s.attention.relative_extent"     },
+    { LLM_KV_ATTENTION_QK_CLIP,              "%s.attention.qk_clip"             },
+    { LLM_KV_ATTENTION_RELATIVE_CLIP,        "%s.attention.relative_clip"       },
+    { LLM_KV_ATTENTION_LOG_SCALE_FLOOR,      "%s.attention.log_scale_floor"     },
+    { LLM_KV_ATTENTION_LOG_SCALE_ALPHA,      "%s.attention.log_scale_alpha"     },
+    { LLM_KV_LOOP_DOT_START,                 "%s.loop.start"                    },
+    { LLM_KV_LOOP_DOT_END,                   "%s.loop.end"                      },
+    { LLM_KV_LOOP_COUNT,                     "%s.loop.count"                    },
+    { LLM_KV_LOOP_GATE_RANK,                 "%s.loop.gate_rank"                },
+    { LLM_KV_LOOP_VARYING,                   "%s.loop.varying"                  },
 };
 
 LLM_KV::LLM_KV(llm_arch arch, const char* suffix) : arch(arch), suffix(suffix) {}
 
 std::string LLM_KV::operator()(llm_kv kv) const {
-    std::string name = ::format(LLM_KV_NAMES.at(kv), LLM_ARCH_NAMES.at(arch));
+    std::string name = ::format(LLM_KV_NAMES.at(kv), metadata_prefix ? metadata_prefix : LLM_ARCH_NAMES.at(arch));
 
     if (suffix != nullptr) {
         name += ".";
@@ -380,11 +416,32 @@ bool llm_arch_is_recurrent(const llm_arch & arch) {
     }
 }
 
+bool llm_arch_uses_qnext_state_layout(const llm_arch & arch) {
+    // Used to be inferred from ssm_n_group > 0, but Nemotron-H also sets ssm_n_group
+    // (grouped B/C) while using the standard Mamba-2 layout, so the set is explicit.
+    // RAON1 (KDA) and BAILINGMOE3 qualified through ssm_n_group before and keep that layout.
+    switch (arch) {
+        case LLM_ARCH_QWEN3NEXT:
+        case LLM_ARCH_QWEN4EXP:
+        case LLM_ARCH_QWEN35MOE:
+        case LLM_ARCH_QWEN35:
+        case LLM_ARCH_SENSENOVA_LOOP:
+        case LLM_ARCH_GLM5NEXT:
+        case LLM_ARCH_RAON1:
+        case LLM_ARCH_RAON1_NANO:
+        case LLM_ARCH_BAILINGMOE3:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool llm_arch_is_hybrid(const llm_arch & arch) {
     switch (arch) {
     case LLM_ARCH_QWEN3NEXT:
     case LLM_ARCH_QWEN35MOE:
     case LLM_ARCH_QWEN35:
+    case LLM_ARCH_SENSENOVA_LOOP:
     case LLM_ARCH_QWEN4EXP:
     case LLM_ARCH_DEEPSEEK4:
     case LLM_ARCH_DEEPSEEK41:
@@ -395,6 +452,10 @@ bool llm_arch_is_hybrid(const llm_arch & arch) {
     case LLM_ARCH_LFM2MOE:
     case LLM_ARCH_LFM3:
     case LLM_ARCH_RAON1:
+    case LLM_ARCH_RAON1_NANO:
+    case LLM_ARCH_NEMOTRON_H:
+    case LLM_ARCH_NEMOTRON_H_MOE:
+    case LLM_ARCH_INKLING2_LOOP:
         return true;
     default:
         return false;

@@ -602,7 +602,7 @@ int main(int argc, char ** argv) {
         }
 
         json formatted_error = format_error_response(message, ERROR_TYPE_SERVER);
-        LOG_VERBOSE("Got exception", formatted_error);
+        LOG_ERROR("Got exception", formatted_error);
         res_err(res, formatted_error);
     });
 
@@ -1145,7 +1145,7 @@ int main(int argc, char ** argv) {
             { "model_name",                  get_model_name(ctx_server.params_base.model)},
             { "chat_template",               tmpl_default },
             { "chat_template_caps",      ctx_server.chat_template_caps },
-            { "bos_token",                   common_token_to_piece(ctx_server.ctx, llama_token_bos(ctx_server.model), /* special= */ true)},
+            { "bos_token",                   llama_token_bos(ctx_server.model) == LLAMA_TOKEN_NULL ? std::string() : common_token_to_piece(ctx_server.ctx, llama_token_bos(ctx_server.model), /* special= */ true)},
             { "eos_token",                   common_token_to_piece(ctx_server.ctx, llama_token_eos(ctx_server.model), /* special= */ true)},
             { "model_path",                  ctx_server.params_base.model },
             { "modalities",                  json {
@@ -1315,6 +1315,16 @@ int main(int argc, char ** argv) {
                             return false; // sending failed, go to on_complete()
                         }
                         first_result_json.clear(); // mark as sent
+                        // the first result can already be the final one, e.g. when the whole
+                        // generation is an incomplete UTF-8 character that was never sent
+                        if (!rd->has_next()) {
+                            if (oaicompat != OAICOMPAT_TYPE_ANTHROPIC && oaicompat != OAICOMPAT_TYPE_NONE && oaicompat != OAICOMPAT_TYPE_RESP) {
+                                static const std::string ev_done = "data: [DONE]\n\n";
+                                sink.write(ev_done.data(), ev_done.size());
+                            }
+                            sink.done();
+                            return false; // no more data, go to on_complete()
+                        }
                     }
 
                     // receive subsequent results

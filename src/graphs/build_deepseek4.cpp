@@ -682,8 +682,6 @@ static ggml_tensor * dsv4_build_attn(
         // DSV4 uses the generic CPU FA path here for numerical correctness.
         if (selected) {
             cur->src[5] = selected;
-        } else {
-            cur->op_params[4] = GGML_FLASH_ATTN_EXT_IQK_DISABLED;
         }
         ggml_flash_attn_ext_add_sinks(cur, sinks);
         ggml_flash_attn_ext_set_prec(cur, GGML_PREC_F32);
@@ -749,7 +747,7 @@ static ggml_tensor * build_hc_pre(
     auto mixes  = ggml_mul_mat(ctx0, hc_fn, normed);
     cb(mixes, "hc_pre_mixes", il);
 
-    auto all = ggml_hc_pre(ctx0, mixes, hc_scale, hc_base, hc, hparams.dsv4_hc_sinkhorn_iters, hparams.dsv4_hc_eps);
+    auto all = ggml_hc_pre(ctx0, mixes, hc_scale, hc_base, hc, hparams.dsv4_hc_sinkhorn_iters, hparams.dsv4_hc_eps, 0.0f);
 
     auto pre  = ggml_view_2d(ctx0, all, hc, nt, hc*sizeof(float), 0);
     auto post = ggml_view_2d(ctx0, all, hc, nt, hc*sizeof(float), hc*nt*sizeof(float));
@@ -2090,7 +2088,8 @@ ggml_cgraph * llm_build_context::build_dflash_dsv4() {
 
 
 
-// ---- V4.1 separate-arch implementation: selected at runtime by V41_SEPARATE, alongside the in-threaded path ----
+// ---- V4.1 separate-arch implementation: can be de-selected at runtime by
+//      setting the V41_SEPARATE environment variable to 0 ----
 
 
 static ggml_tensor * dsv4_build_candidate_mask(

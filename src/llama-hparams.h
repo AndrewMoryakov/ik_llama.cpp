@@ -24,6 +24,7 @@ struct llama_hparams {
     bool use_par_res;
 
     uint32_t n_vocab;
+    uint32_t n_vocab_model = 0;
     uint32_t n_ctx_train; // context size the model was trained on
     uint32_t n_embd;
     uint32_t n_embd_out = 0;
@@ -32,7 +33,17 @@ struct llama_hparams {
     uint32_t n_layer_all = 0;           // unrolled layer count; 0 => no loops
     uint32_t n_layer_phys = 0;          // physical layer count for looped models; 0 => not looped
     uint32_t n_loops = 1;               // number of times the physical layers are repeated
+    uint32_t loop_start = 0;
+    uint32_t loop_end = 0;
+    uint32_t loop_gate_rank = 0;
+    bool     loop_varying = false;
+    bool     loop_tail_sparse = false;  // tail layers keep their unrolled index in the file
     bool     skip_loop_final_norm = false; // if true, do not apply output_norm between loops
+    // mHC (SenseNova-Loop); mhc_num_stream and dsv4_hc_sinkhorn_iters are shared
+    uint32_t mhc_start = 0;             // first physical layer using mHC
+    uint32_t mhc_end = 0;               // one past the last mHC physical layer
+    float    mhc_pre_scale = 1.0f;      // scale applied to the branch output before the post gate
+    bool     mhc_fixed_identity = false;
     int32_t n_layer_kv_from_start = -1; // if non-negative, the first n_layer_kv_from_start layers have KV cache
     uint32_t n_rot;
     uint32_t n_rot_swa;
@@ -48,8 +59,19 @@ struct llama_hparams {
     uint32_t n_embd_head_v_swa;
     uint32_t n_expert = 0;
     uint32_t n_expert_used = 0;
+    // per-layer expert settings for heterogeneous-MoE models (Nemotron "Puzzle");
+    // 0 entries fall back to the scalars above
+    std::array<uint32_t, LLAMA_MAX_LAYERS> n_expert_used_arr = {};
+    std::array<uint32_t, LLAMA_MAX_LAYERS> n_ff_exp_arr      = {};
     uint32_t n_vocab_type = 0; // for BERT-style token types
     uint32_t n_rel_attn_bkts = 0;
+    uint32_t n_relative = 0;
+    uint32_t n_relative_extent = 0;
+    uint32_t attn_res_block_size = 0;
+    uint32_t n_log_scale_floor = 0;
+    float    f_qk_clip = 0.0f;
+    float    f_relative_clip = 0.0f;
+    float    f_log_scale_alpha = 0.0f;
 
     std::array<uint32_t, LLAMA_MAX_LAYERS> n_head_arr;
     std::array<uint32_t, LLAMA_MAX_LAYERS> n_head_kv_arr;
@@ -75,6 +97,7 @@ struct llama_hparams {
     bool     expert_weights_norm  = false;
     uint32_t expert_gating_func   = LLM_EXPERT_GATING_FUNC_SOFTMAX;
     uint32_t moe_every_n_layers   = 0;
+    uint32_t moe_latent_size      = 0; // latent MoE projection width (0 = none)
     uint32_t nextn_predict_layers = 0;
 
     float f_norm_eps;
@@ -263,6 +286,7 @@ struct llama_hparams {
     uint32_t dflash_selector_top_k = 0;
     float    dflash_backbone_rotary_base = 0.0f;
     bool     dflash_laguna = false;
+    bool     dflash_softcap_after_correction = false;
     bool     dflash_dsv4 = false;
     bool     dflash_dsv41 = false;  // DSV4 draft with V4.1 rules: lagged hyper-connections, no output head
     // DSpark proposal blocks attend bidirectionally within the block and to one fixed window
@@ -299,6 +323,7 @@ struct llama_hparams {
         if (this->dflash_selector_rank != other.dflash_selector_rank) return true;
         if (this->dflash_selector_top_k != other.dflash_selector_top_k) return true;
         if (this->dflash_laguna != other.dflash_laguna) return true;
+        if (this->dflash_softcap_after_correction != other.dflash_softcap_after_correction) return true;
         if (this->dflash_dsv4   != other.dflash_dsv4)   return true;
         if (this->dflash_dsv41  != other.dflash_dsv41)  return true;
         if (this->dflash_block_bidir != other.dflash_block_bidir) return true;
@@ -339,6 +364,7 @@ struct llama_hparams {
         if (this->ssm_d_state != other.ssm_d_state) return true;
         if (this->ssm_dt_rank != other.ssm_dt_rank) return true;
         if (this->ssm_n_group != other.ssm_n_group) return true;
+        if (this->use_qnext_state_layout != other.use_qnext_state_layout) return true;
         if (this->kda_safe_gate != other.kda_safe_gate) return true;
         if (this->recurrent_layer_arr != other.recurrent_layer_arr) return true;
         for (int i = 0; i < 8; ++i) {
@@ -359,6 +385,7 @@ struct llama_hparams {
         if (!is_float_close(this->rope_freq_base_train,  other.rope_freq_base_train,  EPSILON)) return true;
         if (!is_float_close(this->rope_freq_scale_train, other.rope_freq_scale_train, EPSILON)) return true;
         if (!is_float_close(this->expert_weights_scale,  other.expert_weights_scale,  EPSILON)) return true;
+        if (this->moe_latent_size != other.moe_latent_size) return true;
         if (!is_float_close(this->rope_yarn_log_mul,     other.rope_yarn_log_mul,     EPSILON)) return true;
         if (!is_float_close(this->f_residual_scale,      other.f_residual_scale,      EPSILON)) return true;
         if (!is_float_close(this->f_embedding_scale,     other.f_embedding_scale,     EPSILON)) return true;
@@ -376,6 +403,40 @@ struct llama_hparams {
 
     bool has_kv(uint32_t il) const {
         return n_layer_kv_from_start > 0 ? il < n_layer_kv_from_start : true;
+    }
+
+    uint32_t phys_layer(uint32_t il) const {
+        if (n_loops <= 1) {
+            return il;
+        }
+        const uint32_t region = loop_end - loop_start;
+        if (il < loop_start) {
+            return il;
+        }
+        if (il < loop_start + region * n_loops) {
+            return loop_start + (il - loop_start) % region;
+        }
+        return il - region * (n_loops - 1);
+    }
+
+    uint32_t inkling_state_width(uint32_t il) const {
+        return (n_shortconv_l_cache - 1) * (n_embd_k_gqa(il) + n_embd_v_gqa(il) + 2 * n_embd);
+    }
+
+    uint32_t inkling_relative_extent(uint32_t il) const {
+        return swa_layers[il] ? n_swa : n_relative_extent;
+    }
+
+    uint32_t inkling_relative_extent_max() const {
+        return n_relative_extent > n_swa ? n_relative_extent : n_swa;
+    }
+
+    // block index of a stored layer in a file that keeps the unrolled numbering
+    uint32_t stored_layer(uint32_t il) const {
+        if (!loop_tail_sparse || loop_end <= loop_start || n_loops <= 1) {
+            return il;
+        }
+        return il >= loop_end ? il + (loop_end - loop_start) * (n_loops - 1) : il;
     }
 
     uint32_t n_head(uint32_t il = 0) const {
@@ -439,22 +500,31 @@ struct llama_hparams {
         return n_head_kv(il) * n_embd_head_v(il);
     }
 
+    // Recurrent state layout discriminator: the qnext family (Qwen3.5 DeltaNet) packs all recurrent
+    // state into the V-cache tail, while the standard Mamba family keeps the rolling conv state
+    // separate and reports it through n_embd_k_s(). Nemotron-H has ssm_n_group > 0, so the old
+    // 'ssm_n_group > 0' marker is ambiguous; this flag disambiguates. Set at the end of
+    // llm_load_hparams, default false.
+    bool use_qnext_state_layout = false;
+
     uint32_t n_embd_k_s() const { // dimension of the rolling state embeddings
-        if (ssm_n_group > 0) {
+        if (use_qnext_state_layout) {
             // qwen3next keeps all recurrent state in the V-cache tail
             return 0;
         }
         // corresponds to Mamba's conv_states size
         // TODO: maybe support other convolution strides than 1
         // NOTE: since the first column of the conv_state is shifted out each time, it's not actually needed
-        return (ssm_d_conv > 0 ? ssm_d_conv - 1 : 0) * ssm_d_inner;
+        //   Mamba-1 :  n_group = 0  =>  (d_conv - 1) * d_inner
+        //   Mamba-2 / Nemotron-H:  (d_conv - 1) * (d_inner + 2*n_group*d_state)
+        return (ssm_d_conv > 0 ? ssm_d_conv - 1 : 0) * (ssm_d_inner + 2 * ssm_n_group * ssm_d_state);
     }
 
     uint32_t n_embd_v_s() const { // dimension of the recurrent state embeddings
         if (n_shortconv_l_cache > 0) {
             return (n_shortconv_l_cache - 1) * n_embd;
         }
-        if (ssm_n_group > 0) {
+        if (use_qnext_state_layout) {
             // qwen3next recurrent state packs:
             // 1) conv state: (d_conv - 1) * (2 * key_dim + value_dim)
             // 2) delta-net state: head_v_dim * head_v_dim * num_v_heads
@@ -466,7 +536,7 @@ struct llama_hparams {
             const uint32_t ssm_state_dim  = head_v_dim * head_v_dim * ssm_dt_rank;
             return conv_state_dim + ssm_state_dim;
         }
-        // corresponds to Mamba's ssm_states size
+        // corresponds to Mamba's ssm_states size (Mamba-1/2, Nemotron-H)
         return ssm_d_state * ssm_d_inner;
     }
 
@@ -495,6 +565,15 @@ struct llama_hparams {
 
     bool is_recurrent(uint32_t il) const {
         return il < n_layer ? recurrent_layer_arr[il] : false;
+    }
+
+    // per-layer expert settings: prefer the array when present
+    int32_t n_expert_used_layer(uint32_t il) const {
+        return il < n_layer && n_expert_used_arr[il] > 0 ? (int32_t) n_expert_used_arr[il] : (int32_t) n_expert_used;
+    }
+
+    int32_t n_ff_exp_layer(uint32_t il) const {
+        return il < n_layer && n_ff_exp_arr[il] > 0 ? (int32_t) n_ff_exp_arr[il] : (int32_t) n_ff_exp;
     }
 
     bool is_ple(uint32_t il) const {
@@ -572,6 +651,8 @@ struct llama_hparams {
     bool use_mrope() const {
         return rope_sections[0] > 0 && rope_sections[1] > 0;
     }
+
+    static bool is_v41_separate();
 
     static const char * rope_scaling_type_name(llama_rope_scaling_type);
 
